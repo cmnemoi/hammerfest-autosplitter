@@ -12,3 +12,6 @@ tools/
 # Journaux exportes depuis asr-debugger
 auto_splitter_logs.txt
 logs/
+
+# Capture intermediaire de stable_slots.py
+.slots.json
