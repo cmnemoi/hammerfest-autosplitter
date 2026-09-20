@@ -11,4 +11,8 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-analysis = ["numpy>=2"]
+analysis = [
+    "capstone>=5.0.9",
+    "numpy>=2",
+    "pefile>=2024.8.26",
+]

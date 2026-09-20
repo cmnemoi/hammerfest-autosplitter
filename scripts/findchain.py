@@ -19,6 +19,8 @@ fenetre contient une de ces adresses : le chemin est alors complet, et se lit
 Usage:  findchain.py [--depth 3] [--window 0x200]
 """
 import argparse
+import json
+import os
 import sys
 import time
 
@@ -26,6 +28,9 @@ import hf_state
 import hfmap
 import ptrscan
 import stable_slots
+
+RANKING = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       os.pardir, ".xrefs.json")
 
 
 def plausible(v, heaps):
@@ -48,6 +53,8 @@ def main():
     ap.add_argument("--pid", type=int)
     ap.add_argument("--depth", type=int, default=3)
     ap.add_argument("--window", type=lambda x: int(x, 0), default=0x200)
+    ap.add_argument("--min-xrefs", type=int, default=4,
+                    help="ne partir que des statiques que le code lit")
     a = ap.parse_args()
 
     hf = hf_state.attach(a.pid, verbose=False)
@@ -78,6 +85,17 @@ def main():
 
     statics = stable_slots.module_statics(p, hf.base, hf.end)
     print("%d pointeur(s) statique(s) dans les donnees du module" % len(statics))
+
+    # Filtre par nature plutot que par hasard : un vrai global est lu depuis
+    # de nombreux endroits du code, un bucket d'allocateur ne l'est pas. Le
+    # classement vient de `xrefs.py --save`.
+    if a.min_xrefs and os.path.exists(RANKING):
+        with open(RANKING, encoding="utf-8") as f:
+            ranking = {int(k): v for k, v in json.load(f).items()}
+        statics = {addr: v for addr, v in statics.items()
+                   if ranking.get(addr - hf.base, 0) >= a.min_xrefs}
+        print("  %d retenue(s) avec au moins %d reference(s) de code"
+              % (len(statics), a.min_xrefs))
 
     # En avant, niveau par niveau. Chaque noeud retient son chemin d'offsets.
     frontier = {v: (addr - hf.base, []) for addr, v in statics.items()}
