@@ -1,0 +1,14 @@
+[project]
+name = "hammerfest-autosplitter-tools"
+version = "0.1.0"
+description = "Outils de reverse et d'exploration memoire pour l'autosplitter Hammerfest"
+requires-python = ">=3.12"
+
+# Les scripts de lecture (winmem, avm1, hfmap, hf_state, anchors) n'ont
+# deliberement aucune dependance : ctypes suffit, et ca les rend utilisables
+# n'importe ou. numpy ne sert qu'a l'analyse hors ligne des chaines de
+# pointeurs, qui compare des millions d'entiers 64 bits.
+dependencies = []
+
+[dependency-groups]
+analysis = ["numpy>=2"]

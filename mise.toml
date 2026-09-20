@@ -1,6 +1,7 @@
 [tools]
 python = "3.14"
 rust = "1.98"
+uv = "latest"
 
 [tasks.build]
 description = "Compile l'autosplitter en .wasm"
@@ -18,12 +19,12 @@ run = "cargo test -p hammerfest-core"
 
 [tasks.state]
 description = "Affiche le niveau et le chrono de la partie en cours"
-run = "python scripts/hf_state.py"
+run = "uv run python scripts/hf_state.py"
 
 [tasks.watch]
 description = "Suit les changements de niveau en direct"
-run = "python scripts/hf_state.py --watch"
+run = "uv run python scripts/hf_state.py --watch"
 
 [tasks.dump]
 description = "Affiche les tables GameMode, world et Chrono"
-run = "python scripts/hf_state.py --dump"
+run = "uv run python scripts/hf_state.py --dump"
