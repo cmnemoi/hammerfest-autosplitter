@@ -1,0 +1,29 @@
+[tools]
+python = "3.14"
+rust = "1.98"
+
+[tasks.build]
+description = "Compile l'autosplitter en .wasm"
+# `rustup target add` est idempotent : le mettre ici evite d'avoir a installer
+# la cible a la main apres un clone. La compilation exige en revanche un linker
+# systeme, voir README.md.
+run = [
+    "rustup target add wasm32-unknown-unknown",
+    "cargo build --release --target wasm32-unknown-unknown",
+]
+
+[tasks.test]
+description = "Lance les tests du coeur (logique pure, sans runtime)"
+run = "cargo test -p hammerfest-core"
+
+[tasks.state]
+description = "Affiche le niveau et le chrono de la partie en cours"
+run = "python scripts/hf_state.py"
+
+[tasks.watch]
+description = "Suit les changements de niveau en direct"
+run = "python scripts/hf_state.py --watch"
+
+[tasks.dump]
+description = "Affiche les tables GameMode, world et Chrono"
+run = "python scripts/hf_state.py --dump"

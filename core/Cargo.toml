@@ -1,0 +1,9 @@
+[package]
+name = "hammerfest-core"
+version = "0.1.0"
+edition = "2021"
+
+# Aucune dependance, et surtout pas `asr` : c'est ce qui rend ce crate
+# testable. Les symboles du runtime ASR n'existent que dans le bac a sable
+# WebAssembly, donc tout ce qui touche au runtime ne peut pas tourner ici.
+[dependencies]

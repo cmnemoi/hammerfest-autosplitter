@@ -1,0 +1,13 @@
+# Rust
+/target
+
+# Python
+__pycache__/
+*.pyc
+
+# Outils telecharges (asr-debugger)
+tools/
+
+# Journaux exportes depuis asr-debugger
+auto_splitter_logs.txt
+logs/

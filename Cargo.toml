@@ -1,0 +1,30 @@
+[workspace]
+members = ["core"]
+
+[package]
+name = "hammerfest-autosplitter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+asr = { git = "https://github.com/LiveSplit/asr", features = [
+    "alloc",         # Vec pour les scans de tas
+    "derive",        # les reglages exposes dans LiveSplit
+    "flags",         # filtrer les plages memoire lisibles / ecrivables
+    "integer-vars",  # afficher le niveau comme variable
+] }
+dlmalloc = { version = "0.2.4", features = ["global"] }
+# Le coeur, sans runtime ni memoire : c'est lui qui porte les tests.
+hammerfest-core = { path = "core" }
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true
+
+[profile.release.build-override]
+opt-level = 0
