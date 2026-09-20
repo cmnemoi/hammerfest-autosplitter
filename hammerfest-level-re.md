@@ -372,7 +372,50 @@ Le decalage que laisse l'apparition du process -- le temps de chargement du SWF
 `set_game_time` pose en absolu : la premiere lecture le corrige. Il se verrait
 sur un chronometrage en temps reel.
 
-## 10. Ce qui reste ouvert
+## 10. Pourquoi il n'y a pas de chemin de pointeurs statique
+
+Un autosplitter ordinaire suit `module + offset -> +offset -> +offset`. Ici,
+non -- et ce n'est pas faute d'avoir cherche. La raison est structurelle.
+
+**Ce qui a ete mesure**, dans l'ordre :
+
+1. Tout ce qui est AVM1 est recree a chaque lancement de partie, dans le meme
+   process plugin : GameMode, GameManager, objet de classe portant la statique
+   `SELF`, et jusqu'aux chaines internees du pool de constantes du SWF. Aucune
+   adresse du tas ne peut servir d'ancre d'une partie a l'autre. **[PROUVE]**
+   (`anchors.py`, deux relevés consecutifs)
+
+2. Les adresses qui pointent vers le film courant sont elles aussi recreees :
+   le lecteur ne garde pas de pointeur a adresse fixe vers le film a ce
+   niveau-la. **[PROUVE]** (`stable_slots.py`)
+
+3. Sur 550 pointeurs des donnees du module, **109 seulement sont referencees
+   par du code**, les 441 autres par aucune instruction en adressage relatif --
+   ce sont des tableaux et des buckets d'allocateur. **[PROUVE]** (`xrefs.py`,
+   desassemblage des 22 Mio de `.text`)
+
+4. Les globals que consultent les **methodes des objets AVM1** -- celles listees
+   dans les vtables String, ScriptObject, table et MovieClip -- se reduisent a
+   trois choses : **[PROUVE]** (`vtable_globals.py`, 141 fonctions)
+
+   | global | role |
+   | --- | --- |
+   | `module+0x1e02e90` | `__security_cookie`, confirme par le `LoadConfig` du PE |
+   | `module+0x1e583a8/b0/c0` | allocateurs MMgc, ils pointent vers les bases des regions du tas |
+   | `module+0x1f2b058` | valeur non pointeur, bruit de desassemblage |
+
+**Conclusion.** Le contexte de l'interpreteur AVM1 n'est pas un global. Il est
+transmis en parametre, ou atteint depuis l'objet lui-meme -- ce qui est la
+maniere propre d'ecrire une VM, et ce qui explique qu'aucune racine statique
+n'apparaisse. Les recherches de chaine echouaient donc pour une bonne raison,
+pas par manque de profondeur ou de filtres.
+
+Ce qui resterait a tenter, dans un autre cadre : identifier le contexte comme
+un champ de l'objet AVM1 lui-meme, puis chercher qui detient ce contexte cote
+lecteur -- vraisemblablement l'instance PPAPI, enregistree dans une structure
+indexee, c'est-a-dire precisement le genre de tableau que le point 3 a ecarte.
+
+## 11. Ce qui reste ouvert
 
 - **[HYPOTHESE]** Les vtables relatives sont stables pour ce binaire precis.
   Elles sont derivees a l'execution, donc une autre version echouerait
