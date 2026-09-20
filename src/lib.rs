@@ -181,7 +181,13 @@ async fn run(
         }
 
         if apply(policy.tick(timer_state(), &settings.rules(), read)) {
+            // Perdre une partie annonce presque toujours la suivante : le jeu
+            // recree son GameManager a chaque lancement, donc l'ancre meurt
+            // avec la partie et il faut rebalayer. Attendre en plus serait du
+            // delai pur -- on repart sans temporisation.
             game = None;
+            cooldown = 0;
+            backoff = RESOLVE_MIN_COOLDOWN;
         }
 
         next_tick().await;
