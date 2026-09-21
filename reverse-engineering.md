@@ -1,43 +1,41 @@
-# Niveau et chrono Hammerfest, sous Windows
+# Hammerfest level and time, on Windows
 
-Notes de reverse. Chaque affirmation est marquee **[PROUVE]** (verifie sur le
-process vivant, avec la mesure qui le montre) ou **[HYPOTHESE]**.
+Reverse engineering notes. Every claim is marked **[PROVED]** (checked on the
+live process, with the measurement that shows it) or **[ASSUMPTION]**.
 
-Cible : EternalTwin sur Windows, `pepflashplayer.dll` win32-x64 **32.0.0.465**,
-AVM1 / ActionScript 2, lecture seule.
+Target: EternalTwin on Windows, `pepflashplayer.dll` win32-x64 **32.0.0.465**,
+AVM1 / ActionScript 2, read only.
 
-Le travail precedent (`cmnemoi/hammerfest-re`, realise par Claude) avait resolu
-le *score* sous Linux. Ces notes-ci portent sur le niveau et le temps, sous
-Windows.
+The earlier work (`cmnemoi/hammerfest-re`, done by Claude) had solved the
+*score* on Linux. These notes are about the level and the time, on Windows.
 
-Ce document dit **ce que le jeu cache et comment on l'y trouve**. Comment
-l'autosplitter est construit autour est dans
-[architecture.md](architecture.md).
+This document says **what the game hides and how we find it there**. How the
+autosplitter is built around that is in [architecture.md](architecture.md).
 
 ---
 
-## 1. Ce que le jeu traque vraiment
+## 1. What the game really tracks
 
-Deux compteurs de temps, tous deux remontes par le jeu en fin de partie
-(`mode/Adventure.mt`, `onGameOver`) :
+Two time counters, both reported by the game at the end of a game
+(`mode/Adventure.mt`, `onGameOver`):
 
 ```mt
 manager.logAction( "$t=" + Math.round(duration/Data.SECOND) );
 manager.history = [ "F="+$version, "T="+gameChrono.get() ];
 ```
 
-| champ | type | nature |
+| field | type | nature |
 | --- | --- | --- |
-| `GameMode.gameChrono` | `Chrono` | millisecondes, depuis la construction du `GameMode` |
-| `GameMode.duration` | `Float` | `duration += Timer.tmod` par frame, `Data.SECOND = 32`, depuis l'apparition du niveau 0 |
+| `GameMode.gameChrono` | `Chrono` | milliseconds, from the construction of the `GameMode` |
+| `GameMode.duration` | `Float` | `duration += Timer.tmod` per frame, `Data.SECOND = 32`, from the moment level 0 appears |
 
-Les deux s'arretent aux memes moments -- pause et transitions de niveau --
-puisque `GameMode.lock()` arrete `gameChrono` et fait sortir `main()` avant
-l'incrementation de `duration`. Ils ne different que par leur **origine**, et
-c'est justement ce qui rend `duration` utile : voir §9. **[PROUVE]** : 26,2 s
-de pause donnent `duration` +0,0 cycle et `gameChrono` +0 ms.
+Both stop at the same moments -- pause and level transitions -- because
+`GameMode.lock()` stops `gameChrono` and makes `main()` return before the
+increment of `duration`. They differ only in their **origin**, and that is
+exactly what makes `duration` useful: see §9. **[PROVED]**: 26.2 s of pause
+give `duration` +0.0 cycle and `gameChrono` +0 ms.
 
-`Chrono` (`class/hammer/Chrono.mt`) ne stocke pas une duree mais deux instants :
+`Chrono` (`class/hammer/Chrono.mt`) does not store a duration but two instants:
 
 ```mt
 function get() {
@@ -46,18 +44,18 @@ function get() {
 }
 ```
 
-`stop()` est appele par `GameMode.lock()`, `start()` par `unlock()`. C'est donc
-un temps de jeu qui se fige a la pause -- ce que le jeu affiche, mais pas un
-temps reel. Le chrono de la run est construit autrement, voir §9.
+`stop()` is called by `GameMode.lock()`, `start()` by `unlock()`. So it is a
+game time that freezes on pause -- what the game displays, but not a real
+time. The run timer is built another way, see §9.
 
-Un detail du constructeur compte : `suspendTimer` y est laisse a `null`, donc
-le premier `start()` ne decale pas `gameTimer`. `gameChrono` compte ainsi
-depuis la construction du `Chrono`, chargement du niveau 0 compris, et vaut
-deja 0,55 s quand le joueur voit le niveau. **[PROUVE]** -- 535, 539, 547 et
-562 ms sur quatre parties.
+One detail of the constructor matters: `suspendTimer` is left at `null` there,
+so the first `start()` does not shift `gameTimer`. `gameChrono` therefore
+counts from the construction of the `Chrono`, level 0 loading included, and it
+is already 0.55 s when the player sees the level. **[PROVED]** -- 535, 539, 547
+and 562 ms over four games.
 
-Le niveau courant est `GameMode.world.currentId`, ou `world : GameMechanics`
-herite de `SetManager` (`levels/SetManager.mt`) :
+The current level is `GameMode.world.currentId`, where `world : GameMechanics`
+inherits from `SetManager` (`levels/SetManager.mt`):
 
 ```mt
 function setCurrent(id:int) {
@@ -68,30 +66,30 @@ function setCurrent(id:int) {
 
 ---
 
-## 2. Les noms obfusques ne se cherchent pas, ils se lisent
+## 2. The obfuscated names are not searched for, they are read
 
-Le SWF distribue est obfusque, mais la correspondance est **publique** :
-`eternalfest/game-types`, fichier `src/lib/hf.map.json`, MIT, 2952 entrees. Elle
-sert a `eternalfest/project-phoenix`, le decompilateur du jeu. Copiee dans
+The distributed SWF is obfuscated, but the mapping is **public**:
+`eternalfest/game-types`, file `src/lib/hf.map.json`, MIT, 2952 entries. It
+serves `eternalfest/project-phoenix`, the decompiler of the game. Copied into
 `vendor/hf.map.json`.
 
-Attention : l'obfuscateur d'Eternalfest (`eternalfest/obf`) n'est **pas** celui
-qui a produit ce SWF -- il genere des noms `md5(sel+nom)[0:10]`, purement
-hexadecimaux, alors que les noms du SWF Hammerfest ressemblent a `70dik` ou
-`{8`. La table, elle, decrit bien le SWF de Motion Twin.
+Careful: the Eternalfest obfuscator (`eternalfest/obf`) is **not** the one that
+produced this SWF. It generates `md5(salt+name)[0:10]` names, purely
+hexadecimal, while the Hammerfest SWF names look like `70dik` or `{8`. The
+table, however, really describes the Motion Twin SWF.
 
-Elle se verifie contre le reverse precedent, qui avait observe ces valeurs en
-memoire sans la connaitre : **[PROUVE]**
+It checks against the earlier reverse work, which observed these values in
+memory without knowing the table: **[PROVED]**
 
-| clair | obfusque | source |
+| clear | obfuscated | source |
 | --- | --- | --- |
-| `realScores` | `70dik` | observe en 2025 dans le tas |
-| `fakeScores` | `[t}LJ(` | observe en 2025 dans le tas |
-| `gi` | `{8` | observe en 2025, l'identification restait une hypothese |
+| `realScores` | `70dik` | observed in 2025 in the heap |
+| `fakeScores` | `[t}LJ(` | observed in 2025 in the heap |
+| `gi` | `{8` | observed in 2025, the identification was still an assumption |
 
-Les clefs utilisees ici :
+The keys used here:
 
-| clair | obfusque |
+| clear | obfuscated |
 | --- | --- |
 | `world` | `]=[]8` |
 | `currentId` | `-BBEO` |
@@ -104,42 +102,42 @@ Les clefs utilisees ici :
 | `fl_stop` | `*9gvn` |
 | `xml_adventure` | `]R;5E` |
 
-`duration` n'est pas renomme : c'est un identifiant de l'API AS2 standard
-(`Sound.duration`), donc protege par la liste `as2.map.json`. Il garde son nom
-en clair dans le SWF. **[PROUVE]** -- lu tel quel dans la table GameMode.
+`duration` is not renamed: it is an identifier of the standard AS2 API
+(`Sound.duration`), so it is protected by the `as2.map.json` list. It keeps its
+clear name in the SWF. **[PROVED]** -- read as such in the GameMode table.
 
-Les noms de mondes sont eux aussi obfusques : `addWorld("xml_adventure")` passe
-une chaine qui ressemble a un identifiant, donc renommee en `]R;5E`. Chercher
-`"xml_adventure"` dans le tas ne donne rien. **[PROUVE]**
+The world names are obfuscated too: `addWorld("xml_adventure")` passes a string
+that looks like an identifier, so it is renamed to `]R;5E`. Searching for
+`"xml_adventure"` in the heap finds nothing. **[PROVED]**
 
 ---
 
-## 3. Layout memoire : Windows n'est pas Linux
+## 3. Memory layout: Windows is not Linux
 
-Le layout Linux etait connu. Il ne tient qu'a moitie sous Windows -- mesure, pas
-suppose : **[PROUVE]**
+The Linux layout was known. Only half of it holds on Windows -- measured, not
+assumed: **[PROVED]**
 
 ```
                         Linux x86-64        Windows x86-64
-String   vtable         +0x00               +0x00            identique
-         buffer UTF-16  +0x08               +0x08            identique
-         longueur       +0x30               +0x30            identique
-ScriptObject -> table   +0x30               +0x30            identique
-table    vtable         +0x00               +0x00            identique
-         capacite       +0x08               +0x08            identique
-         entrees        +0x18               +0x48            DIFFERENT
-         pas            16 octets           24 octets        DIFFERENT
-         entree         (valeur, clef)      (valeur, _, clef) DIFFERENT
+String   vtable         +0x00               +0x00            same
+         UTF-16 buffer  +0x08               +0x08            same
+         length         +0x30               +0x30            same
+ScriptObject -> table   +0x30               +0x30            same
+table    vtable         +0x00               +0x00            same
+         capacity       +0x08               +0x08            same
+         entries        +0x18               +0x48            DIFFERENT
+         stride         16 bytes            24 bytes         DIFFERENT
+         entry          (value, key)        (value, _, key)  DIFFERENT
 ```
 
-Autrement dit une entree fait 24 octets et la clef est le *troisieme* qword, pas
-le second. Un port qui aurait recopie les offsets Linux aurait lu, pour chaque
-propriete, la valeur du champ **suivant** : des valeurs parfaitement plausibles,
-et fausses. C'est exactement l'erreur que j'ai faite en premier, et que le
-controle semantique a rattrapee.
+In other words an entry is 24 bytes and the key is the *third* qword, not the
+second. A port that copied the Linux offsets would have read, for every
+property, the value of the **next** field: perfectly plausible values, and
+wrong. That is exactly the mistake I made first, and that the semantic check
+caught.
 
-Vtables observees sur cette session (ASLR : relatives a la base du module, elles
-sont stables pour ce binaire) :
+Vtables observed in this session (with ASLR they are relative to the module
+base; they are stable for this binary):
 
 ```
 String        MODULE+0x1756db8
@@ -147,104 +145,106 @@ ScriptObject  MODULE+0x1749ed8
 table         MODULE+0x174a460
 ```
 
-Le code ne les code pas en dur : il les derive a l'execution (`scripts/avm1.py`).
-Seule la base du module vient de l'OS.
+The code does not hard code them: it derives them at run time
+(`scripts/avm1.py`). Only the module base comes from the OS.
 
-### Encodage des atomes **[PROUVE]**
+### Atom encoding **[PROVED]**
 
-`atome = (valeur << 3) | tag`, les 3 bits bas etant le type :
+`atom = (value << 3) | tag`, the 3 low bits being the type:
 
-| tag | sens | decodage |
+| tag | meaning | decoding |
 | --- | --- | --- |
-| 0 | entier **signe** | `atome >> 3`, decalage arithmetique |
-| 1 | flottant | pointeur vers un `double` IEEE 8 octets |
-| 2 | special | `0x0a` null, `0x12` faux, `0x32` vrai |
-| 3 | objet natif / MovieClip | pointeur |
-| 5 | String | pointeur vers un objet String |
-| 6 | objet | pointeur vers un ScriptObject |
+| 0 | **signed** integer | `atom >> 3`, arithmetic shift |
+| 1 | float | pointer to an 8 byte IEEE `double` |
+| 2 | special | `0x0a` null, `0x12` false, `0x32` true |
+| 3 | native object / MovieClip | pointer |
+| 5 | String | pointer to a String object |
+| 6 | object | pointer to a ScriptObject |
 
-Le signe compte : `portalId` valait `0xfffffffffffffff8`, soit `-1`. Un
-decodage non signe en aurait fait 2305843009213693951. **[PROUVE]**
+The sign matters: `portalId` was `0xfffffffffffffff8`, that is `-1`. An
+unsigned decode would have made it 2305843009213693951. **[PROVED]**
 
 ---
 
-## 4. Chaine de resolution
+## 4. The resolution chain
 
-Aucune adresse en dur, aucun chemin de pointeurs statique -- il n'en existe pas,
-les objets sont crees a l'execution par un SWF telecharge. L'ancre est une
-chaine internee du SWF :
+No hard coded address, and no static pointer path -- none exists, because the
+objects are created at run time by a downloaded SWF. The anchor is an interned
+string of the SWF:
 
 ```
-process --type=ppapi         le plugin Flash, cree au chargement du SWF
-pepflashplayer.dll           ASLR -> base du module
-scan "]=[]8" dans le tas     `world`, clef connue par hf.map.json
-  -> objet String            le qword module-pointant devant = la vtable
-  -> offset de longueur      le qword valant 5
-  -> slots citant la chaine  scan des 8 encodages d'atome
-  -> pas des entrees         mesure sur les clefs voisines
-  -> base de la table        premier qword module-pointant avant les entrees
-  -> offset des valeurs      vote (voir ci-dessous)
-GameMode["]=[]8"]            -> world : GameMechanics
-world[" h;+A("]              -> setName == "]R;5E" = xml_adventure   verification
-world["-BBEO"]               -> currentId : le niveau
+process --type=ppapi         the Flash plugin, born when the SWF loads
+pepflashplayer.dll           ASLR -> module base
+scan "]=[]8" in the heap     `world`, key known from hf.map.json
+  -> String object           the qword in front that points into the module
+                             is the vtable
+  -> length offset           the qword whose value is 5
+  -> slots citing the string scan of the 8 atom encodings
+  -> entry stride            measured on the neighbouring keys
+  -> table base              first qword pointing into the module, before the
+                             entries
+  -> value offset            a vote (see below)
+GameMode["]=[]8"]            -> world: GameMechanics
+world[" h;+A("]              -> setName == "]R;5E" = xml_adventure   check
+world["-BBEO"]               -> currentId: the level
 GameMode["8qkdA"]            -> gameChrono
 ```
 
-Deux pieges rencontres, tous deux reels :
+Two traps met on the way, both real:
 
-**Le vote sur l'offset des valeurs ne peut pas se faire sur la seule validite.**
-Chaque entree contient un qword inutilise toujours nul, et zero est un atome
-entier parfaitement valide : cette colonne obtient donc un score de validite
-parfait sans rien contenir. Il faut exiger de la **diversite** dans la colonne.
+**The vote on the value offset cannot rest on validity alone.** Every entry
+holds an unused qword that is always zero, and zero is a perfectly valid
+integer atom. So that column gets a perfect validity score while holding
+nothing. The column must also be required to show **diversity**.
 
-**`world` ne suffit pas a identifier le GameMode.** Les objets `View` en portent
-un aussi, et pointent vers le meme `GameMechanics` -- j'ai observe jusqu'a trois
-candidats simultanes, dont un pointant vers `xml_deepnight`. Le discriminant est
-structurel : seul le GameMode possede en plus un `gameChrono` contenant un
-`frameTimer`. **[PROUVE]**
+**`world` is not enough to identify the GameMode.** `View` objects carry one
+too, and they point at the same `GameMechanics` -- I observed up to three
+candidates at once, one of them pointing at `xml_deepnight`. The discriminator
+is structural: only the GameMode also owns a `gameChrono` that holds a
+`frameTimer`. **[PROVED]**
 
 ---
 
-## 5. Verification croisee
+## 5. Cross check
 
-Les deux compteurs du jeu sont independants : `gameChrono` compte des
-millisecondes reelles, `duration` accumule `Timer.tmod` par frame. Ils doivent
-concorder. Releve sur le process vivant :
+The two counters of the game are independent: `gameChrono` counts real
+milliseconds, `duration` accumulates `Timer.tmod` per frame. They must agree.
+Read from the live process:
 
 ```
 duration   14815.6 cycles / 32 = 463.0 s
 gameChrono                       462898 ms = 462.9 s
 ```
 
-**[PROUVE]** -- accord a 0,1 %, sur deux chemins memoire totalement disjoints.
+**[PROVED]** -- they agree to 0.1 %, over two entirely separate memory paths.
 
-Le modele `Chrono` se verifie aussi tout seul. Partie en pause :
+The `Chrono` model also checks itself. Game paused:
 
 ```
-fl_stop      = true            (et fl_pause = true cote GameMode)
+fl_stop      = true            (and fl_pause = true on the GameMode side)
 frameTimer   = 280135
 gameTimer    =  19419          frameTimer - gameTimer = 260716
-suspendTimer = 274444          280135 - 274444 = 5691 ms depuis l'arret
+suspendTimer = 274444          280135 - 274444 = 5691 ms since the stop
 haltedTimer  = 255025          255025 + 5691  = 260716   OK
 ```
 
-`stop()` pose `haltedTimer = get()` et `suspendTimer = frameTimer` : l'identite
-se referme exactement. **[PROUVE]**
+`stop()` sets `haltedTimer = get()` and `suspendTimer = frameTimer`: the
+identity closes exactly. **[PROVED]**
 
 ---
 
-## 6. Les niveaux ne se suivent pas
+## 6. The levels do not follow each other
 
-`currentId` n'avance pas de 1 en 1. **[PROUVE]** -- par la source, et confirme
-en jeu par l'absence de split au raccourci du niveau 0.
+`currentId` does not advance by 1 each time. **[PROVED]** -- by the source, and
+confirmed in game by the missing split at the level 0 shortcut.
 
-`mode/Adventure.mt` :
+`mode/Adventure.mt`:
 
 ```mt
 function nextLevel() {
     super.nextLevel();          // goto(currentId+1)  ->  currentId = 1
     if ( fl_warpStart ) {
-        world.currentId = 0;    // affectation directe, hors setCurrent
+        world.currentId = 0;    // direct assignment, outside setCurrent
         unlock();
         world.view.detach();
         forcedGoto(10);         // ->  currentId = 10
@@ -252,72 +252,71 @@ function nextLevel() {
 }
 ```
 
-Le raccourci du niveau 0 fait donc `0 -> 10`. Ce n'est pas un cas isole :
-`SpecialManager.warpZone(w)` avance de 1 a 3 d'un coup via `forcedGoto`, en
-s'arretant avant un boss ou un niveau vide.
+The level 0 shortcut therefore does `0 -> 10`. It is not an isolated case:
+`SpecialManager.warpZone(w)` advances by 1 to 3 in one step through
+`forcedGoto`, stopping before a boss or an empty level.
 
-Une regle de split en `currentId + 1` rate tous ces passages. Le critere correct
-est **tout progres vers l'avant**, `currentId` strictement croissant.
+A split rule based on `currentId + 1` misses all of these. The correct test is
+**any forward progress**, `currentId` strictly increasing.
 
-Deux consequences moins visibles :
+Two less visible consequences:
 
-**Une course de lecture.** Ces trois ecritures ont lieu dans la meme frame de
-jeu, et rien ne synchronise une lecture faite depuis un autre process avec la
-frame. On peut donc observer `0 -> 1`, puis `1 -> 0`, puis `0 -> 10`, et
-produire deux splits au lieu d'un, de maniere non deterministe. D'ou la
-confirmation sur deux lectures consecutives avant d'agir.
+**A read race.** These three writes happen in the same game frame, and nothing
+synchronises a read made from another process with that frame. So we can
+observe `0 -> 1`, then `1 -> 0`, then `0 -> 10`, and produce two splits instead
+of one, at random. Hence the confirmation over two consecutive reads before we
+act.
 
-**`_previousId` n'est pas fiable comme temoin de transition.** Il n'est mis a
-jour que par `setCurrent` ; l'affectation `world.currentId = 0` le court-circuite.
-Il reste utile pour lever une ambiguite lors du reverse, pas pour valider un
+**`_previousId` is not reliable as a transition witness.** It is updated only
+by `setCurrent`; the `world.currentId = 0` assignment bypasses it. It stays
+useful to lift an ambiguity during the reverse work, but not to validate a
 split.
 
-## 7. Savoir qu'un GameMode est mort
+## 7. Knowing that a GameMode is dead
 
-Un GameMode abandonne reste lisible longtemps : la table est intacte, le monde
-est toujours `xml_adventure`, le niveau et le chrono sont plausibles -- ils sont
-simplement ceux d'avant. Aucune verification de coherence ne les distingue d'un
-objet vivant. C'est le piege annonce par le reverse du score, et il se voit
-directement : le timer met du temps a demarrer, et ne s'arrete pas a la fin
-d'une partie.
+An abandoned GameMode stays readable for a long time: the table is intact, the
+world is still `xml_adventure`, the level and the clock are plausible -- they
+are simply the old ones. No consistency check separates them from a live
+object. That is the trap the score reverse work announced, and it shows
+directly: the timer takes a long time to start, and it does not stop at the end
+of a game.
 
-Deux signaux le resolvent. **[PROUVE]** par la source.
+Two signals solve it. **[PROVED]** by the source.
 
-**`fl_gameOver`**, pose par `GameMode.onGameOver()`, est le signal exact de fin
-de partie -- c'est dans la surcharge d'`Adventure` que le jeu envoie
-`"T="+gameChrono.get()`. Une resolution qui tombe sur un GameMode deja en game
-over doit etre rejetee, sans quoi on lit une partie terminee au lieu d'attendre
-la suivante.
+**`fl_gameOver`**, set by `GameMode.onGameOver()`, is the exact end-of-game
+signal -- it is in the `Adventure` override that the game sends
+`"T="+gameChrono.get()`. A resolution that lands on a GameMode already in game
+over must be rejected, otherwise we read a finished game instead of waiting for
+the next one.
 
-**`Chrono.frameTimer`** sert de battement de coeur. Dans `GameMode.main()` :
+**`Chrono.frameTimer`** serves as a heartbeat. In `GameMode.main()`:
 
 ```mt
 // Chrono
-gameChrono.update();      // inconditionnel, et AVANT le test de pause
+gameChrono.update();      // unconditional, and BEFORE the pause test
 
 // Pause
 if ( fl_pause ) { ... }
 ```
 
-`Chrono.update()` fait `frameTimer = Std.getTimer()`. Ce compteur avance donc a
-chaque frame tant que ce GameMode-la est celui que le jeu fait tourner -- y
-compris en pause, y compris chrono arrete. Fige, l'objet est mort.
+`Chrono.update()` does `frameTimer = Std.getTimer()`. So this counter advances
+every frame while that GameMode is the one the game runs -- during a pause too,
+and with the clock stopped too. Frozen, the object is dead.
 
-Le seuil doit rester genereux : Flash tourne a une trentaine d'images par
-seconde, et Chromium ralentit encore une fenetre en arriere-plan. Un seuil trop
-court declencherait des re-resolutions inutiles, chacune coutant un balayage
-complet du tas.
+The threshold must stay generous: Flash runs at about thirty frames per second,
+and Chromium slows a background window down further. A short threshold would
+fire useless new resolutions, each one costing a full heap scan.
 
-## 8. L'ancre stable : GameManager.current
+## 8. The stable anchor: GameManager.current
 
-Balayer le tas pour retrouver le GameMode coute une centaine de Mio de lectures.
-Le refaire a chaque partie est deja penible ; le refaire en boucle entre deux
-parties -- ce que fait tout autosplitter qui attend la suivante -- agite le
-process pour rien.
+Scanning the heap to find the GameMode costs about a hundred MiB of reads.
+Doing it again at every game is already unpleasant; doing it in a loop between
+two games -- which is what any autosplitter waiting for the next one does --
+stirs the process for nothing.
 
-Le jeu offre pourtant l'ancre qu'il faut. `GameManager` est cree une fois au
-chargement du SWF et survit aux parties, et il designe le mode en cours
-(`GameManager.mt`) : **[PROUVE]**
+The game offers the right anchor, though. `GameManager` is created once when
+the SWF loads and survives across games, and it points at the current mode
+(`GameManager.mt`): **[PROVED]**
 
 ```mt
 var current : Mode;
@@ -329,193 +328,190 @@ function transition(prev:Mode,next:Mode) {
 }
 ```
 
-Reciproquement, tout `Mode` porte `manager : GameManager`. Cette reference
-croisee suffit a identifier le GameManager sans connaitre aucun nom qui lui
-soit propre : **c'est l'objet dont `current` designe un mode qui, par son champ
-`manager`, redesigne cet objet-la**. `current` seul ne vaudrait rien comme
-critere -- chaque `SetManager` en a un.
+The other way round, every `Mode` carries `manager : GameManager`. This cross
+reference is enough to identify the GameManager without knowing any name of its
+own: **it is the object whose `current` points at a mode which, through its
+`manager` field, points back at that object**. `current` alone would be
+worthless as a test -- every `SetManager` has one.
 
 ```text
-balayage, une fois      -> GameManager          (retenu)
-GameManager.current     -> le mode qui tourne   (relu a volonte)
+scan, once              -> GameManager          (kept)
+GameManager.current     -> the running mode     (read again at will)
 ```
 
-L'interet de chercher le GameManager plutot que le GameMode : **il existe des
-le chargement du SWF**. Le balayage aboutit donc deja dans les menus, avant
-toute partie, et la partie qui demarre ensuite se trouve en suivant un
-pointeur. Chercher un GameMode, au contraire, ne peut reussir qu'une fois la
-partie lancee -- c'est-a-dire au pire moment, celui ou le delai se voit.
+Why look for the GameManager rather than the GameMode: **it exists as soon as
+the SWF loads**. So the scan already succeeds in the menus, before any game,
+and the game that starts next is found by following a pointer. Looking for a
+GameMode, on the other hand, can only succeed once the game has started -- that
+is, at the worst moment, the one where the delay shows.
 
-Ce point compte d'autant plus que **les objets AVM1 meurent avec la partie** :
-le SWF recree son GameManager et ses chaines internees a chaque lancement, donc
-aucune adresse du tas ne survit d'une partie a la suivante. Le process plugin,
-lui, peut en porter plusieurs -- quatre parties consecutives observees dans un
-meme process. Le balayage est inevitable une fois par partie ; tout ce qu'on
-peut choisir, c'est de le faire tot.
+This matters all the more because **the AVM1 objects die with the game**: the
+SWF builds a new GameManager and new interned strings at every launch, so no
+heap address survives from one game to the next. The plugin process, though,
+can carry several -- four games in a row were observed in one process. The scan
+is unavoidable once per game; all we can choose is to do it early.
 
-C'est bien la forme recommandee -- ancre stable, puis resolution par le graphe
-d'objets -- et non une adresse finale mise en cache : `current` est relu a chaque fois, et le
-GameMode obtenu repasse par toutes les verifications (monde connu, niveau
-plausible, `gameChrono` present, pas en game over).
+This is the recommended shape -- a stable anchor, then resolution through the
+object graph -- and not a cached final address: `current` is read again every
+time, and the GameMode we get goes through every check again (known world,
+plausible level, `gameChrono` present, not in game over).
 
-Ce qui peut invalider l'ancre : la table de proprietes d'un objet AVM1 est
-reallouee quand elle grandit. Les champs de `GameManager` sont tous poses dans
-le constructeur, donc elle ne devrait pas bouger -- mais ce n'est pas garanti,
-d'ou la verification de sa vtable avant chaque usage, et le repli sur le
-balayage complet si elle ne repond plus.
+What can invalidate the anchor: the property table of an AVM1 object is
+reallocated when it grows. The `GameManager` fields are all set in the
+constructor, so it should not move -- but that is not guaranteed. Hence the
+check of its vtable before every use, and the fallback to a full scan if it
+stops answering.
 
-## 9. Dater le depart de la run, sans gagner de course
+## 9. Dating the start of the run, without winning a race
 
-La regle de course fixe le depart : *the timer begins when the loading text
-disappears and fades in to level 0*. Cote memoire, cet instant est celui ou
-`GameMode.fl_lock` retombe.
+The race rule sets the start: *the timer begins when the loading text
+disappears and fades in to level 0*. On the memory side, that instant is the
+one where `GameMode.fl_lock` falls.
 
 ```mt
-GameMechanics.onViewReady()      la vue du niveau est attachee
+GameMechanics.onViewReady()      the level view is attached
     game.onLevelReady()
         unlock()                 fl_lock = false
             gameChrono.start()
 ```
 
-La vue est attachee et le mode est deverrouille **dans la meme image**, donc
-l'ecran noir se termine a `fl_lock = false` a une image pres, soit 31 ms.
+The view is attached and the mode is unlocked **in the same frame**, so the
+black screen ends at `fl_lock = false` within one frame, that is 31 ms.
 
-### La course ne peut pas se gagner **[PROUVE]**
+### The race cannot be won **[PROVED]**
 
-Le premier reflexe est de poser l'ancre avant le depart, pour voir la
-transition en direct. C'est impossible, et pas par manque d'optimisation.
+The first instinct is to set the anchor before the start, to see the transition
+live. That is impossible, and not for lack of optimisation.
 
 | | run 1 | run 2 | run 3 | run 4 |
 | --- | --- | --- | --- | --- |
-| ancre posee, apres le depart | +0,374 s | +0,601 s | +0,553 s | +0,657 s |
-| `gameChrono` au deverrouillage | 535 ms | 539 ms | 562 ms | 547 ms |
+| anchor set, after the start | +0.374 s | +0.601 s | +0.553 s | +0.657 s |
+| `gameChrono` at the unlock | 535 ms | 539 ms | 562 ms | 547 ms |
 
-Mesures de `scripts/hf_trace.py`. Ce que montrent les balayages successifs :
+Measurements from `scripts/hf_trace.py`. What the successive scans show:
 
-1. **Rien a trouver avant.** Jusqu'a la derniere seconde, le tas ne contient
-   aucune chaine `fVersion` -- ni celle du `GameManager`, ni celle du `Loader`.
-   Les objets AVM1 du SWF naissent tous en rafale, a la fin de
-   l'initialisation. Il n'existe donc pas de fenetre anterieure.
-2. **La fenetre utile vaut 0,55 s**, entre la construction du `GameMode` et le
-   deverrouillage.
-3. **Un balayage complet en coute 0,5 s** sur les 80 Mio du tas. C'est le prix
-   de la copie hors process, pas celui de la comparaison : le rendre
-   instantane n'est pas au programme.
+1. **Nothing to find before.** Until the last second, the heap holds no
+   `fVersion` string -- neither the one of the `GameManager` nor the one of the
+   `Loader`. The AVM1 objects of the SWF are all born in one burst, at the end
+   of the initialisation. So there is no earlier window.
+2. **The useful window is 0.55 s**, between the construction of the `GameMode`
+   and the unlock.
+3. **A full scan costs 0.5 s** over the 80 MiB of the heap. That is the price
+   of the copy across the process boundary, not the price of the comparison:
+   making it instant is not on the table.
 
-La course se joue donc a quelques dizaines de millisecondes, et elle se perd.
+So the race is decided by a few tens of milliseconds, and it is lost.
 
-### Il ne faut pas la gagner : le jeu porte l'instant du depart **[PROUVE]**
+### It must not be won: the game carries the start instant **[PROVED]**
 
-`GameMode.main()` sort sur `fl_lock` **avant** d'incrementer `duration` :
+`GameMode.main()` returns on `fl_lock` **before** it increments `duration`:
 
 ```mt
 gameChrono.update();          // frameTimer = Std.getTimer()
 if ( fl_pause ) { ... }
-if ( fl_lock ) return;        // <- ecran noir, transitions, pause
+if ( fl_lock ) return;        // <- black screen, transitions, pause
 ...
-duration += Timer.tmod;       // <- ne court que depuis le depart officiel
+duration += Timer.tmod;       // <- runs only from the official start
 ```
 
-`duration` vaut donc exactement zero pendant tout l'ecran noir, puis mesure le
-temps pendant lequel le jeu a tourne. Une seule formule couvre les deux cas :
+So `duration` is exactly zero during the whole black screen, and then it
+measures the time during which the game ran. One formula covers both cases:
 
 ```text
-origine = frameTimer - duration          a la premiere lecture deverrouillee
-temps reel = frameTimer - origine
+origin = frameTimer - duration           at the first unlocked read
+real time = frameTimer - origin
 ```
 
-Arrive a temps, `duration` est nulle et l'origine est `frameTimer`. Arrive en
-retard -- le cas courant -- `duration` dit de combien.
+Arriving in time, `duration` is zero and the origin is `frameTimer`. Arriving
+late -- the usual case -- `duration` says by how much.
 
-Les deux compteurs qui rendent cela possible :
+The two counters that make this possible:
 
-| compteur | ce qu'il mesure | mesure |
+| counter | what it measures | measurement |
 | --- | --- | --- |
-| `frameTimer` | `Std.getTimer()`, millisecondes reelles depuis le lancement du plugin. `Chrono.update()` tourne avant le test de pause et avant le `return` sur `fl_lock`, donc il n'est jamais arrete | +13 843 ms pour 13,9 s de pause |
-| `duration` | temps pendant lequel le jeu a tourne, en cycles de `Data.SECOND` = 32 | 67,20 s pour 67,12 s reelles, soit 0,1 % |
+| `frameTimer` | `Std.getTimer()`, real milliseconds since the plugin started. `Chrono.update()` runs before the pause test and before the `return` on `fl_lock`, so it is never stopped | +13 843 ms for 13.9 s of pause |
+| `duration` | the time during which the game ran, in cycles of `Data.SECOND` = 32 | 67.20 s for 67.12 real s, that is 0.1 % |
 
-Verification de bout en bout : origine posee a la premiere lecture, puis
-comparaison avec une horloge exterieure une minute plus tard. **Ecart de
-6 ms sur 60,9 s.** **[PROUVE]**
+End to end check: origin set at the first read, then compared with an outside
+clock one minute later. **6 ms of difference over 60.9 s.** **[PROVED]**
 
-Le balayage du tas sort donc du chemin critique. Sa duree ne fait plus que
-retarder l'*affichage* du chrono, elle n'entre plus dans le chronometrage.
+So the heap scan leaves the critical path. Its duration now only delays the
+*display* of the timer; it no longer enters the timing.
 
-### Ce qui reste en retard
+### What stays late
 
-Le *real time* de LiveSplit, lui, part de l'appel a `timer_start()` et l'API
-ASR ne sait pas reculer un chrono deja demarre -- elle n'expose que `start`,
-`split`, `reset`, `set_game_time` et `pause_game_time`. Il accuse donc le
-retard du balayage, 0,4 a 0,7 s selon les mesures ci-dessus.
+The LiveSplit *real time* starts at the `timer_start()` call, and the ASR API
+cannot move a running timer backwards -- it exposes only `start`, `split`,
+`reset`, `set_game_time` and `pause_game_time`. So it carries the delay of the
+scan, 0.4 to 0.7 s according to the measurements above.
 
-C'est pourquoi le temps reel exact est pose dans le canal *game time*, qui
-accepte une valeur absolue. `gameChrono` passe en variable a cote du chrono :
-c'est le chiffre que le jeu affiche lui-meme en fin de partie
-(`"T="+gameChrono.get()`), mais il exclut les pauses et les transitions de
-niveau, donc il ne peut pas servir de temps reel.
+That is why the exact real time goes into the *game time* channel, which
+accepts an absolute value. `gameChrono` goes into a variable next to the timer:
+it is the number the game itself reports at the end of a game
+(`"T="+gameChrono.get()`), but it excludes pauses and level transitions, so it
+cannot serve as a real time.
 
-### Pourquoi pas les autres criteres
+### Why not the other tests
 
-| critere | defaut |
+| test | fault |
 | --- | --- |
-| apparition du process plugin | de 2,8 a 4,5 s avant le depart selon le temps de chargement du SWF, donc inutilisable |
-| `chrono < 5 s` | `gameChrono` court depuis la construction du `GameMode` : il vaut deja 0,55 s quand le niveau apparait |
-| `currentId == 0` | un joueur rapide quitte le niveau 0 avant la fin du balayage |
-| fin du fondu du `Loader` | le `Loader` du SWF d'origine n'existe pas dans EternalTwin : aucune table portant `fVersion` ne porte `gameInst` |
+| the plugin process appears | 2.8 to 4.5 s before the start, depending on the SWF load time, so unusable |
+| `clock < 5 s` | `gameChrono` runs from the construction of the `GameMode`: it is already 0.55 s when the level appears |
+| `currentId == 0` | a fast player leaves level 0 before the scan ends |
+| end of the `Loader` fade | the `Loader` of the original SWF does not exist in EternalTwin: no table carrying `fVersion` carries `gameInst` |
 
-## 10. Pourquoi il n'y a pas de chemin de pointeurs statique
+## 10. Why there is no static pointer path
 
-Un autosplitter ordinaire suit `module + offset -> +offset -> +offset`. Ici,
-non -- et ce n'est pas faute d'avoir cherche. La raison est structurelle.
+An ordinary autosplitter follows `module + offset -> +offset -> +offset`. Not
+here -- and not for lack of searching. The reason is structural.
 
-**Ce qui a ete mesure**, dans l'ordre :
+**What was measured**, in order:
 
-1. Tout ce qui est AVM1 est recree a chaque lancement de partie, dans le meme
-   process plugin : GameMode, GameManager, objet de classe portant la statique
-   `SELF`, et jusqu'aux chaines internees du pool de constantes du SWF. Aucune
-   adresse du tas ne peut servir d'ancre d'une partie a l'autre. **[PROUVE]**
-   (`anchors.py`, deux relevés consecutifs)
+1. Everything AVM1 is built again at every game launch, inside the same plugin
+   process: GameMode, GameManager, the class object carrying the `SELF` static,
+   and even the interned strings of the SWF constant pool. No heap address can
+   serve as an anchor from one game to the next. **[PROVED]** (`anchors.py`, two
+   consecutive readings)
 
-2. Les adresses qui pointent vers le film courant sont elles aussi recreees :
-   le lecteur ne garde pas de pointeur a adresse fixe vers le film a ce
-   niveau-la. **[PROUVE]** (`stable_slots.py`)
+2. The addresses that point at the current movie are rebuilt too: the player
+   keeps no fixed address pointer to the movie at that level. **[PROVED]**
+   (`stable_slots.py`)
 
-3. Sur 550 pointeurs des donnees du module, **109 seulement sont referencees
-   par du code**, les 441 autres par aucune instruction en adressage relatif --
-   ce sont des tableaux et des buckets d'allocateur. **[PROUVE]** (`xrefs.py`,
-   desassemblage des 22 Mio de `.text`)
+3. Out of 550 pointers in the module data, **only 109 are referenced by code**;
+   the other 441 by no instruction in relative addressing -- they are arrays and
+   allocator buckets. **[PROVED]** (`xrefs.py`, disassembly of the 22 MiB of
+   `.text`)
 
-4. Les globals que consultent les **methodes des objets AVM1** -- celles listees
-   dans les vtables String, ScriptObject, table et MovieClip -- se reduisent a
-   trois choses : **[PROUVE]** (`vtable_globals.py`, 141 fonctions)
+4. The globals that the **methods of the AVM1 objects** read -- those listed in
+   the String, ScriptObject, table and MovieClip vtables -- come down to three
+   things: **[PROVED]** (`vtable_globals.py`, 141 functions)
 
    | global | role |
    | --- | --- |
-   | `module+0x1e02e90` | `__security_cookie`, confirme par le `LoadConfig` du PE |
-   | `module+0x1e583a8/b0/c0` | allocateurs MMgc, ils pointent vers les bases des regions du tas |
-   | `module+0x1f2b058` | valeur non pointeur, bruit de desassemblage |
+   | `module+0x1e02e90` | `__security_cookie`, confirmed by the PE `LoadConfig` |
+   | `module+0x1e583a8/b0/c0` | MMgc allocators, they point at the bases of the heap regions |
+   | `module+0x1f2b058` | a non pointer value, disassembly noise |
 
-**Conclusion.** Le contexte de l'interpreteur AVM1 n'est pas un global. Il est
-transmis en parametre, ou atteint depuis l'objet lui-meme -- ce qui est la
-maniere propre d'ecrire une VM, et ce qui explique qu'aucune racine statique
-n'apparaisse. Les recherches de chaine echouaient donc pour une bonne raison,
-pas par manque de profondeur ou de filtres.
+**Conclusion.** The AVM1 interpreter context is not a global. It is passed as a
+parameter, or reached from the object itself -- which is the clean way to write
+a VM, and which explains why no static root appears. So the chain searches
+failed for a good reason, not for lack of depth or of filters.
 
-Ce qui resterait a tenter, dans un autre cadre : identifier le contexte comme
-un champ de l'objet AVM1 lui-meme, puis chercher qui detient ce contexte cote
-lecteur -- vraisemblablement l'instance PPAPI, enregistree dans une structure
-indexee, c'est-a-dire precisement le genre de tableau que le point 3 a ecarte.
+What would remain to try, in another setting: identify the context as a field
+of the AVM1 object itself, then look for what holds that context on the player
+side -- most likely the PPAPI instance, registered in an indexed structure,
+which is exactly the kind of array that point 3 ruled out.
 
-## 11. Ce qui reste ouvert
+## 11. What is still open
 
-- **[HYPOTHESE]** Les vtables relatives sont stables pour ce binaire precis.
-  Elles sont derivees a l'execution, donc une autre version echouerait
-  proprement (`None`) plutot que de renvoyer un faux niveau -- mais ce n'a pas
-  ete teste sur une autre version.
-- **[HYPOTHESE]** Le layout mesure ici vaut pour tout `pepflashplayer.dll`
-  win32-x64 32.0.0.465. Mesure sur une seule machine.
-- Les tags 4 et 7 n'ont pas ete identifies. Tag 7 apparait sur des objets dont
-  la vtable est `MODULE+0x178a300`, distincte du ScriptObject ordinaire.
-- Les dimensions paralleles ne sont pas traitees : on lit `world`, qui suit
-  `currentDim`. `currentDim` est expose dans le releve pour pouvoir plus tard
-  ignorer les splits hors du monde principal.
+- **[ASSUMPTION]** The relative vtables are stable for this exact binary. They
+  are derived at run time, so another version would fail cleanly (`None`)
+  rather than return a wrong level -- but that has not been tested on another
+  version.
+- **[ASSUMPTION]** The layout measured here holds for every
+  `pepflashplayer.dll` win32-x64 32.0.0.465. Measured on one machine.
+- Tags 4 and 7 have not been identified. Tag 7 appears on objects whose vtable
+  is `MODULE+0x178a300`, different from the ordinary ScriptObject.
+- The parallel dimensions are not handled: we read `world`, which follows
+  `currentDim`. `currentDim` is published in the reading so that splits outside
+  the main world can be ignored later.

@@ -1,132 +1,132 @@
 # hammerfest-autosplitter
 
-Autosplitter [Hammerfest](https://github.com/motion-twin/hammerfest) pour
-LiveSplit : il demarre le chrono quand le niveau 0 apparait, splitte a chaque
-niveau franchi, et remet a zero en fin de partie. Tout seul.
+A [Hammerfest](https://github.com/motion-twin/hammerfest) autosplitter for
+LiveSplit. It starts the timer when level 0 appears, splits on every level
+crossed, and resets at the end of a game. On its own.
 
-Le jeu n'est pas modifie : lecture memoire seule, aucune ecriture, aucun patch.
+The game is not modified: memory is read only, nothing is written, nothing is
+patched.
 
-## Installation
+## Install
 
-- Telecharger `hammerfest_autosplitter.wasm`, ou le compiler (voir
-  [Contribuer](#contribuer)).
-- Dans LiveSplit : **Edit Splits -> Activate**, puis choisir le fichier.
-- Clic droit -> **Compare Against -> Game Time**.
+- Download `hammerfest_autosplitter.wasm`, or build it (see
+  [Contributing](#contributing)).
+- In LiveSplit: **Edit Splits -> Activate**, then pick the file.
+- Right click -> **Compare Against -> Game Time**.
 
-Cette derniere etape n'est pas optionnelle. Le grand chrono de LiveSplit
-affiche par defaut le *real time*, qui demarre quand l'autosplitter detecte la
-partie -- quelques centaines de millisecondes trop tard. Le temps juste est
-dans le canal *game time*.
+That last step is not optional. The big LiveSplit timer shows *real time* by
+default, and real time starts when the autosplitter finds the game -- a few
+hundred milliseconds too late. The correct time is in the *game time* channel.
 
-## Utilisation
+## Use
 
-Rien a regler. Lancer une partie sur [EternalTwin](https://eternaltwin.org) :
+Nothing to set. Start a game on [EternalTwin](https://eternaltwin.org):
 
-1. le chrono demarre a l'instant ou le niveau 0 apparait ;
-2. il splitte a chaque niveau franchi, y compris sur les raccourcis -- le
-   niveau 0 mene directement au 10, les warpzones sautent jusqu'a trois
-   niveaux, et chacun ne compte que pour un split ;
-3. il remet a zero quand la partie se termine ou est abandonnee.
+1. the timer starts the instant level 0 appears;
+2. it splits on every level crossed, shortcuts included -- level 0 leads
+   straight to level 10, warp zones skip up to three levels, and each one
+   counts as a single split;
+3. it resets when the game ends or is abandoned.
 
-Le temps affiche est un **temps reel**, mesure depuis le depart officiel de la
-run : il compte les pauses et les chargements. Le chrono interne du jeu, qui
-les exclut, est publie a cote dans la variable `Chrono du jeu (ms)`.
+The time shown is a **real time**, measured from the official start of the
+run: it counts pauses and loading. The internal game clock, which excludes
+them, is published next to it in the `Game clock (ms)` variable.
 
-| variable | contenu |
+| variable | content |
 | --- | --- |
-| `Niveau` | le numero affiche par le jeu, sans decalage |
-| `Monde` | `xml_adventure` et les mondes paralleles |
-| `Chrono du jeu (ms)` | le chrono que Hammerfest remonte en fin de partie |
+| `Level` | the number the game displays, with no offset |
+| `World` | `xml_adventure` and the parallel worlds |
+| `Game clock (ms)` | the clock Hammerfest itself reports at the end of a game |
 
-Les niveaux des dimensions paralleles ne declenchent pas de split.
+Levels in parallel dimensions do not trigger a split.
 
-## Comment c'est possible
+## How this is possible
 
-Le niveau et le temps ne sont pas des variables C : ce sont des proprietes
-d'objets ActionScript 2 crees a l'execution par un SWF telecharge, dans le tas
-d'AVM1. **Aucun chemin de pointeurs statique n'y mene**, et le SWF est
-obfusque.
+The level and the time are not C variables. They are properties of
+ActionScript 2 objects, created at run time by a downloaded SWF, inside the
+AVM1 heap. **No static pointer path leads to them**, and the SWF is
+obfuscated.
 
-Deux choses rendent la lecture possible :
+Two things make the reading possible:
 
-1. **La table des noms obfusques est publique.** `eternalfest/project-phoenix`,
-   le decompilateur du jeu, s'appuie sur `game-types/src/lib/hf.map.json` --
-   2952 entrees `clair -> obfusque`, MIT. On sait donc que `currentId`
-   s'appelle `-BBEO` dans le SWF, sans avoir a le chercher.
-2. **Une chaine connue du SWF sert d'ancre.** On la cherche dans le tas, ce qui
-   donne l'objet String, puis les tables qui la citent, puis le `GameMode`.
+1. **The table of obfuscated names is public.** `eternalfest/project-phoenix`,
+   the decompiler of the game, relies on `game-types/src/lib/hf.map.json` --
+   2952 `clear -> obfuscated` entries, MIT. So we know that `currentId` is
+   called `-BBEO` in the SWF, without having to look for it.
+2. **A string known from the SWF serves as an anchor.** We look for it in the
+   heap, which gives the String object, then the tables that cite it, then the
+   `GameMode`.
 
-Le layout memoire est mesure a l'execution, jamais suppose : il differe entre
-Linux et Windows. Les preuves et les pieges sont dans
+The memory layout is measured at run time, never assumed: it differs between
+Linux and Windows. The proofs and the traps are in
 **[reverse-engineering.md](reverse-engineering.md)**.
 
-Le chronometrage, lui, repose sur un fait du jeu : `GameMode.duration` ne court
-que depuis l'apparition du niveau 0. L'instant du depart se **reconstruit donc
-apres coup**, et le temps que met la recherche en memoire n'entre pas dans le
-chronometrage. Detail dans **[architecture.md](architecture.md)**.
+The timing rests on one fact of the game: `GameMode.duration` runs only from
+the moment level 0 appears. The start instant is therefore **rebuilt after the
+fact**, and the time the memory search takes does not enter the timing.
+Details in **[architecture.md](architecture.md)**.
 
-## Contribuer
+## Contributing
 
-Rust pour le module, Python pour l'exploration memoire.
-[mise](https://mise.jdx.dev) installe le reste.
+Rust for the module, Python for the memory exploration.
+[mise](https://mise.jdx.dev) installs the rest.
 
-**Prerequis** : un linker systeme. Le `.wasm` se lie tout seul, mais `asr`
-depend d'une macro procedurale, qu'il faut compiler *pour la machine*. Sous
-Windows, les Build Tools de Visual Studio avec la charge de travail C++ :
+**Prerequisite**: a system linker. The `.wasm` links by itself, but `asr`
+depends on a procedural macro, which must be built *for the host machine*. On
+Windows that means the Visual Studio Build Tools with the C++ workload:
 
 ```sh
 winget install Microsoft.VisualStudio.2022.BuildTools \
   --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
 ```
 
-Sous Linux ou macOS, le linker du systeme suffit.
+On Linux or macOS, the system linker is enough.
 
 ```sh
 mise run build    # -> target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
-mise run test     # les regles, dans core/, sans runtime ni memoire
+mise run test     # the rules, in core/, with no runtime and no memory
 ```
 
-Le module est **recharge tout seul** par
-[asr-debugger](https://github.com/LiveSplit/asr-debugger) quand le fichier
-change : le laisser ouvert et relancer `mise run build` suffit. Il donne les
-logs, les variables et un faux timer.
+[asr-debugger](https://github.com/LiveSplit/asr-debugger) **reloads the module
+by itself** when the file changes: leave it open and run `mise run build`
+again. It gives the logs, the variables and a fake timer.
 
 ```sh
 tools/asr-debugger.exe target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
 ```
 
-Pour lire une partie en cours sans passer par LiveSplit :
+To read a game in progress without LiveSplit:
 
 ```sh
-mise run state    # un releve : niveau, chrono, monde
-mise run watch    # suit les changements de niveau en direct
-mise run dump     # les tables GameMode, world et Chrono, noms en clair
+mise run state    # one reading: level, clock, world
+mise run watch    # follows the level changes live
+mise run dump     # the GameMode, world and Chrono tables, names in clear
 ```
 
-Il faut une partie en cours : le process `--type=ppapi` qui porte Pepper Flash
-n'existe que tant qu'une instance Flash vit.
+A game must be running: the `--type=ppapi` process that carries Pepper Flash
+exists only while a Flash instance lives.
 
-**Avant de toucher au code**, lire [architecture.md](architecture.md) : il dit
-ou les decisions se prennent, pourquoi le diagnostic ne vit pas dans le code
-metier, et ce qui reste ouvert.
+**Before you touch the code**, read [architecture.md](architecture.md). It says
+where the decisions are made, why the diagnostics do not live in the product
+code, and what is still open.
 
-## Etat
+## State
 
-**Prouve** sur EternalTwin, `pepflashplayer.dll` win32-x64 32.0.0.465 :
-resolution sans adresse en dur, lecture du niveau et du temps, detection des
-changements de niveau, remise a zero immediate en fin de partie.
+**Proved** on EternalTwin, `pepflashplayer.dll` win32-x64 32.0.0.465:
+resolution with no hard coded address, reading of the level and the time,
+detection of level changes, immediate reset at the end of a game.
 
-**Mesure** : le depart est date a l'image pres, meme quand la recherche aboutit
-en retard. Douze parties, onze avec un affichage immediat ; ecart de 6 ms sur
-une minute entre le temps affiche et une horloge exterieure.
+**Measured**: the start is dated to the frame, even when the search finishes
+late. Twelve games, eleven with an immediate display; 6 ms of difference over
+one minute between the time shown and an outside clock.
 
-**Hors perimetre** : les dimensions paralleles, et le split final de la regle
-de course -- *enters the door and can no longer control the character*.
+**Out of scope**: the parallel dimensions, and the final split of the race
+rule -- *enters the door and can no longer control the character*.
 
 ## Credits
 
-Le reverse engineering precedent (`cmnemoi/hammerfest-re`, lecture du score
-sous Linux) et celui-ci ont ete realises par Claude.
+The earlier reverse engineering (`cmnemoi/hammerfest-re`, reading the score on
+Linux) and this one were done by Claude.
 
-`vendor/hf.map.json` vient d'[Eternalfest](https://gitlab.com/eternalfest),
+`vendor/hf.map.json` comes from [Eternalfest](https://gitlab.com/eternalfest),
 MIT.

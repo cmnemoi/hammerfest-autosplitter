@@ -1,223 +1,219 @@
 # Architecture
 
-Comment l'autosplitter est construit, et pourquoi il l'est ainsi. Ce que le jeu
-cache en memoire et comment on l'y trouve est l'autre document,
+How the autosplitter is built, and why it is built this way. What the game
+hides in memory, and how we find it there, is the other document:
 [reverse-engineering.md](reverse-engineering.md).
 
 ---
 
-## Deux crates, et la separation n'est pas decorative
+## Two crates, and the split is not decorative
 
 ```text
-core/     logique pure : quand demarrer, splitter, remettre a zero, lacher une
-          resolution ; decodage des atomes AVM1. Aucune dependance, aucun acces
-          memoire. -> les tests sont la.
+core/     pure logic: when to start, split, reset, drop a resolution; AVM1
+          atom decoding. No dependency, no memory access. -> the tests are
+          here.
 
-src/      infrastructure : trouver le process du plugin, balayer le tas, lire
-          les objets AVM1, parler a LiveSplit. Ne decide de rien.
+src/      infrastructure: find the plugin process, scan the heap, read the
+          AVM1 objects, talk to LiveSplit. It decides nothing.
 ```
 
-Les symboles du runtime ASR n'existent que dans le bac a sable WebAssembly.
-**Tout ce qui touche a `asr` est donc intestable sur la machine de
-developpement**, et ce qui doit etre teste doit en etre libre. D'ou le crate
-`core`, qui recoit un `State` et rend des `Actions`.
+The ASR runtime symbols exist only inside the WebAssembly sandbox.
+**Everything that touches `asr` is therefore untestable on the development
+machine**, and what must be tested has to be free of it. Hence the `core`
+crate, which receives a `State` and returns `Actions`.
 
-`src/lib.rs` se contente de lire un etat, de le passer a `core::Policy`, et
-d'executer ce qu'elle repond.
+`src/lib.rs` only reads a state, hands it to `core::Policy`, and executes the
+answer.
 
-Les tests portent sur les regles qui ont reellement casse : le raccourci du
-niveau 0 qui saute de 0 a 10, les trois ecritures de `currentId` dans une meme
-image, le chrono qui ne vaut pas zero au debut d'une partie, la remise a zero
-qui ne doit pas se declencher avant d'avoir vu une partie, et l'origine du
-temps reel dans ses deux cas.
+The tests cover the rules that actually broke: the level 0 shortcut that jumps
+from 0 to 10, the three writes of `currentId` inside one frame, the clock that
+is not zero at the start of a game, the reset that must not fire before a game
+was ever seen, and the origin of real time in both its cases.
 
 ---
 
-## Le chronometrage
+## The timing
 
-La regle de course fixe le depart : *the timer begins when the loading text
-disappears and fades in to level 0*. C'est l'image ou `GameMode.fl_lock`
-retombe -- `onViewReady` attache la vue et appelle `onLevelReady`, qui
-deverrouille, dans la meme image.
+The race rule sets the start: *the timer begins when the loading text
+disappears and fades in to level 0*. That is the frame where
+`GameMode.fl_lock` falls -- `onViewReady` attaches the view and calls
+`onLevelReady`, which unlocks, in the same frame.
 
-Le balayage du tas, lui, aboutit apres. **Et il n'y a pas a gagner cette
-course** : les objets AVM1 du SWF naissent tous ensemble, une demi-seconde
-avant l'apparition du niveau. La fenetre vaut 0,55 s et un balayage complet en
-coutait autant.
+The heap scan finishes after that. **And there is no point in winning that
+race**: the AVM1 objects of the SWF are all born together, half a second
+before the level appears. The window is 0.55 s, and a full scan used to cost
+as much.
 
-Il ne faut pas la gagner, parce que le jeu porte lui-meme l'instant du depart.
-`GameMode.main()` sort sur `fl_lock` **avant** d'incrementer `duration`, qui
-vaut donc exactement zero pendant tout l'ecran noir :
+We do not need to win it, because the game itself carries the start instant.
+`GameMode.main()` returns on `fl_lock` **before** it increments `duration`,
+which is therefore exactly zero during the whole black screen:
 
 ```text
-origine    = frameTimer - duration     a la premiere lecture deverrouillee
-temps reel = frameTimer - origine
+origin    = frameTimer - duration     at the first unlocked read
+real time = frameTimer - origin
 ```
 
-Arrive a temps, `duration` est nulle et l'origine est `frameTimer`. Arrive en
-retard, `duration` dit de combien. Verification de bout en bout : **6 ms
-d'ecart sur 60,9 s**.
+Arriving in time, `duration` is zero and the origin is `frameTimer`. Arriving
+late, `duration` says by how much. End to end check: **6 ms of difference over
+60.9 s**.
 
-`Policy` pose cette origine une fois, puis rend `real_time_ms` a chaque tick.
-Deux garde-fous, testes : l'origine est refaite quand `duration` ou
-`frameTimer` recule -- donc a la partie suivante -- mais **pas** quand la
-resolution est perdue et reprise en cours de partie. La refaire alors la
-poserait trop tard de tout le temps passe entre les niveaux, que `duration` ne
-compte pas, et le chrono reculerait sous les yeux du joueur.
+`Policy` sets this origin once, then returns `real_time_ms` on every tick. Two
+guards, both tested: the origin is rebuilt when `duration` or `frameTimer`
+goes backwards -- so at the next game -- but **not** when the resolution is
+lost and taken again during a game. Rebuilding it then would place it too
+late, by all the time spent between levels that `duration` does not count, and
+the timer would go backwards in front of the player.
 
-### Pourquoi le temps exact va dans le canal *game time*
+### Why the exact time goes in the *game time* channel
 
-L'API ASR n'expose que `start`, `split`, `reset`, `set_game_time` et
-`pause_game_time`. **Elle ne sait pas reculer un chrono deja demarre.** Le
-*real time* de LiveSplit part donc de l'appel a `start()`, c'est-a-dire du
-moment ou le balayage aboutit.
+The ASR API exposes only `start`, `split`, `reset`, `set_game_time` and
+`pause_game_time`. **It cannot move a running timer backwards.** So the
+LiveSplit *real time* starts at the `start()` call, that is, when the scan
+finishes.
 
-`set_game_time` accepte une valeur absolue. C'est donc lui qui porte le temps
-juste, et `gameChrono` -- le chrono que le jeu affiche, pauses et transitions
-de niveau exclues -- passe en variable a cote.
+`set_game_time` accepts an absolute value. So it carries the correct time, and
+`gameChrono` -- the clock the game displays, pauses and level transitions
+excluded -- goes into a variable next to it.
 
-> Dans LiveSplit : **Compare Against -> Game Time**.
+> In LiveSplit: **Compare Against -> Game Time**.
 
 ---
 
-## La resolution, du moins cher au plus cher
+## The resolution, from the cheapest to the most expensive
 
 ```text
-1. GameManager.current          quelques lectures, tentee a chaque tick
-2. balayage : fVersion          -> le GameManager, qui nait avec le SWF
-3. balayage : world             -> le GameMode directement, en dernier recours
+1. GameManager.current          a few reads, tried on every tick
+2. scan: fVersion               -> the GameManager, born with the SWF
+3. scan: world                  -> the GameMode directly, as a last resort
 ```
 
-Une fois l'ancre posee, une partie qui demarre se voit en quelques lectures.
-Tout est revalide avant usage : le jeu reconstruit ses objets entre deux
-parties, et un emplacement abandonne reste lisible en contenant une valeur
-parfaitement plausible.
+Once the anchor is set, a game that starts is seen in a few reads. Everything
+is checked again before use: the game rebuilds its objects between two games,
+and an abandoned slot stays readable while holding a perfectly plausible
+value.
 
-### Ce qui rend un balayage acceptable
+### What makes a scan acceptable
 
-| mecanisme | ce qu'il evite |
+| mechanism | what it avoids |
 | --- | --- |
-| amorce du layout avec les offsets deja mesures, verifiee avant usage | la recherche par contenu, qui coutait plusieurs passes a la premiere resolution d'une session |
-| tri des candidats dans le tampon local | une lecture distante par objet String, et il y en a des milliers |
-| une passe pour tous les candidats | huit relectures du tas quand la chaine apparait plusieurs fois |
-| plus de repli une fois le layout eprouve | relire pour rien : si la vtable est la bonne et que la chaine n'y est pas, elle n'existe pas encore |
-| balayage des seules regions neuves ou agrandies | relire cent Mio pour trouver ce qui est dans les quatre derniers |
-| budget de 8 Mio ou 128 lectures avant de rendre la main | une pause par region quand la carte en compte beaucoup de petites |
+| a layout seed with the offsets already measured, checked before use | the search by content, which cost several passes on the first resolution of a session |
+| candidates sorted inside the local buffer | one remote read per String object, and there are thousands |
+| one pass for all candidates | eight re-reads of the heap when the string appears several times |
+| no fallback once the layout is proven | reading for nothing: if the vtable is right and the string is not there, it does not exist yet |
+| scanning only the new or grown regions | re-reading a hundred MiB to find what is in the last four |
+| a budget of 8 MiB or 128 reads before yielding | one pause per region when the map holds many small ones |
 
-### Le cache d'une seconde du runtime
+### The one second cache of the runtime
 
-C'est le mecanisme le moins evident, et celui qui comptait le plus.
+This is the least obvious mechanism, and the one that mattered most.
 
-`livesplit-auto-splitting` met la carte memoire en cache **une seconde par
-processus attache** (`refresh_memory_ranges`, livesplit-core `377f598`). Le
-balayage differentiel comparait donc des regions perimees : il ne pouvait pas
-voir naitre celles ou le SWF venait de creer ses objets, et attendait la
-prochaine expiration.
+`livesplit-auto-splitting` caches the memory map **for one second per attached
+process** (`refresh_memory_ranges`, livesplit-core `377f598`). So the
+differential scan compared stale regions: it could not see the birth of the
+ones where the SWF had just created its objects, and it waited for the next
+expiry.
 
-Un acces temporaire au meme PID rend une carte independante de ce cache.
-`diagnostics::FreshMap` en prend une toutes les cent millisecondes pendant que
-le module cherche la partie, et `resolve` balaye celle-la. L'acces principal et
-les ancres de la partie restent valides.
+A temporary access to the same PID gives a map that is independent of that
+cache. `diagnostics::FreshMap` takes one every hundred milliseconds while the
+module looks for the game, and `resolve` scans that one.
 
-Resultat : **douze departs, onze a 0 ms** de retard d'affichage. Le premier
-d'un module neuf, caches vides, tombe a 135 ms.
+Result: **twelve starts, eleven at 0 ms** of display delay. The first one of a
+fresh module, with empty caches, falls to 135 ms.
 
-### Ce qui coute encore
+### What still costs
 
-Une tentative infructueuse lit environ 272 Mio en quatre passes, dont 76,5 %
-pour les deux recherches par contenu. C'est la que se trouvent les retards
-rares. Le detail est dans l'historique git, commit `6be7eb9`.
+A failed attempt reads about 272 MiB in four passes, of which 76.5 % go to the
+two searches by content. That is where the rare delays live. The detail is in
+the git history, commit `6be7eb9`.
 
 ---
 
-## Le diagnostic ne vit pas dans le metier
+## The diagnostics do not live in the product code
 
-**La compilation normale ne mesure rien** : aucune trace, aucun compteur, et le
-`.wasm` ne contient meme pas les chaines correspondantes.
+**The normal build measures nothing**: no trace, no counter, and the `.wasm`
+does not even hold the matching strings.
 
 ```sh
 grep -c HF_ target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm   # 0
 ```
 
-Tout ce qui mesure vit dans `src/diagnostics.rs`, derriere la feature du meme
-nom. Le code metier ne fait que l'appeler : sans la feature, ces appels n'ont
-pas de corps, et les types qu'ils manipulent sont vides.
+Everything that measures lives in `src/diagnostics.rs`, behind the feature of
+the same name. The product code only calls into it: without the feature, those
+calls have no body, and the types they handle are empty.
 
-Deux exceptions, qui sont du metier : l'horloge WASI -- importee directement,
-car l'API ASR n'en expose aucune et l'`Instant` d'`asr` n'existe que sur la
-cible wasi -- et `FreshMap`, dont le correctif ci-dessus depend.
+Two exceptions, which belong to the product: the WASI clock -- imported
+directly, because the ASR API exposes none and the `asr` `Instant` exists only
+on the wasi target -- and `FreshMap`, which the fix above depends on.
 
-### Mesurer
+### Measuring
 
 ```sh
-mise run build-diagnostics     # module trace, dans son propre dossier
-mise run capture-startup       # enchaine des parties et releve leur delai
-mise run summarize-startup     # resume un journal exporte
-mise run probe-runtime         # mesure le cache de la DLL ASR de LiveSplit
+mise run build-diagnostics     # traced module, in its own directory
+mise run capture-startup       # runs games and records their delay
+mise run summarize-startup     # summarises an exported log
+mise run probe-runtime         # measures the cache of the LiveSplit ASR DLL
 ```
 
-La compilation `diagnostics` ecrit des lignes `HF_DIAG`, `HF_SCAN` et
-`HF_START` que ces scripts lisent. Une compilation `known-flash` existe aussi :
-elle reconnait le lecteur deja mesure a ses en-tetes PE, avant la premiere
-partie.
+The `diagnostics` build writes `HF_DIAG`, `HF_SCAN` and `HF_START` lines,
+which these scripts read. A `known-flash` build also exists: it recognises the
+player already measured by its PE headers, before the first game.
 
 ---
 
-## Les scripts
+## The scripts
 
-Trois familles, qui ne se lisent pas de la meme facon.
+Three families, which do not read the same way.
 
-**Bibliotheques** -- elles ne s'executent pas seules, tout le reste s'appuie
-dessus.
+**Libraries** -- they do not run on their own, everything else builds on them.
 
-| fichier | role |
+| file | role |
 | --- | --- |
-| `winmem.py` | lecture seule d'un process Windows par ctypes, sans dependance. Equivalent Windows de `memlib.py` du depot `hammerfest-re`, qui lisait `/proc/<pid>/mem` |
-| `avm1.py` | le modele objet AVM1 : atomes, chaines, tables. Le layout est derive a l'execution, jamais suppose |
-| `hfmap.py` | noms du source vers noms obfusques, depuis `vendor/hf.map.json` |
+| `winmem.py` | read only access to a Windows process through ctypes, with no dependency. The Windows equivalent of `memlib.py` in the `hammerfest-re` repository, which read `/proc/<pid>/mem` |
+| `avm1.py` | the AVM1 object model: atoms, strings, tables. The layout is derived at run time, never assumed |
+| `hfmap.py` | source names to obfuscated names, from `vendor/hf.map.json` |
 
-**Outils** -- ils servent encore.
+**Tools** -- they are still in use.
 
-| commande | ce qu'elle fait |
+| command | what it does |
 | --- | --- |
-| `mise run state` / `watch` / `dump` | lire une partie en cours sans passer par LiveSplit |
-| `mise run trace` | horodater un demarrage, du process au depart officiel, et ecrire un CSV |
-| `mise run capture-startup` / `summarize-startup` / `probe-runtime` | mesurer le delai d'affichage |
+| `mise run state` / `watch` / `dump` | read a running game without LiveSplit |
+| `mise run trace` | time a start, from the process to the official start, and write a CSV |
+| `mise run capture-startup` / `summarize-startup` / `probe-runtime` | measure the display delay |
 
-**Releves** -- ils ont servi une fois, a etablir qu'aucun chemin de pointeurs
-statique ne mene aux objets du jeu. Leur conclusion est en section 10 de
-[reverse-engineering.md](reverse-engineering.md), et leur code n'a pas a etre
-beau.
+**Readings** -- they ran once, to establish that no static pointer path leads
+to the game objects. Their conclusion is in section 10 of
+[reverse-engineering.md](reverse-engineering.md), and their code does not have
+to be pretty.
 
-| fichier | question | reponse |
+| file | question | answer |
 | --- | --- | --- |
-| `anchors.py` | quelles adresses survivent au relancement d'une partie ? | aucune |
-| `stable_slots.py` | quels emplacements le lecteur reutilise-t-il ? | aucun ne pointe vers le film courant |
-| `xrefs.py` | combien de pointeurs du module sont cites par du code ? | 109 sur 550 |
-| `vtable_globals.py` | quels globals les methodes AVM1 consultent-elles ? | trois, dont deux allocateurs |
-| `ptrscan.py`, `findchain.py`, `checkchain.py` | existe-t-il une chaine courte du module au film courant ? | rien trouve ; la section 10 conclut sans eux |
+| `anchors.py` | which addresses survive a game restart? | none |
+| `stable_slots.py` | which slots does the player reuse? | none points at the current movie |
+| `xrefs.py` | how many module pointers are cited by code? | 109 out of 550 |
+| `vtable_globals.py` | which globals do the AVM1 methods read? | three, two of them allocators |
+| `ptrscan.py`, `findchain.py`, `checkchain.py` | is there a short chain from the module to the current movie? | nothing found; section 10 concludes without them |
 
-Ils dependent des bibliotheques ci-dessus, donc ils ne se deplacent pas sans
-elles -- c'est pourquoi ils restent ici plutot que de rejoindre le depot
-`hammerfest-re`, qui porte un autre travail : la lecture du **score** sous
-Linux.
+They depend on the libraries above, so they do not move without them. That is
+why they stay here rather than join the `hammerfest-re` repository, which
+carries a different piece of work: reading the **score** on Linux.
 
 ---
 
-## Ce qui reste ouvert
+## What is still open
 
-**Le *real time* de LiveSplit reste en retard** du delai de resolution. L'API
-ne permet pas de le corriger ; le chrono juste est celui du canal *game time*.
+**The LiveSplit real time stays late** by the resolution delay. The API does
+not allow a correction; the correct timer is the one in the *game time*
+channel.
 
-**La fin de la run n'est pas implementee.** La regle dit *ends when the player
-enters the door and can no longer control the character*. L'autosplitter
-splitte a chaque changement de niveau et remet a zero sur `fl_gameOver` ; le
-split final n'est pas traite.
+**The end of the run is not implemented.** The rule says *ends when the player
+enters the door and can no longer control the character*. The autosplitter
+splits on every level change and resets on `fl_gameOver`; the final split is
+not handled.
 
-**Aucun reglage n'est expose.** Le module applique `Rules::default()` :
-demarrage, split au changement de niveau dans le monde principal, remise a
-zero. Les reglages sauvegardes par d'anciennes versions sont ignores.
+**No setting is exposed.** The module applies `Rules::default()`: start, split
+on level change in the main world, reset. Settings saved by older versions are
+ignored.
 
-**Les hypotheses non levees** sont listees en fin de
-[reverse-engineering.md](reverse-engineering.md) : une seule version du lecteur
-Flash, une seule machine, les dimensions paralleles hors perimetre.
+**The open assumptions** are listed at the end of
+[reverse-engineering.md](reverse-engineering.md): one version of the Flash
+player, one machine, and the parallel dimensions out of scope.
