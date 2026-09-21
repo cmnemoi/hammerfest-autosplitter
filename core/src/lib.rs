@@ -12,6 +12,8 @@
 #![no_std]
 
 pub mod atom;
+pub mod end_sequence;
 pub mod policy;
 
+pub use end_sequence::EndSequence;
 pub use policy::{duration_ms, Actions, Policy, Rules, State, TimerState};

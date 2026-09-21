@@ -26,7 +26,9 @@ Nothing to set. Start a game on [EternalTwin](https://eternaltwin.org):
 2. it splits on every level crossed, shortcuts included -- level 0 leads
    straight to level 10, warp zones skip up to three levels, and each one
    counts as a single split;
-3. it resets when the game ends or is abandoned.
+3. it splits one last time when the player enters the elevator of the last
+   level -- that is where the race rule ends the run;
+4. it resets when the game ends or is abandoned.
 
 The time shown is a **real time**, measured from the official start of the
 run: it counts pauses and loading. The internal game clock, which excludes
@@ -99,7 +101,7 @@ To read a game in progress without LiveSplit:
 
 ```sh
 mise run state    # one reading: level, clock, world
-mise run watch    # follows the level changes live
+mise run watch    # follows the level changes, and the elevator, live
 mise run dump     # the GameMode, world and Chrono tables, names in clear
 ```
 
@@ -120,8 +122,12 @@ detection of level changes, immediate reset at the end of a game.
 late. Twelve games, eleven with an immediate display; 6 ms of difference over
 one minute between the time shown and an outside clock.
 
-**Out of scope**: the parallel dimensions, and the final split of the race
-rule -- *enters the door and can no longer control the character*.
+**Implemented, not observed**: the final split. It fires when the player
+enters the elevator of the last level. The chain is proved by the game source
+-- section 11 of [reverse-engineering.md](reverse-engineering.md) -- but no
+finished run has confirmed it yet.
+
+**Out of scope**: the parallel dimensions.
 
 ## Credits
 

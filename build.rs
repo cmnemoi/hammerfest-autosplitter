@@ -29,6 +29,10 @@ const WANTED: &[(&str, &str)] = &[
     ("HALTED_TIMER", "haltedTimer"),
     ("FL_STOP", "fl_stop"),
     ("FL_LOCK", "fl_lock"),
+    // The end of the run. `ScriptEngine.codeTrigger` case 4 -- "sortie par
+    // l'ascenseur" -- writes it in the frame where the player enters the
+    // elevator. No other line of the adventure writes it.
+    ("END_MODE_TIMER", "endModeTimer"),
 ];
 
 /// Identifiers the obfuscator leaves as they are.

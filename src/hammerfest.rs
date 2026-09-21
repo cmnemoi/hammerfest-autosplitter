@@ -134,6 +134,7 @@ struct Hints {
     stop: u64,
     lock: u64,
     duration: u64,
+    end_mode: u64,
 }
 
 pub struct Game {
@@ -143,7 +144,7 @@ pub struct Game {
     hints: Hints,
 }
 
-pub use hammerfest_core::State;
+pub use hammerfest_core::{EndSequence, State};
 
 // -- memory ranges ----------------------------------------------------------
 
@@ -1060,6 +1061,23 @@ impl Game {
                 )
                 .and_then(avm1::as_bool)
                 .unwrap_or(false),
+            // The end of the run. `GameMode.endModeTimer` is a Float that the
+            // elevator script raises to fourteen seconds of cycles, and no
+            // other line of an adventure writes it. What it means is in
+            // `EndSequence`; here we only decode the number.
+            //
+            // Absent or unreadable, the sequence has not started. A run that
+            // does not end by itself is a nuisance; a run that ends by
+            // accident is a lost run.
+            end_sequence: l
+                .get_cached(
+                    process,
+                    self.game_mode,
+                    keys::END_MODE_TIMER,
+                    &mut self.hints.end_mode,
+                )
+                .and_then(|atom| avm1::as_number(process, atom))
+                .map_or(EndSequence::NONE, EndSequence::from_cycles),
         })
     }
 

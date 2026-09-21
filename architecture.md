@@ -77,6 +77,42 @@ excluded -- goes into a variable next to it.
 
 > In LiveSplit: **Compare Against -> Game Time**.
 
+### The end of the run
+
+The rule ends the run when the player *enters the door and can no longer
+control the character*. In the last level that door is an elevator.
+
+`GameMode.endModeTimer` carries the cinematic that follows. It goes from zero
+to fourteen seconds of cycles in the frame of the elevator, and nothing else in
+an adventure writes it. `Policy` splits **when that timer starts** -- on the
+one transition, not on its presence, which lasts four hundred reads.
+
+**And the split is dated, not observed.** The game counts the timer down on the
+line after `duration += Timer.tmod`, so what is left of it says how long ago
+the run ended:
+
+```text
+finish time = real time at this read - (14000 ms - endModeTimer)
+```
+
+`EndSequence` holds that arithmetic. `Policy` only asks it how long ago. It is
+the trick of the start, in reverse: the reader does not have to arrive in the
+right frame. A correction above 500 ms is refused -- it would mean another
+version of the game, with another cinematic, and a wrong correction costs the
+run where a missing one costs one read.
+
+The time then **freezes**: the game runs for fourteen more seconds, and
+`frameTimer` with it.
+
+Two events follow, and neither may reset the run -- game over at the end of the
+cinematic, and the loss of the plugin when the page navigates to the end
+screen. The `finished` flag of `Policy` outlives both, until a new origin is
+set.
+
+The controls are the wrong thing to read: the fruit release takes them away
+too, 12.5 s earlier, and leaves this timer at zero. The proof is in section 11
+of [reverse-engineering.md](reverse-engineering.md).
+
 ---
 
 ## The resolution, from the cheapest to the most expensive
@@ -205,10 +241,11 @@ carries a different piece of work: reading the **score** on Linux.
 not allow a correction; the correct timer is the one in the *game time*
 channel.
 
-**The end of the run is not implemented.** The rule says *ends when the player
-enters the door and can no longer control the character*. The autosplitter
-splits on every level change and resets on `fl_gameOver`; the final split is
-not handled.
+**The end of the run is implemented, not observed.** The final split fires on
+the rise of `GameMode.endModeTimer`, which the source proves to be the frame of
+the elevator. No finished run has confirmed it yet: the level script that
+triggers it is encrypted in the Motion Twin repository, so only a real run
+can.
 
 **No setting is exposed.** The module applies `Rules::default()`: start, split
 on level change in the main world, reset. Settings saved by older versions are

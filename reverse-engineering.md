@@ -502,7 +502,97 @@ of the AVM1 object itself, then look for what holds that context on the player
 side -- most likely the PPAPI instance, registered in an indexed structure,
 which is exactly the kind of array that point 3 ruled out.
 
-## 11. What is still open
+## 11. The end of the run: the elevator
+
+The race rule ends the run when the player *enters the door and can no longer
+control the character*. In the last level of the adventure, that door is an
+elevator.
+
+**[PROVED]** by the source, `class/hammer/levels/ScriptEngine.mt`:
+
+```mt
+var fl_elevatorOpen : bool;   // flag fin de jeu          line 67
+
+function codeTrigger(id:int) {
+    case 3:                   // "liberation des fruits"  line 1010
+        fl_elevatorOpen = true;
+        lockControls( Data.SECOND*12.5 );   // 12.5 s
+        // endModeTimer is NOT touched
+
+    case 4:                   // "sortie par l'ascenseur" line 1021
+        if ( fl_elevatorOpen ) {
+            lockControls( 99999 );                  // line 1026
+            game.endModeTimer = Data.SECOND*14;     // line 1036
+            fl_elevatorOpen = false;
+        }
+}
+```
+
+Then, in `class/hammer/mode/GameMode.mt`:
+
+```mt
+endModeTimer = 0;                      // line 170, at initialisation
+...
+duration += Timer.tmod;                // line 2317
+if ( endModeTimer>0 ) {                // line 2320
+    endModeTimer -= Timer.tmod;
+    if ( endModeTimer<=0 ) {
+        onGameOver();                  // line 2327  ->  fl_gameOver = true
+    }
+}
+```
+
+`Data.SECOND` is 32 (`class/hammer/Data.mt:17`), so the timer starts at 448
+cycles: fourteen seconds of cinematic, then game over, then `saveScore` and a
+redirect that destroys the SWF.
+
+### The controls are the wrong thing to read
+
+Case 3 and case 4 both take the controls away. Only case 4 ends the run.
+
+A reader that watched `Player.fl_lockControls` would stop the timer 12.5 s too
+early, on the fruit release. `endModeTimer` separates the two, because case 3
+leaves it at zero.
+
+### The transition ends the run, the value dates it
+
+Nothing else in an adventure writes `endModeTimer`. The only other assignments
+in the whole source are the initialisation at zero and `mode/Soccer.mt:541`,
+another game mode that our `setName` check already rejects.
+
+So the transition from zero is the frame where the player enters the elevator,
+and that transition ends the run. Acting on the value being positive instead
+would split four hundred times: the window is fourteen seconds wide, which is
+four hundred reads at thirty per second. The event cannot be missed.
+
+The value is not thrown away. `main()` counts it down by `Timer.tmod`, on the
+line after `duration += Timer.tmod`. So:
+
+```text
+milliseconds since the elevator = 14000 - endModeTimer in milliseconds
+```
+
+That dates the last split at the frame of the elevator, whichever read sees
+it. It mirrors §9: there, `duration` dates the first split; here, what is left
+of the cinematic dates the last one.
+
+**[ASSUMPTION]** The count is a play time, not a real time: `fl_lock` freezes
+this timer and `duration` together. A pause between the elevator and our
+reading would shorten it. One read cannot hold a pause, so the case does not
+arise -- and a gap above 500 ms is refused rather than applied.
+
+### What is not proved
+
+**[ASSUMPTION]** that the last level triggers case 4. `codeTrigger` is called
+from the level script (`ScriptEngine.mt:537`), and the scripts live in
+`xml/levels/adventure.xml`, which is encrypted in the Motion Twin repository.
+
+Only a finished run confirms it. `mise run watch` prints an `ELEVATOR` line on
+the rise, which is what that run has to show.
+
+---
+
+## 12. What is still open
 
 - **[ASSUMPTION]** The relative vtables are stable for this exact binary. They
   are derived at run time, so another version would fail cleanly (`None`)

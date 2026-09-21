@@ -44,8 +44,20 @@ K_GAME_TIMER = hfmap.obf("gameTimer")
 K_HALTED_TIMER = hfmap.obf("haltedTimer")
 K_FL_STOP = hfmap.obf("fl_stop")
 
+# The end of the run. `ScriptEngine.codeTrigger` case 4 -- "sortie par
+# l'ascenseur" -- writes `endModeTimer` in the frame where the player enters
+# the elevator, and no other line of the adventure writes it. Case 3, the
+# fruit release, also takes the controls away, but it leaves this timer at
+# zero. That is what separates the end of the run from the cinematic before
+# it.
+K_FL_LOCK = hfmap.obf("fl_lock")
+K_END_MODE = hfmap.obf("endModeTimer")
+K_SCRIPT_ENGINE = hfmap.obf("scriptEngine")
+K_ELEVATOR_OPEN = hfmap.obf("fl_elevatorOpen")
+
 SECOND = 32          # Data.SECOND: game cycles per second
 MAX_LEVEL = 256      # plausibility bound for currentId
+END_MODE_CYCLES = SECOND * 14   # Data.SECOND*14, the value case 4 writes
 
 
 class Hammerfest:
@@ -115,6 +127,16 @@ class Hammerfest:
     def chrono(self):
         return self.av.child(self.gm, K_CHRONO)
 
+    def script_engine(self):
+        """GameMechanics.scriptEngine: the script of the level in progress.
+
+        `GameMechanics.buildLevel` builds a new one for every level. So
+        `fl_elevatorOpen` only means something inside the last level, and it
+        goes back to false in the same frame that ends the run.
+        """
+        w = self.world()
+        return None if w is None else self.av.child(w, K_SCRIPT_ENGINE)
+
     def chrono_ms(self):
         """Chrono.get(): game milliseconds, frozen during pauses."""
         c = self.chrono()
@@ -141,6 +163,7 @@ class Hammerfest:
         w = self.world()
         if w is None:
             return None
+        se = self.script_engine()
         return {
             "level": self.av.as_int(self.av.get(w, K_CURRENT_ID), bound=MAX_LEVEL),
             "previous": self.av.as_int(self.av.get(w, K_PREVIOUS_ID), bound=MAX_LEVEL),
@@ -151,6 +174,10 @@ class Hammerfest:
             "dim": self.av.as_int(self.av.get(self.gm, K_CURRENT_DIM), bound=64),
             "paused": self.av.as_bool(self.av.get(self.gm, K_PAUSE)),
             "game_over": self.av.as_bool(self.av.get(self.gm, K_GAME_OVER)),
+            "locked": self.av.as_bool(self.av.get(self.gm, K_FL_LOCK)),
+            "end_mode": self.av.as_number(self.av.get(self.gm, K_END_MODE)),
+            "elevator_open": None if se is None else self.av.as_bool(
+                self.av.get(se, K_ELEVATOR_OPEN)),
         }
 
     # -- inspection --------------------------------------------------------
@@ -194,6 +221,12 @@ def show(s):
     d = s["duration"]
     print("duration       %s cycles%s"
           % (round(d, 1) if d else d, "  = %.1f s" % (d / SECOND) if d else ""))
+    print("fl_lock        %s" % s["locked"])
+    e = s["end_mode"]
+    print("endModeTimer   %s cycles%s"
+          % (round(e, 1) if e is not None else e,
+             "   <- ELEVATOR: the run is over" if e and e > 0 else ""))
+    print("fl_elevatorOpen %s" % s["elevator_open"])
 
 
 def main():
@@ -216,6 +249,9 @@ def main():
             hf.dump(w, "world (GameMechanics)")
         if c:
             hf.dump(c, "gameChrono (Chrono)")
+        se = hf.script_engine()
+        if se:
+            hf.dump(se, "scriptEngine (ScriptEngine)")
         return
 
     show(hf.snapshot())
@@ -225,6 +261,7 @@ def main():
     print("\nfollowing the transitions, Ctrl-C to stop")
     last = None
     last_frame = None
+    last_end = None
     stalled = 0
     while True:
         try:
@@ -248,6 +285,15 @@ def main():
         else:
             stalled = 0
         last_frame = s["frame"]
+        # The end of the run. Announce the frame, not the countdown: the value
+        # only tells us how long the cinematic that follows still has to run.
+        end = s["end_mode"] or 0
+        if end > 0 and (last_end or 0) <= 0:
+            print("  ELEVATOR  endModeTimer 0 -> %.1f cycles (%.1f s)"
+                  "  level %s  clock %s ms  elevatorOpen %s"
+                  % (end, end / SECOND, s["level"], s["chrono_ms"],
+                     s["elevator_open"]))
+        last_end = end
         if last is None:
             print("  level %-3s clock %s ms" % (s["level"], s["chrono_ms"]))
             last = s

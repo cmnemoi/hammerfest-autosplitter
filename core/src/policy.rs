@@ -4,6 +4,8 @@
 //! nothing, when no game was found -- and returns the actions to execute. It
 //! reads no memory and knows nothing about LiveSplit.
 
+use crate::end_sequence::EndSequence;
+
 /// What the game says about itself at one instant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct State {
@@ -28,6 +30,11 @@ pub struct State {
     /// the value is exactly zero until level 0 appears. After that, it
     /// measures the time during which the game ran.
     pub duration_ms: i64,
+    /// `GameMode.endModeTimer`: the cinematic that follows the elevator.
+    ///
+    /// It says two things, and [`EndSequence`] carries both: that the run is
+    /// over, and how long ago it ended.
+    pub end_sequence: EndSequence,
 }
 
 /// `Data.SECOND`: game cycles per second.
@@ -49,6 +56,10 @@ pub struct Rules {
     pub split_on_level: bool,
     pub main_world_only: bool,
     pub auto_reset: bool,
+    /// Split when the run ends, at the elevator. It is the last split of the
+    /// race rule: *ends when the player enters the door and can no longer
+    /// control the character*.
+    pub split_on_finish: bool,
 }
 
 impl Default for Rules {
@@ -58,6 +69,7 @@ impl Default for Rules {
             split_on_level: true,
             main_world_only: true,
             auto_reset: true,
+            split_on_finish: true,
         }
     }
 }
@@ -124,6 +136,17 @@ pub struct Policy {
     lost: u32,
     heartbeat: i64,
     frozen: u32,
+    /// The run is over: the player entered the elevator.
+    ///
+    /// The game keeps running for fourteen seconds after that, then it reaches
+    /// game over and the plugin navigates away. Neither of those two events
+    /// may reset a run that is already finished.
+    finished: bool,
+    /// Real time at the instant the run ended.
+    ///
+    /// Once it is set, it is the only value we publish. `frameTimer` keeps
+    /// advancing during the end sequence, and the final time must not.
+    finish_time_ms: Option<i64>,
 }
 
 impl Policy {
@@ -153,7 +176,10 @@ impl Policy {
         // resolution at once: a finished GameMode stays readable for a long
         // time, and it holds plausible values.
         if now.game_over {
-            if rules.auto_reset && timer == TimerState::Running {
+            // A finished run must survive its own end. Game over arrives
+            // fourteen seconds after the elevator, and a reset here would
+            // erase the run on the finish line.
+            if rules.auto_reset && timer == TimerState::Running && !self.finished {
                 actions.reset = true;
             }
             self.forget();
@@ -212,11 +238,43 @@ impl Policy {
         // enters the timing. It only delays the display.
         if self.origin.is_none() && !now.locked {
             self.origin = Some(now.frame_timer - now.duration_ms);
+            // A new origin is a new run. Whatever the last one ended as, it is
+            // over.
+            self.finished = false;
+            self.finish_time_ms = None;
             if self.launched && rules.auto_start && timer == TimerState::NotRunning {
                 actions.start = true;
             }
         }
         actions.real_time_ms = self.origin.map(|o| now.frame_timer - o);
+
+        // The end of the run: the player enters the elevator.
+        //
+        // We act when the sequence starts, and only then. It stays started for
+        // fourteen seconds, so acting on its mere presence would split four
+        // hundred times. A resolution that lands inside it never saw the run
+        // start either, and has no business ending it.
+        //
+        // One read is enough, unlike the level. `Adventure.nextLevel` writes
+        // the level three times inside one frame; this sequence is written
+        // once.
+        if now.end_sequence.started()
+            && !self.finished
+            && self.seen.is_some_and(|s| !s.end_sequence.started())
+        {
+            self.finished = true;
+            // The sequence dates itself. So the split lands where the run
+            // ended, not where we noticed it.
+            self.finish_time_ms = actions
+                .real_time_ms
+                .map(|ms| ms - now.end_sequence.since_the_elevator_ms());
+            if rules.split_on_finish && timer == TimerState::Running {
+                actions.split = true;
+            }
+        }
+        if self.finished {
+            actions.real_time_ms = self.finish_time_ms.or(actions.real_time_ms);
+        }
 
         // We act only on a level read twice in a row.
         //
@@ -245,9 +303,13 @@ impl Policy {
         // resolve.
         if self.had_game {
             self.lost = self.lost.saturating_add(1);
+            // Not after a finished run. The plugin navigates away seconds
+            // after the elevator, so losing the game is the normal end of a
+            // run that succeeded.
             if self.lost == LOST_BEFORE_RESET
                 && rules.auto_reset
                 && timer == TimerState::Running
+                && !self.finished
             {
                 actions.reset = true;
             }
@@ -255,6 +317,11 @@ impl Policy {
         actions
     }
 
+    /// Forgets the game, but **not** that the run is finished.
+    ///
+    /// `finished` outlives the game on purpose: game over and the loss of the
+    /// plugin both arrive after the elevator, and both would otherwise reset a
+    /// run that is already over. It is cleared when a new origin is set.
     fn forget(&mut self) {
         self.prev = None;
         self.seen = None;
@@ -267,6 +334,11 @@ impl Policy {
     }
 
     fn decide(&self, timer: TimerState, rules: &Rules, now: &State, actions: &mut Actions) {
+        // A finished run decides nothing more. The end sequence still reads as
+        // a live game for fourteen seconds.
+        if self.finished {
+            return;
+        }
         let Some(prev) = self.prev else {
             return;
         };
@@ -333,6 +405,24 @@ mod tests {
             game_over: false,
             locked: false,
             duration_ms: (chrono_ms - 550).max(0),
+            end_sequence: EndSequence::NONE,
+        }
+    }
+
+    /// The same state, read in the frame the player enters the elevator.
+    ///
+    /// The level does not change: the run ends inside the last level, not by
+    /// leaving it.
+    fn elevator(level: i64, chrono_ms: i64) -> State {
+        elevator_since(level, chrono_ms, 0.0)
+    }
+
+    /// The same, read `elapsed` game cycles after the elevator. One cycle is
+    /// 31.25 ms.
+    fn elevator_since(level: i64, chrono_ms: i64, elapsed: f64) -> State {
+        State {
+            end_sequence: EndSequence::from_cycles(EndSequence::FULL_CYCLES - elapsed),
+            ..at(level, chrono_ms)
         }
     }
 
@@ -630,6 +720,167 @@ mod tests {
         }
     }
 
+    // -- the end of the run --------------------------------------------------
+
+    #[test]
+    fn splits_when_the_player_enters_the_elevator() {
+        // The last split of the race rule. The level stays at 103: the run
+        // ends inside the last level, not by leaving it.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        assert!(r.tick(Some(elevator(103, 601_000))).split);
+    }
+
+    #[test]
+    fn splits_once_for_the_whole_end_sequence() {
+        // `endModeTimer` stays above zero for fourteen seconds. We act on the
+        // rise, so the reads that follow must add nothing.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        let mut splits = 0;
+        for i in 0..400 {
+            if r.tick(Some(elevator(103, 601_000 + i))).split {
+                splits += 1;
+            }
+        }
+        assert_eq!(splits, 1);
+    }
+
+    #[test]
+    fn the_time_stops_at_the_elevator() {
+        // The game runs for fourteen more seconds, and `frameTimer` with it.
+        // The final time must not follow.
+        let mut r = Run::new().running();
+        let start = at(0, 550);
+        r.tick(Some(start));
+
+        let mut end = elevator(103, 600_000);
+        end.frame_timer = start.frame_timer + 600_000;
+        let finish = r.tick(Some(end)).real_time_ms;
+        assert_eq!(finish, Some(600_000));
+
+        let mut later = end;
+        later.frame_timer += 14_000;
+        assert_eq!(r.tick(Some(later)).real_time_ms, finish);
+    }
+
+    #[test]
+    fn dates_the_last_split_at_the_frame_of_the_elevator() {
+        // We read 100 ms after the elevator. What is left of the cinematic
+        // says so, and the final time goes back to the frame that ended the
+        // run -- the same trick that dates the start.
+        let mut r = Run::new().running();
+        let start = at(0, 550);
+        r.tick(Some(start));
+
+        let mut late = elevator_since(103, 600_000, 3.2); // 3.2 cycles = 100 ms
+        late.frame_timer = start.frame_timer + 600_100;
+        let actions = r.tick(Some(late));
+        assert!(actions.split);
+        assert_eq!(actions.real_time_ms, Some(600_000));
+    }
+
+    #[test]
+    fn dates_the_last_split_where_it_saw_it_when_the_gap_makes_no_sense() {
+        // Another version, another cinematic: the value no longer means what
+        // we think. We then keep the time of the read. One read late beats a
+        // correction of ten seconds.
+        let mut r = Run::new().running();
+        let start = at(0, 550);
+        r.tick(Some(start));
+
+        let mut late = elevator_since(103, 600_000, 320.0); // 10 s
+        late.frame_timer = start.frame_timer + 610_000;
+        assert_eq!(r.tick(Some(late)).real_time_ms, Some(610_000));
+    }
+
+    #[test]
+    fn does_not_reset_on_the_game_over_that_follows_the_elevator() {
+        // Game over arrives fourteen seconds after the elevator. A reset there
+        // would erase the run on the finish line.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        r.tick(Some(elevator(103, 601_000)));
+
+        let mut over = elevator(103, 615_000);
+        over.game_over = true;
+        let actions = r.tick(Some(over));
+        assert!(!actions.reset);
+        assert!(actions.drop_resolution);
+    }
+
+    #[test]
+    fn does_not_reset_when_the_plugin_dies_after_the_elevator() {
+        // `exitGame` navigates to the end page, so the SWF disappears. That is
+        // the normal end of a run that succeeded, not an abandon.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        r.tick(Some(elevator(103, 601_000)));
+        for _ in 0..LOST_BEFORE_RESET * 2 {
+            assert!(!r.tick(None).reset);
+        }
+    }
+
+    #[test]
+    fn does_not_end_a_run_it_joined_in_the_middle_of_the_sequence() {
+        // Resolved during the fourteen seconds: we never saw the rise, and we
+        // never saw the run start either. Ending it would invent a time.
+        let mut r = Run::new().running();
+        assert!(!r.tick(Some(elevator(103, 605_000))).split);
+        assert!(!r.tick(Some(elevator(103, 605_100))).split);
+    }
+
+    #[test]
+    fn the_last_level_alone_ends_nothing() {
+        // Reaching level 103 is a crossing like any other. Only the elevator
+        // ends the run, so the time must keep moving inside that level.
+        let mut r = Run::new().running();
+        let start = at(0, 550);
+        r.tick(Some(start));
+        r.confirm(at(102, 590_000));
+
+        let mut arrive = at(103, 595_000);
+        arrive.frame_timer = start.frame_timer + 595_000;
+        assert!(r.confirm(arrive).split);
+
+        let mut later = arrive;
+        later.frame_timer += 5_000;
+        assert_eq!(r.tick(Some(later)).real_time_ms, Some(600_000));
+    }
+
+    #[test]
+    fn a_new_run_after_a_finished_one_starts_and_moves_again() {
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        r.tick(Some(elevator(103, 601_000)));
+
+        let mut over = elevator(103, 615_000);
+        over.game_over = true;
+        r.tick(Some(over));
+        r.tick(None);
+        r.timer = TimerState::NotRunning;
+
+        let mut fresh = at(0, 550);
+        fresh.frame_timer = 900_000;
+        fresh.duration_ms = 0;
+        let actions = r.tick(Some(fresh));
+        assert!(actions.start);
+        assert_eq!(actions.real_time_ms, Some(0));
+
+        let mut later = fresh;
+        later.frame_timer += 3_000;
+        later.duration_ms = 3_000;
+        assert_eq!(r.tick(Some(later)).real_time_ms, Some(3_000));
+    }
+
+    #[test]
+    fn honours_the_setting_that_turns_the_last_split_off() {
+        let mut r = Run::new().running();
+        r.rules.split_on_finish = false;
+        r.confirm(at(103, 600_000));
+        assert!(!r.tick(Some(elevator(103, 601_000))).split);
+    }
+
     // -- no game ------------------------------------------------------------
 
     #[test]
@@ -673,6 +924,7 @@ mod tests {
             split_on_level: false,
             main_world_only: true,
             auto_reset: false,
+            split_on_finish: false,
         };
         r.tick(None);
         assert!(!r.tick(Some(at(0, 1_000))).start);
