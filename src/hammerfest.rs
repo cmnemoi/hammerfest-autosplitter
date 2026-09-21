@@ -1,18 +1,19 @@
-//! Resolution de l'etat Hammerfest dans le process du plugin Flash.
+//! Resolution of the Hammerfest state inside the Flash plugin process.
 //!
-//! Il n'existe aucun chemin de pointeurs statique vers ces valeurs : ce ne sont
-//! pas des variables C mais des proprietes d'objets ActionScript 2 crees a
-//! l'execution par un SWF telecharge. L'ancre est donc une chaine internee du
-//! SWF, et tout le reste se deduit d'elle.
+//! No static pointer path leads to these values. They are not C variables but
+//! properties of ActionScript 2 objects, created at run time by a downloaded
+//! SWF. The anchor is therefore an interned string of the SWF, and everything
+//! else follows from it.
 //!
 //! ```text
-//! scan "]=[]8" dans le tas    `world`, nom obfusque connu par hf.map.json
-//!   -> objet String           le qword module-pointant devant = la vtable
-//!   -> slots citant la chaine scan des 8 encodages d'atome
-//!   -> table de GameMode      celle qui possede cette clef
+//! scan "]=[]8" in the heap    `world`, obfuscated name known from hf.map.json
+//!   -> String object          the qword in front that points into the module
+//!                             is the vtable
+//!   -> slots citing the string, scanned over the 8 atom encodings
+//!   -> GameMode table         the one that owns this key
 //! GameMode.world              -> GameMechanics
-//!   .setName                  -> un monde Hammerfest connu     verification
-//!   .currentId                -> le niveau
+//!   .setName                  -> a known Hammerfest world      check
+//!   .currentId                -> the level
 //! GameMode.gameChrono         -> fl_stop ? haltedTimer : frameTimer-gameTimer
 //! ```
 
@@ -22,24 +23,24 @@ use asr::{future::next_tick, Address, Process, ProcessId};
 use crate::avm1::{self, read_u64, Layout, PROFILES, STR_BUF_CANDIDATES};
 use crate::keys;
 
-/// Le plugin, selon la plateforme.
+/// The plugin, by platform.
 pub const PLUGINS: &[&str] = &[
     "pepflashplayer.dll",
     "libpepflashplayer.so",
     "PepperFlashPlayer",
 ];
 
-/// Taille des blocs de lecture. Le tas fait une centaine de Mio : a 64 Kio
-/// c'etait un bon millier d'appels au runtime par passe, et chaque appel coute
-/// bien plus cher que les octets qu'il rapporte.
+/// Size of a read block. The heap is about a hundred MiB. At 64 KiB that was
+/// a good thousand runtime calls per pass, and each call costs far more than
+/// the bytes it brings back.
 const CHUNK: usize = 1024 * 1024;
-/// Recouvrement entre deux morceaux, pour ne pas manquer un motif a cheval.
+/// Overlap between two blocks, so a pattern across the edge is not missed.
 const OVERLAP: usize = 32;
-/// Nombre de blocs lus avant de rendre la main au runtime.
+/// Number of blocks read before we yield to the runtime.
 #[cfg(not(feature = "scan-budget"))]
 const CHUNKS_PER_TICK: usize = 8;
-// Meme plafond de volume que huit blocs de 1 Mio. Le plafond d'appels limite
-// le travail lorsque la carte contient beaucoup de petites regions.
+// The same volume ceiling as eight blocks of 1 MiB. The call ceiling limits
+// the work when the map holds many small regions.
 #[cfg(feature = "scan-budget")]
 const BYTES_PER_TICK: u64 = 8 * CHUNK as u64;
 #[cfg(feature = "scan-budget")]
@@ -47,14 +48,14 @@ const READS_PER_TICK: u64 = 128;
 
 const MAX_LEVEL: i64 = 256;
 
-/// Ce que le balayage doit compter pour se conduire : rien de plus.
+/// What the scan must count in order to steer itself, and nothing more.
 ///
-/// Le budget decide quand rendre la main au runtime. Tout ce qui ne sert qu'a
-/// mesurer -- durees, etapes, issue -- vit dans `trace`, qui n'existe pas dans
-/// la compilation normale.
+/// The budget decides when to yield to the runtime. Everything that only
+/// measures -- durations, stages, outcome -- lives in `trace`, which does not
+/// exist in the normal build.
 #[derive(Default)]
 struct Scan {
-    /// Lectures demandees au runtime, et octets qu'elles portaient.
+    /// Reads asked of the runtime, and the bytes they carried.
     calls: u64,
     requested: u64,
     #[cfg(feature = "scan-budget")]
@@ -82,11 +83,11 @@ impl Scan {
         }
     }
 
-    /// Rendre la main sur un volume, et non sur un nombre de blocs.
+    /// Yield on a volume, and not on a number of blocks.
     ///
-    /// Une carte faite de beaucoup de petites regions donnait une pause par
-    /// region -- donc une pause pour quelques Kio lus, la ou huit blocs de
-    /// 1 Mio en autorisent une pour huit Mio.
+    /// A map made of many small regions gave one pause per region -- so one
+    /// pause for a few KiB read, where eight blocks of 1 MiB allow one pause
+    /// for eight MiB.
     fn should_yield(&self, _chunks: usize) -> bool {
         #[cfg(feature = "scan-budget")]
         {
@@ -97,12 +98,14 @@ impl Scan {
         { _chunks % CHUNKS_PER_TICK == 0 }
     }
 
-    /// Marque l'etape en cours. Sans la feature `diagnostics`, ne fait rien.
+    /// Marks the current stage. Without the `diagnostics` feature, it does
+    /// nothing.
     fn stage(&mut self, next: &'static str) {
         self.trace.stage(next, self.requested, self.calls);
     }
 
-    /// Issue de la tentative, pour la trace. Sans la feature, ne fait rien.
+    /// The outcome of the attempt, for the trace. Without the feature, it
+    /// does nothing.
     fn outcome(&mut self, outcome: &'static str) {
         self.trace.outcome(outcome);
     }
@@ -115,7 +118,7 @@ impl Drop for Scan {
     }
 }
 
-/// Indices d'entrees retenus d'une lecture a l'autre, toujours re-verifies.
+/// Entry indexes kept from one read to the next, always checked again.
 #[derive(Default)]
 struct Hints {
     world: u64,
@@ -142,9 +145,10 @@ pub struct Game {
 
 pub use hammerfest_core::State;
 
-// -- plages memoire ---------------------------------------------------------
+// -- memory ranges ----------------------------------------------------------
 
-/// Les plages ou vit le tas AVM1 : lisibles, ecrivables, sans fichier derriere.
+/// The ranges where the AVM1 heap lives: readable, writable, with no file
+/// behind them.
 fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
     use asr::MemoryRangeFlags as F;
     process.memory_ranges().filter_map(|r| {
@@ -162,23 +166,23 @@ pub fn heap_ranges(process: &Process) -> Vec<(u64, u64)> {
     heap_iter(process).collect()
 }
 
-/// Total des octets engages dans ce tas.
+/// Total committed bytes in this heap.
 ///
-/// Sert a savoir si un nouveau balayage a une chance d'apprendre quelque
-/// chose. Les objets AVM1 du SWF ne naissent pas un par un : le tas passe de
-/// deux a quatre-vingts Mio en quelques secondes, puis se stabilise. Tant
-/// qu'il ne grandit pas, rebalayer ne peut rien trouver de plus -- et quand il
-/// grandit d'un coup, attendre une temporisation est du delai pur.
+/// It tells us whether a new scan has any chance to learn something. The AVM1
+/// objects of the SWF are not born one by one: the heap goes from two to
+/// eighty MiB in a few seconds, then it settles. While it does not grow, a new
+/// scan can find nothing more -- and when it grows in one step, waiting is
+/// pure delay.
 ///
-/// Mesurer coute une centaine d'appels au runtime, contre quatre-vingts Mio
-/// recopies pour un balayage.
+/// Measuring costs about a hundred runtime calls, against eighty MiB copied
+/// for a scan.
 pub fn heap_size(process: &Process) -> u64 {
     heap_iter(process).map(|(a, b)| b - a).sum()
 }
 
 // -- scans ------------------------------------------------------------------
 
-/// Toutes les adresses alignees ou `pat` apparait.
+/// Every aligned address where `pat` appears.
 async fn scan_bytes(
     process: &Process,
     ranges: &[(u64, u64)],
@@ -221,15 +225,15 @@ async fn scan_bytes(
     out
 }
 
-/// Balaye les positions alignees ou `pat` apparait et appelle `on_hit` sur
-/// chacune. Renvoyer `true` arrete le balayage.
+/// Scans the aligned positions where `pat` appears and calls `on_hit` on each
+/// one. Returning `true` stops the scan.
 ///
-/// `on_hit` recoit l'adresse **et les octets qui suivent**, jusqu'au bout du
-/// bloc deja lu. C'est ce qui permet de trier les candidats sans repasser la
-/// frontiere du process : un motif frequent -- la vtable des String, que tous
-/// les milliers d'objets String du tas portent -- couterait sinon une lecture
-/// distante par objet, et cette lecture-la coute bien plus cher que les octets
-/// qu'elle rapporte.
+/// `on_hit` receives the address **and the bytes that follow**, up to the end
+/// of the block already read. That is what lets us sort candidates without
+/// crossing the process boundary again. A frequent pattern -- the String
+/// vtable, which all the thousands of String objects in the heap carry --
+/// would otherwise cost one remote read per object, and such a read costs far
+/// more than the bytes it brings back.
 async fn scan_bytes_until(
     process: &Process,
     ranges: &[(u64, u64)],
@@ -267,11 +271,11 @@ async fn scan_bytes_until(
     }
 }
 
-/// Balaye les qwords alignes dont la valeur est l'une de `values`.
+/// Scans the aligned qwords whose value is one of `values`.
 ///
-/// Une passe pour tous les candidats, et non une par candidat : chercher qui
-/// pointe sur huit adresses coutait huit relectures du tas, soit sept cents
-/// Mio par tentative infructueuse.
+/// One pass for all candidates, and not one pass per candidate. Looking for
+/// what points at eight addresses cost eight re-reads of the heap, that is
+/// seven hundred MiB per failed attempt.
 async fn scan_u64_any(
     process: &Process,
     ranges: &[(u64, u64)],
@@ -312,17 +316,17 @@ async fn scan_u64_any(
     }
 }
 
-/// Balaye les slots contenant un atome pointant vers `ptr`, quel que soit son
-/// tag, et appelle `on_hit` sur chacun. Renvoyer `true` arrete le balayage.
+/// Scans the slots that hold an atom pointing at `ptr`, whatever its tag, and
+/// calls `on_hit` on each one. Returning `true` stops the scan.
 ///
-/// Un atome vaut `(valeur << 3) | tag` : les 8 variantes ne different que par
-/// les 3 bits bas du premier octet. On parcourt donc les positions alignees en
-/// comparant les 7 octets de poids fort, puis le premier octet masque.
+/// An atom is `(value << 3) | tag`. The 8 variants differ only in the 3 low
+/// bits of the first byte. So we walk the aligned positions, compare the 7
+/// high bytes, then the first byte with the tag masked off.
 ///
-/// Les hits sont livres au fil de l'eau plutot que collectes : il n'y a qu'une
-/// petite dizaine de citations dans tout le tas, donc attendre la fin du
-/// balayage pour les examiner reviendrait a toujours lire les cent Mio, meme
-/// quand la bonne table est la premiere rencontree.
+/// Hits are delivered as they come, rather than collected. There are only
+/// about ten citations in the whole heap, so waiting for the end of the scan
+/// to examine them would mean always reading the hundred MiB, even when the
+/// right table is the first one we meet.
 async fn scan_atoms(
     process: &Process,
     ranges: &[(u64, u64)],
@@ -361,7 +365,7 @@ async fn scan_atoms(
     }
 }
 
-/// Un qword lu dans un tampon local, si l'offset y tient.
+/// A qword read from a local buffer, if the offset fits inside it.
 fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
     let raw = buf.get(off..off + 8)?;
     Some(u64::from_le_bytes(<[u8; 8]>::try_from(raw).ok()?))
@@ -369,84 +373,83 @@ fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
 
 // -- resolution -------------------------------------------------------------
 
-/// Ce qu'une resolution apprend et que les suivantes reutilisent.
+/// What one resolution learns and the next ones reuse.
 ///
-/// Rien ici n'est l'adresse d'un objet de partie -- ce serait le piege. Les
-/// deux adresses retenues appartiennent a des objets qui vivent aussi longtemps
-/// que le SWF : la chaine internee d'une clef, et la table du `GameManager`.
-/// Elles sont revalidees avant chaque usage, et l'`Anchor` est remis a zero a
-/// chaque nouveau process plugin.
+/// Nothing here is the address of a game object -- that would be the trap. The
+/// two addresses kept belong to objects that live as long as the SWF: the
+/// interned string of a key, and the `GameManager` table. They are checked
+/// again before every use, and the `Anchor` is cleared for every new plugin
+/// process.
 #[derive(Default)]
 pub struct Anchor {
-    /// Objets String des clefs d'ancrage, internes par le SWF.
+    /// The String objects of the anchor keys, interned by the SWF.
     string_world: Option<u64>,
     string_version: Option<u64>,
-    /// Table de proprietes du `GameManager`, et le layout qui va avec.
+    /// The property table of the `GameManager`, and the layout that goes with
+    /// it.
     ///
-    /// C'est l'ancre que le jeu offre lui-meme : `GameManager` nait avec le SWF
-    /// et designe le mode qui tourne (`transition()` y ecrit chaque nouveau
-    /// mode). Le trouver **pendant les menus** permet de ne plus jamais
-    /// balayer ensuite : la partie, quand elle demarre, est au bout d'un
-    /// pointeur.
+    /// This is the anchor the game offers by itself. `GameManager` is born
+    /// with the SWF and points at the mode that runs (`transition()` writes
+    /// every new mode into it). Finding it **during the menus** means we never
+    /// scan again: when the game starts, it is at the end of a pointer.
     manager: Option<u64>,
     layout: Option<Layout>,
     current_hint: u64,
-    /// L'ancre a-t-elle deja livre une partie ?
+    /// Has the anchor ever delivered a game?
     ///
-    /// Tant qu'elle ne l'a pas fait, le balayage de repli reste autorise. Une
-    /// ancre fausse -- ou juste inexploitable -- ne doit pas pouvoir empecher
-    /// a elle seule toute detection : c'est ce qui s'est produit quand
-    /// l'offset `ScriptObject -> table` n'etait pas derive sur ce chemin-la.
+    /// While it has not, the fallback scan stays allowed. A wrong anchor -- or
+    /// simply one we cannot use -- must not be able to block all detection on
+    /// its own. That is what happened when the `ScriptObject -> table` offset
+    /// was not derived on that path.
     ///
-    /// Mais l'autorisation ne peut pas durer : le balayage bloque la boucle une
-    /// a deux secondes, et tant qu'aucune partie n'a ete vue -- donc pile au
-    /// moment ou l'on attend le lancement -- il masquerait le clic. On fait
-    /// donc confiance a l'ancre tout de suite, et on ne la remet en cause
-    /// qu'apres un long silence.
+    /// But the permission cannot last. The scan blocks the loop for one or two
+    /// seconds, and while no game has been seen -- so exactly when we wait for
+    /// the launch -- it would hide the click. So we trust the anchor at once,
+    /// and we question it only after a long silence.
     manager_proven: bool,
-    /// Tentatives infructueuses depuis que l'ancre est posee.
+    /// Failed attempts since the anchor was set.
     manager_idle: u32,
-    /// Region ou le dernier GameMode a ete trouve : balayee en premier.
+    /// The region where the last GameMode was found. It is scanned first.
     last_game_mode: Option<u64>,
-    /// Regions vues au dernier balayage, bornes comprises.
+    /// The regions seen at the last scan, bounds included.
     ///
-    /// Ce qui n'y figure pas est neuf : region fraichement engagee, ou region
-    /// qui a grandi. C'est la que naissent les objets du SWF -- les balayages
-    /// qui aboutissent ne lisent que seize Mio, ceux qui echouent en relisent
-    /// deux cents. Voir `resolve`.
+    /// Anything not in this list is new: a freshly committed region, or a
+    /// region that grew. That is where the SWF objects are born -- the scans
+    /// that succeed read only sixteen MiB, the ones that fail re-read two
+    /// hundred. See `resolve`.
     regions: Vec<(u64, u64)>,
-    /// Tentatives depuis le dernier balayage complet.
+    /// Attempts since the last full scan.
     sweeps: u32,
 }
 
-/// Ce qu'on retient du binaire lui-meme, d'un process plugin a l'autre.
+/// What we keep about the binary itself, from one plugin process to the next.
 ///
-/// Le process plugin va et vient, mais c'est toujours la meme DLL : ses
-/// vtables sont au meme offset dans le module, seule la base change avec
-/// l'ASLR. Les retenir permet de trouver une chaine internee en **une** passe
-/// -- balayer les en-tetes d'objets String -- au lieu de deux : chercher le
-/// buffer, puis qui pointe dessus.
+/// The plugin process comes and goes, but the DLL is always the same one: its
+/// vtables sit at the same offset in the module, and only the base changes
+/// with ASLR. Keeping them lets us find an interned string in **one** pass --
+/// scanning the String object headers -- instead of two: find the buffer, then
+/// find what points at it.
 ///
-/// C'est du binaire, pas de la partie : rien ici ne peut devenir obsolete
-/// entre deux parties, et tout est revalide a l'usage.
+/// This is about the binary, not about the game. Nothing here can go stale
+/// between two games, and everything is checked again at use.
 #[derive(Copy, Clone, Default)]
 pub struct Binary {
     layout: Option<Layout>,
 }
 
-/// Layout mesure sur `pepflashplayer.dll` win32-x64 32.0.0.465, en offsets
-/// relatifs au module.
+/// Layout measured on `pepflashplayer.dll` win32-x64 32.0.0.465, as offsets
+/// relative to the module.
 ///
-/// Ce n'est pas une adresse en dur, c'est une **amorce**. Elle est verifiee
-/// exactement comme une valeur derivee -- la chaine est relue et comparee --
-/// et abandonnee sans bruit si le binaire differe, auquel cas la recherche
-/// complete reprend.
+/// This is not a hard coded address, it is a **seed**. It is checked exactly
+/// like a derived value -- the string is read back and compared -- and dropped
+/// without noise if the binary differs, in which case the full search takes
+/// over.
 ///
-/// Ce qu'elle fait gagner : sans elle, la premiere resolution d'une session
-/// cherche la chaine par son contenu, puis refait une passe complete sur le
-/// tas **par candidat** pour trouver qui pointe dessus. Avec elle, une seule
-/// passe sur les en-tetes d'objets suffit, des la premiere partie. Le prix a
-/// payer sur un binaire inconnu est cette passe-la, perdue une fois.
+/// What it saves: without it, the first resolution of a session searches the
+/// string by its content, then makes one full pass over the heap **per
+/// candidate** to find what points at it. With it, one pass over the object
+/// headers is enough, from the first game on. The price on an unknown binary
+/// is that one pass, lost once.
 const MEASURED: Layout = Layout {
     module: (0, 0),
     str_vt: 0x1756db8,
@@ -458,8 +461,8 @@ const MEASURED: Layout = Layout {
 };
 
 impl Binary {
-    /// Profil deja mesure, reconnu par les en-tetes PE et quatre methodes.
-    /// Le repli habituel reste actif si une seule verification echoue.
+    /// A profile already measured, recognised by the PE headers and four
+    /// methods. The usual fallback stays active if a single check fails.
     #[cfg(feature = "known-flash")]
     pub fn recognize(&mut self, process: &Process, module: (u64, u64)) -> bool {
         let u32_at = |off| process.read::<u32>(Address::new(module.0 + off)).ok();
@@ -489,7 +492,7 @@ impl Binary {
         true
     }
 
-    /// Le layout, rebase sur le module de ce process-ci.
+    /// The layout, rebased on the module of this process.
     fn layout(&self, module: (u64, u64)) -> Option<Layout> {
         let mut l = self.layout.unwrap_or(MEASURED);
         l.str_vt = module.0 + l.str_vt;
@@ -498,13 +501,13 @@ impl Binary {
         Some(l)
     }
 
-    /// Le layout a-t-il deja servi a lire quelque chose dans ce binaire ?
+    /// Has the layout already read something in this binary?
     ///
-    /// Tant que non, il faut garder le repli : l'amorce peut ne pas valoir
-    /// pour cette version du lecteur. Une fois oui, le repli ne peut plus rien
-    /// apprendre -- il ne ferait que relire le tas pour rien, et c'est
-    /// exactement ce qui coutait sept cents Mio par tentative infructueuse
-    /// pendant le chargement du SWF.
+    /// While it has not, we must keep the fallback: the seed may not hold for
+    /// this version of the player. Once it has, the fallback can learn nothing
+    /// more -- it would only re-read the heap for nothing, and that is exactly
+    /// what cost seven hundred MiB per failed attempt while the SWF was
+    /// loading.
     fn proven(&self) -> bool {
         self.layout.is_some()
     }
@@ -518,30 +521,30 @@ impl Binary {
 }
 
 impl Anchor {
-    /// Les adresses apprises dans un process n'ont aucun sens dans le
-    /// suivant : l'ASLR les deplace, et le tas AVM1 est reconstruit.
+    /// Addresses learned in one process mean nothing in the next one: ASLR
+    /// moves them, and the AVM1 heap is built again.
     pub fn reset(&mut self) {
         *self = Self::default();
     }
 }
 
-/// Tentatives infructueuses tolerees avant de remettre en cause une ancre qui
-/// n'a jamais rien donne. A raison d'une par seconde environ, cela laisse une
-/// bonne demi-minute avant de reprendre le balayage.
+/// Failed attempts allowed before we question an anchor that never gave
+/// anything. At about one per second, that leaves a good half minute before
+/// the scan starts again.
 const MANAGER_IDLE_LIMIT: u32 = 30;
 
-/// Tentatives sans region neuve avant de relire le tas en entier.
+/// Attempts with no new region before we read the whole heap again.
 ///
-/// Le filet de securite de la regle ci-dessus : un objet peut naitre dans de
-/// la memoire deja engagee, et aucune region neuve ne le signalerait.
+/// The safety net for the rule above: an object can be born in memory that is
+/// already committed, and no new region would signal it.
 const FULL_SWEEP: u32 = 8;
 
-/// Voie rapide : suit `GameManager.current`, sans rien balayer.
+/// Fast path: follows `GameManager.current`, with no scan at all.
 ///
-/// Quelques lectures, contre une centaine de Mio. C'est ce qui permet de
-/// chercher la partie a chaque tick. Renvoie None si l'ancre n'est pas encore
-/// apprise, si la table du GameManager a bouge, ou si le mode courant n'est pas
-/// une partie jouable -- un menu, par exemple.
+/// A few reads, against a hundred MiB. That is what lets us look for the game
+/// on every tick. It returns None if the anchor is not learned yet, if the
+/// GameManager table moved, or if the current mode is not a playable game -- a
+/// menu, for example.
 pub fn resolve_via_manager(process: &Process, anchor: &mut Anchor) -> Option<Game> {
     let layout = anchor.layout?;
     let manager = anchor.manager?;
@@ -549,8 +552,8 @@ pub fn resolve_via_manager(process: &Process, anchor: &mut Anchor) -> Option<Gam
         anchor.manager = None;
         return None;
     }
-    // Plus de `current` : ce n'est plus le GameManager, la table a du bouger.
-    // Lacher l'ancre relance un balayage plutot que de rester aveugle.
+    // No more `current`: this is not the GameManager any more, the table must
+    // have moved. Dropping the anchor starts a scan instead of staying blind.
     let Some(current) =
         layout.get_cached(process, manager, keys::CURRENT, &mut anchor.current_hint)
     else {
@@ -565,15 +568,15 @@ pub fn resolve_via_manager(process: &Process, anchor: &mut Anchor) -> Option<Gam
     Some(game)
 }
 
-/// Cherche la partie en cours.
+/// Looks for the game in progress.
 ///
-/// Trois etages, du moins cher au plus cher :
+/// Three stages, from the cheapest to the most expensive:
 ///
-/// 1. suivre `GameManager.current`, si l'ancre est connue ;
-/// 2. sinon, localiser le `GameManager` -- il existe des le chargement du SWF,
-///    donc cette recherche aboutit deja dans les menus, avant toute partie ;
-/// 3. en dernier recours, chercher directement un `GameMode` par sa clef
-///    `world`. Ne sert que si l'etage 2 echoue.
+/// 1. follow `GameManager.current`, if the anchor is known;
+/// 2. otherwise, locate the `GameManager` -- it exists as soon as the SWF is
+///    loaded, so this search already succeeds in the menus, before any game;
+/// 3. as a last resort, look for a `GameMode` directly by its `world` key.
+///    This only serves when stage 2 fails.
 pub async fn resolve(
     process: &Process,
     module: (u64, u64),
@@ -591,19 +594,19 @@ pub async fn resolve(
         return None;
     }
 
-    // Ne balayer que ce qui a change.
+    // Scan only what changed.
     //
-    // Les objets du SWF naissent tous ensemble, dans de la memoire qui vient
-    // d'etre engagee : les balayages qui aboutissent ne lisent que seize Mio,
-    // ceux qui echouent en relisaient deux cents pour rien. Or c'est le prix
-    // de ces echecs-la qui decide de tout -- pendant qu'un balayage inutile
-    // dure, le niveau 0 apparait, et le chrono demarre en retard.
+    // The SWF objects are all born together, in memory that has just been
+    // committed. The scans that succeed read only sixteen MiB; the ones that
+    // failed re-read two hundred for nothing. And the price of those failures
+    // decides everything -- while a useless scan runs, level 0 appears, and
+    // the timer starts late.
     //
-    // Une region absente de la liste precedente est neuve, ou elle a grandi.
-    // Quand il n'y en a aucune, rien n'a pu naitre depuis la derniere fois :
-    // le balayage n'apprendrait rien, et on s'abstient. De loin en loin, tout
-    // de meme, une passe complete -- pour le cas ou un objet naitrait dans de
-    // la memoire deja engagee, que cette regle ne verrait jamais.
+    // A region that is not in the previous list is new, or it grew. When there
+    // is none, nothing can have been born since last time: the scan would
+    // learn nothing, so we skip it. Now and then, all the same, a full pass --
+    // for the case where an object is born in memory that is already
+    // committed, which this rule would never see.
     let mut ranges: Vec<(u64, u64)> = all
         .iter()
         .filter(|r| !anchor.regions.contains(r))
@@ -618,17 +621,17 @@ pub async fn resolve(
         ranges = all.clone();
     }
     anchor.regions = all.clone();
-    // Les tables se cherchent partout, meme quand la chaine ne se cherche que
-    // dans le neuf.
+    // Tables are searched everywhere, even when the string is only searched
+    // in the new memory.
     let mut full = all;
     if let Some(addr) = anchor.last_game_mode {
         move_region_first(&mut ranges, addr);
         move_region_first(&mut full, addr);
     }
 
-    // Poser l'ancre d'abord : une fois le GameManager connu, plus aucun
-    // balayage n'est necessaire, et le lancement d'une partie se voit en
-    // quelques lectures au lieu d'une demi-seconde a plusieurs secondes.
+    // Set the anchor first. Once the GameManager is known, no scan is needed
+    // any more, and the launch of a game is seen in a few reads instead of
+    // half a second to several seconds.
     if anchor.manager.is_none() {
         cost.stage("manager");
         if let Some((layout, tbl)) =
@@ -649,25 +652,25 @@ pub async fn resolve(
 
     }
 
-    // Ancre posee mais `current` ne designe pas de partie : il n'y en a
-    // simplement pas. Rien a balayer, c'est deja la reponse -- et surtout, ne
-    // pas balayer laisse la boucle libre de voir la partie demarrer des le
-    // tick suivant.
+    // The anchor is set but `current` points at no game: there simply is
+    // none. Nothing to scan, that is already the answer -- and above all, not
+    // scanning leaves the loop free to see the game start on the very next
+    // tick.
     if anchor.manager.is_some() {
         anchor.manager_idle += 1;
         if anchor.manager_proven || anchor.manager_idle < MANAGER_IDLE_LIMIT {
             return None;
         }
-        // Longtemps muette et jamais eprouvee : c'est peut-etre elle le
-        // probleme. On la lache et on recherche.
-        asr::print_message("Hammerfest: ancre muette, nouvelle recherche");
+        // Silent for a long time and never proven: the anchor may be the
+        // problem itself. We drop it and search again.
+        asr::print_message("Hammerfest: silent anchor, searching again");
         anchor.manager = None;
         anchor.manager_idle = 0;
         return None;
     }
 
-    // Repli : chercher le GameMode lui-meme, ancre sur `world` -- porte par une
-    // poignee d'objets seulement.
+    // Fallback: look for the GameMode itself, anchored on `world` -- a key
+    // only a handful of objects carry.
     cost.stage("world_string");
     let (layout, strobj) = find_string(
         process,
@@ -679,9 +682,9 @@ pub async fn resolve(
         &mut cost,
     )
     .await?;
-    // La chaine internee et les tables qui la citent vivent dans le meme tas
-    // AVM1 : commencer par sa region evite le plus souvent d'avoir a lire le
-    // reste, et c'est ce qui rend la duree stable d'une fois sur l'autre.
+    // The interned string and the tables that cite it live in the same AVM1
+    // heap. Starting with its region usually saves us from reading the rest,
+    // and that is what makes the duration stable from one time to the next.
     move_region_first(&mut full, strobj);
 
     cost.stage("world_tables");
@@ -691,7 +694,7 @@ pub async fn resolve(
     .await?;
 
     asr::print_message(&alloc::format!(
-        "Hammerfest: GameMode 0x{:x}, monde {}, layout {}",
+        "Hammerfest: GameMode 0x{:x}, world {}, layout {}",
         game.game_mode,
         game.set,
         game.layout.profile.name,
@@ -699,28 +702,28 @@ pub async fn resolve(
     binary.learn(&game.layout);
     anchor.last_game_mode = Some(game.game_mode);
     anchor.layout = Some(game.layout);
-    // `Mode.manager` mene au GameManager. Le retenir ne raccourcit pas le
-    // demarrage d'une partie -- le plugin meurt avec elle, donc l'ancre ne
-    // survit pas jusqu'a la suivante -- mais rend gratuite toute
-    // re-resolution au sein d'une meme partie.
+    // `Mode.manager` leads to the GameManager. Keeping it does not shorten
+    // the start of a game -- the objects die with the game, so the anchor does
+    // not survive to the next one -- but it makes any new resolution inside
+    // the same game free.
     anchor.manager = game.layout.child(process, game.game_mode, keys::MANAGER);
     anchor.current_hint = 0;
     cost.outcome("game_via_world");
     Some(game)
 }
 
-/// Localise le `GameManager`, l'ancre qui rend toute detection ulterieure
+/// Locates the `GameManager`, the anchor that makes every later detection
 /// immediate.
 ///
-/// Ancree sur `fVersion`, pose dans son constructeur et qu'aucune autre classe
-/// ne porte. Une clef banale comme `current` -- que chaque SetManager possede
-/// -- serait citee des dizaines de fois, et chaque candidat coute la
-/// reconstruction d'une table.
+/// It is anchored on `fVersion`, which its constructor sets and which no other
+/// class carries. A common key such as `current` -- which every SetManager has
+/// -- would be cited dozens of times, and every candidate costs the rebuild of
+/// a table.
 ///
-/// L'interet est le moment : le plugin Flash existe des l'ouverture de
-/// l'application, donc bien avant qu'une partie soit lancee. Ce balayage-la a
-/// tout le temps d'aboutir pendant que le joueur est encore dans les ecrans de
-/// chargement, et la partie qui demarre ensuite se voit en quelques lectures.
+/// The point is the timing: the Flash plugin exists as soon as the application
+/// opens, so long before a game starts. This scan has all the time it needs
+/// while the player is still on the loading screens, and the game that starts
+/// next is seen in a few reads.
 async fn scan_for_manager(
     process: &Process,
     module: (u64, u64),
@@ -730,10 +733,10 @@ async fn scan_for_manager(
     binary: &mut Binary,
     cost: &mut Scan,
 ) -> Option<(Layout, u64)> {
-    // La chaine ne se cherche que dans ce qui a change -- c'est la que le SWF
-    // vient de la creer. Les tables qui la citent, en revanche, se cherchent
-    // partout : une fois la chaine trouvee, on sait qu'une partie existe, et
-    // la passe suivante s'arrete a la premiere table valable.
+    // The string is only searched in what changed -- that is where the SWF
+    // has just created it. The tables that cite it, on the other hand, are
+    // searched everywhere: once the string is found, we know a game exists,
+    // and the next pass stops at the first valid table.
     cost.stage("manager_string");
     let (layout, strobj) = find_string(
         process,
@@ -746,18 +749,18 @@ async fn scan_for_manager(
     )
     .await?;
 
-    // La chaine internee et les tables qui la citent vivent dans le meme tas
-    // AVM1 : commencer par sa region evite le plus souvent d'avoir a lire le
-    // reste. C'est ce qui rendait la duree stable sur le chemin de repli, et
-    // cela manquait ici.
+    // The interned string and the tables that cite it live in the same AVM1
+    // heap. Starting with its region usually saves us from reading the rest.
+    // That is what made the duration stable on the fallback path, and it was
+    // missing here.
     move_region_first(ranges, strobj);
 
     cost.stage("manager_tables");
     scan_tables(process, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
-        // La reference croisee valide le candidat *et* derive au passage
-        // l'offset `ScriptObject -> table`, sans lequel rien de ce qui suit ne
-        // peut etre lu : `GameManager.current` designe un mode dont le champ
-        // `manager` redesigne ce meme GameManager.
+        // The cross reference proves the candidate *and* derives the
+        // `ScriptObject -> table` offset on the way. Without that offset,
+        // nothing below can be read: `GameManager.current` points at a mode
+        // whose `manager` field points back at that same GameManager.
         let current = l.get(process, t, keys::CURRENT)?;
         let mode = l.derive_so_tbl(process, current, keys::MANAGER)?;
         let back = l.child(process, mode, keys::MANAGER)?;
@@ -766,18 +769,18 @@ async fn scan_for_manager(
     .await
 }
 
-/// Met en tete la region contenant `addr`, si elle y est.
+/// Moves the region that holds `addr` to the front, if it is there.
 fn move_region_first(ranges: &mut [(u64, u64)], addr: u64) {
     if let Some(i) = ranges.iter().position(|&(a, b)| a <= addr && addr < b) {
         ranges.swap(0, i);
     }
 }
 
-/// Trouve l'objet String interne d'une clef, et le layout des String avec lui.
+/// Finds the interned String object of a key, and the String layout with it.
 ///
-/// Le cache evite deux balayages complets par tentative : ces objets viennent
-/// du pool de constantes du SWF, donc ils vivent aussi longtemps que le plugin.
-/// Il est revalide en redecodant la chaine, jamais suppose valide.
+/// The cache saves two full scans per attempt: these objects come from the
+/// constant pool of the SWF, so they live as long as the plugin. It is checked
+/// again by decoding the string, never assumed valid.
 async fn find_string(
     process: &Process,
     module: (u64, u64),
@@ -800,14 +803,14 @@ async fn find_string(
         *cache = None;
     }
 
-    // Vtable connue : une seule passe suffit, sur les en-tetes d'objets.
+    // Known vtable: one pass is enough, over the object headers.
     if let Some(seed) = binary.layout(module) {
         cost.stage("string_seed");
         let mut found = None;
         scan_bytes_until(process, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
-            // La longueur d'abord, et dans le tampon quand elle y tient : elle
-            // ecarte presque tous les objets String, et la chaine elle-meme
-            // n'est relue que pour les rares survivants.
+            // The length first, and from the buffer when it fits there. It
+            // rejects almost every String object, and the string itself is
+            // only read back for the rare survivors.
             let len = u64_at(rest, seed.str_len as usize)
                 .or_else(|| read_u64(process, so + seed.str_len));
             if len == Some(units) && seed.string_eq(process, so, key) {
@@ -822,16 +825,16 @@ async fn find_string(
             return Some((seed, so));
         }
         if binary.proven() {
-            // La vtable est la bonne et la chaine n'y est pas : elle n'existe
-            // pas encore. Le SWF ne l'a pas creee, et aucune autre recherche
-            // ne la fera apparaitre.
+            // The vtable is the right one and the string is not there: it
+            // does not exist yet. The SWF has not created it, and no other
+            // search will make it appear.
             return None;
         }
     }
 
-    // Repli : la vtable n'est pas connue, ou l'amorce ne vaut pas pour ce
-    // binaire. Deux passes, pas davantage -- les octets de la clef d'abord,
-    // puis une seule passe pour tous les candidats a la fois.
+    // Fallback: the vtable is not known, or the seed does not hold for this
+    // binary. Two passes, no more -- the bytes of the key first, then one
+    // single pass for all the candidates at once.
     let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
     cost.stage("string_bytes");
     let buffers = scan_bytes(process, ranges, &needle, 2, 8, cost).await;
@@ -860,12 +863,12 @@ async fn find_string(
     found
 }
 
-/// Balaye les tables possedant `key` et rend la premiere qu'`accept` retient.
+/// Scans the tables that own `key` and returns the first one `accept` keeps.
 ///
-/// La validation se fait au fil du balayage : il n'y a qu'une petite dizaine de
-/// citations dans tout le tas, donc les collecter avant de les examiner
-/// obligerait a toujours lire les cent Mio, meme quand la bonne table est la
-/// premiere rencontree.
+/// The check happens as the scan goes. There are only about ten citations in
+/// the whole heap, so collecting them before examining them would force us to
+/// always read the hundred MiB, even when the right table is the first one we
+/// meet.
 async fn scan_tables<T>(
     process: &Process,
     ranges: &[(u64, u64)],
@@ -899,11 +902,11 @@ async fn scan_tables<T>(
     result
 }
 
-/// Deduit le layout des objets String a partir de l'adresse d'un objet String.
+/// Derives the String layout from the address of one String object.
 ///
-/// Trois contraintes independantes : le qword de tete pointe dans le module
-/// (c'est la vtable), un qword vaut la longueur attendue, et la chaine ainsi
-/// decodee est bien celle qu'on cherche.
+/// Three independent constraints: the leading qword points into the module (it
+/// is the vtable), one qword holds the expected length, and the string decoded
+/// that way is the one we look for.
 fn string_layout_at(
     process: &Process,
     module: (u64, u64),
@@ -938,11 +941,10 @@ fn string_layout_at(
     None
 }
 
-/// Une table possedant `world` est-elle vraiment le GameMode ?
+/// Is a table that owns `world` really the GameMode?
 ///
-/// `world` seul ne suffit pas : les objets `View` en portent un aussi, et
-/// pointent vers le meme `GameMechanics`. Seul le GameMode possede en plus un
-/// `gameChrono`.
+/// `world` alone is not enough: `View` objects carry one too, and they point
+/// at the same `GameMechanics`. Only the GameMode also owns a `gameChrono`.
 fn validate(process: &Process, mut layout: Layout, tbl: u64) -> Option<Game> {
     let world_atom = layout.get(process, tbl, keys::WORLD)?;
     let wtbl = layout.derive_so_tbl(process, world_atom, keys::SET_NAME)?;
@@ -961,8 +963,8 @@ fn validate(process: &Process, mut layout: Layout, tbl: u64) -> Option<Game> {
     let chrono = layout.child(process, tbl, keys::GAME_CHRONO)?;
     layout.get_int(process, chrono, keys::FRAME_TIMER)?;
 
-    // Un GameMode deja en game over est un GameMode fini : s'y raccrocher
-    // ferait lire une partie terminee au lieu d'attendre la suivante.
+    // A GameMode already in game over is a finished GameMode. Holding on to
+    // it would read a game that is over instead of waiting for the next one.
     if layout
         .get(process, tbl, keys::FL_GAME_OVER)
         .and_then(avm1::as_bool)
@@ -979,24 +981,25 @@ fn validate(process: &Process, mut layout: Layout, tbl: u64) -> Option<Game> {
     })
 }
 
-// -- lecture ----------------------------------------------------------------
+// -- reading ----------------------------------------------------------------
 
 impl Game {
-    /// Etat courant, ou None si la resolution n'est plus valable.
+    /// The current state, or None if the resolution is no longer valid.
     ///
-    /// Tout est relu depuis GameMode a chaque appel. Garder l'adresse finale
-    /// serait dangereux : le jeu reconstruit ses objets entre deux parties et
-    /// le slot abandonne reste lisible, contenant une valeur plausible.
+    /// Everything is read again from GameMode on every call. Keeping the final
+    /// address would be dangerous: the game rebuilds its objects between two
+    /// games, and the abandoned slot stays readable, holding a plausible
+    /// value.
     pub fn read(&mut self, process: &Process) -> Option<State> {
-        // Lu avant d'emprunter `self.layout` : `chrono_ms` a besoin de `self`
-        // en entier.
+        // Read before we borrow `self.layout`: `chrono_ms` needs all of
+        // `self`.
         let (chrono_ms, frame_timer) = self.chrono(process)?;
         let l = &self.layout;
         let world_atom = l.get_cached(process, self.game_mode, keys::WORLD, &mut self.hints.world)?;
         let world = l.table_of(process, world_atom)?;
 
-        // Le monde doit toujours etre un monde connu : c'est ce qui detecte
-        // qu'on lit desormais de la memoire recyclee.
+        // The world must always be a known world. That is what detects that
+        // we now read recycled memory.
         let set_atom = l.get_cached(process, world, keys::SET_NAME, &mut self.hints.set_name)?;
         if !keys::WORLDS
             .iter()
@@ -1024,17 +1027,17 @@ impl Game {
             previous,
             chrono_ms,
             frame_timer,
-            // `fl_lock` est vrai pendant l'ecran noir qui precede le niveau 0 :
-            // c'est sa retombee qui donne le depart officiel de la run.
+            // `fl_lock` is true during the black screen before level 0. Its
+            // fall is the official start of the run.
             locked: l
                 .get_cached(process, self.game_mode, keys::FL_LOCK, &mut self.hints.lock)
                 .and_then(avm1::as_bool)
                 .unwrap_or(false),
-            // Obligatoire, comme le niveau et le chrono : c'est elle qui date
-            // le depart de la run. La lire a zero par defaut poserait
-            // l'origine a l'instant de la resolution, donc un chrono court de
-            // tout le retard du balayage -- et en silence. Mieux vaut declarer
-            // la lecture invalide et rebalayer.
+            // Required, like the level and the clock: this is what dates the
+            // start of the run. Reading it as zero by default would set the
+            // origin at the instant of the resolution, so a timer short by all
+            // the delay of the scan -- and silently so. Better to declare the
+            // read invalid and scan again.
             duration_ms: hammerfest_core::duration_ms(avm1::as_number(
                 process,
                 l.get_cached(
@@ -1060,7 +1063,7 @@ impl Game {
         })
     }
 
-    /// `Chrono.get()` en millisecondes, et le `frameTimer` brut.
+    /// `Chrono.get()` in milliseconds, and the raw `frameTimer`.
     ///
     /// ```mt
     /// function get() {
@@ -1103,26 +1106,25 @@ impl Game {
     }
 }
 
-/// Le process plugin : celui des process EternalTwin ou Pepper Flash est
-/// charge. Il n'existe que tant qu'une instance Flash vit, donc son pid ne doit
-/// jamais etre mis en cache.
+/// The plugin process: the one EternalTwin process where Pepper Flash is
+/// loaded. It exists only while a Flash instance lives, so its pid must never
+/// be cached.
 ///
-/// Il ne meurt pas forcement avec la partie : quatre parties consecutives ont
-/// ete observees dans un meme process. Ce qui meurt avec la partie, ce sont les
-/// objets AVM1 -- d'ou la revalidation systematique plutot qu'une confiance au
-/// process.
+/// It does not always die with the game: four games in a row were observed in
+/// one single process. What dies with the game are the AVM1 objects. Hence the
+/// systematic re-check, rather than trust in the process.
 ///
-/// EternalTwin en lance une demi-douzaine sous le meme nom, et savoir lequel
-/// porte le plugin demande de s'y attacher -- il n'y a pas d'autre moyen de
-/// lister ses modules. Or le runtime journalise chaque attache et chaque
-/// detachement : sonder les six a chaque tick noie les logs sous des centaines
-/// de lignes par seconde, ce qui rend le debugger inutilisable des qu'on quitte
-/// une partie sans fermer l'application.
+/// EternalTwin starts half a dozen processes under the same name, and finding
+/// which one carries the plugin means attaching to it -- there is no other way
+/// to list its modules. But the runtime logs every attach and every detach:
+/// probing the six on every tick drowns the log under hundreds of lines per
+/// second, which makes the debugger unusable as soon as you leave a game
+/// without closing the application.
 ///
-/// `rejected` retient donc les pids deja ecartes, pour ne sonder que les
-/// nouveaux venus -- et le process PPAPI en est toujours un, puisqu'il nait
-/// avec la partie. Les pids disparus en sont retires, pour que la liste ne
-/// grossisse pas indefiniment.
+/// So `rejected` keeps the pids already set aside, to probe only the
+/// newcomers -- and the PPAPI process is always one of them, because it is
+/// born with the game. Pids that disappear are removed, so the list does not
+/// grow without end.
 pub fn attach_plugin(
     names: &[&str],
     rejected: &mut Vec<ProcessId>,

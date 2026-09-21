@@ -1,13 +1,13 @@
-//! Ce qui mesure, et non ce qui splitte.
+//! What measures, and not what splits.
 //!
-//! Deux choses seulement sont du metier et vivent donc dans toutes les
-//! compilations : l'horloge, et [`FreshMap`] -- le correctif du cache d'une
-//! seconde en depend. Tout le reste ne sert qu'a mesurer et disparait sans la
-//! feature `diagnostics` : [`ScanTrace`] devient un type vide, [`event`] et
-//! [`validation_read`] des fonctions sans corps.
+//! Only two things here belong to the product, so they live in every build:
+//! the clock, and [`FreshMap`] -- the fix for the one second cache depends on
+//! it. Everything else only measures, and it disappears without the
+//! `diagnostics` feature: [`ScanTrace`] becomes an empty type, and [`event`]
+//! and [`validation_read`] become functions with no body.
 //!
-//! La regle qui va avec : le code metier n'imprime rien pour mesurer. Il
-//! appelle d'ici, et c'est la feature qui decide s'il se passe quelque chose.
+//! The rule that goes with it: the product code prints nothing to measure. It
+//! calls into this module, and the feature decides if anything happens.
 
 #[cfg(feature = "diagnostics")]
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -19,9 +19,9 @@ extern "C" {
 
 pub fn now_us() -> u64 {
     let mut ns = 0;
-    // WASI CLOCKID_MONOTONIC. Le runtime ecrit un entier u64 dans `ns`.
+    // WASI CLOCKID_MONOTONIC. The runtime writes a u64 into `ns`.
     let error = unsafe { clock_time_get(1, 1, &mut ns) };
-    assert_eq!(error, 0, "horloge WASI indisponible");
+    assert_eq!(error, 0, "the WASI clock is not available");
     ns / 1000
 }
 
@@ -42,11 +42,11 @@ pub fn validation_read(_bytes: usize, _ok: bool) {
     }
 }
 
-/// Lectures unitaires faites hors balayage -- validation des candidats.
+/// Single reads made outside a scan, to validate candidates.
 ///
-/// Elles ne passent pas par le budget du balayage, donc elles lui echappent :
-/// les compter a part est la seule facon de savoir si le temps part dans les
-/// passes ou dans les allers-retours qui les suivent.
+/// They do not go through the scan budget, so the budget does not see them.
+/// Counting them apart is the only way to know if the time goes into the
+/// passes or into the round trips that follow them.
 #[cfg(feature = "diagnostics")]
 fn validation_counts() -> [u64; 3] {
     [
@@ -56,12 +56,12 @@ fn validation_counts() -> [u64; 3] {
     ]
 }
 
-/// Un depart, et son contexte : premier du module, premier de ce processus,
-/// ou enieme relance. C'est ce que `summarize_startup.py` classe -- un module
-/// fraichement charge n'a aucun cache, un processus neuf en a d'autres.
+/// A start, and its context: first of the module, first of this process, or a
+/// later one. This is what `summarize_startup.py` sorts -- a freshly loaded
+/// module has no cache, and a new process has different ones.
 ///
-/// L'etat vit ici et non dans la boucle : sans cela, deux variables
-/// traversaient la signature de `run` pour alimenter une seule trace.
+/// The state lives here and not in the loop. Without that, two variables
+/// crossed the signature of `run` to feed one single trace.
 #[cfg(feature = "diagnostics")]
 static STARTS: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "diagnostics")]
@@ -83,8 +83,8 @@ pub fn event(_name: &str) {
     asr::print_message(&alloc::format!("HF_DIAG event={} t_us={}", _name, now_us()));
 }
 
-/// Carte obtenue par un nouvel acces au meme processus, toutes les 100 ms.
-/// L'acces principal et les ancres de la partie restent valides.
+/// A memory map obtained by a new access to the same process, every 100 ms.
+/// The main access and the anchors of the game stay valid.
 #[derive(Default)]
 pub struct FreshMap {
     next_us: u64,
@@ -115,10 +115,10 @@ impl FreshMap {
 }
 
 
-/// Ce qu'une tentative de resolution a coute, et ou elle en etait.
+/// What one resolution attempt cost, and where it had got to.
 ///
-/// Sans la feature, ce type ne contient rien et toutes ses methodes sont
-/// vides : le balayage garde ses appels, le binaire n'en garde aucun.
+/// Without the feature, this type holds nothing and all its methods are
+/// empty: the scan keeps its calls, the binary keeps none of them.
 #[cfg(feature = "diagnostics")]
 pub struct ScanTrace {
     bytes: u64,
@@ -188,8 +188,8 @@ impl ScanTrace {
         self.outcome = outcome;
     }
 
-    /// Le bilan, a la destruction : la tentative est finie, quel que soit le
-    /// chemin de sortie -- et il y en a six.
+    /// The summary, on drop: the attempt is over, whatever exit path it took
+    /// -- and there are six of them.
     pub fn finish(&mut self, requested: u64, calls: u64) {
         let now = now_us();
         let validation = validation_counts();

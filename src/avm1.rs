@@ -1,34 +1,34 @@
-//! Modele objet AVM1 dans un process Pepper Flash.
+//! The AVM1 object model inside a Pepper Flash process.
 //!
-//! Voir `reverse-engineering.md` pour les mesures. En resume : les objets
-//! String et ScriptObject ont le meme layout sous Linux et sous Windows, mais
-//! pas les tables de proprietes.
+//! See `reverse-engineering.md` for the measurements. In short: String and
+//! ScriptObject have the same layout on Linux and on Windows, but property
+//! tables do not.
 //!
 //! ```text
 //!                   Linux x86-64        Windows x86-64
-//!   entrees         tbl+0x18            tbl+0x48
-//!   pas             16 octets           24 octets
-//!   entree          (valeur, clef)      (valeur, _, clef)
+//!   entries         tbl+0x18            tbl+0x48
+//!   stride          16 bytes            24 bytes
+//!   entry           (value, key)        (value, _, key)
 //! ```
 //!
-//! Les deux formes sont donc essayees et departagees par validation
-//! semantique : un profil qui ne mene pas a un monde Hammerfest connu est
-//! rejete. En cas d'echec on ne renvoie rien, jamais un niveau faux.
+//! Both forms are tried, and a semantic check decides between them: a profile
+//! that does not lead to a known Hammerfest world is rejected. On failure we
+//! return nothing. We never return a wrong level.
 //!
-//! Les vtables, elles, ne sont pas codees en dur : elles sont retrouvees a
-//! l'execution a partir d'une chaine connue du SWF.
+//! The vtables are not hard coded. They are found at run time, from a string
+//! we know the SWF contains.
 
 use asr::{Address, Process};
 
-// Le decodage des atomes vit dans le coeur, ou il est teste.
+// Atom decoding lives in the core, where it is tested.
 pub use hammerfest_core::atom::{as_bool, as_int};
 use hammerfest_core::atom;
 
-/// Atome -> nombre, entier ou flottant.
+/// Atom -> number, integer or float.
 ///
-/// `duration` vaut l'entier 0 a la construction du GameMode, puis devient un
-/// flottant des la premiere image jouee. Les deux formes sont donc normales, et
-/// n'en lire qu'une reviendrait a ne rien lire pendant l'ecran noir.
+/// `duration` is the integer 0 when the GameMode is built, then becomes a
+/// float on the first frame played. Both forms are normal. Reading only one of
+/// them would mean reading nothing during the black screen.
 pub fn as_number(process: &Process, atom: u64) -> Option<f64> {
     match atom::double_at(atom) {
         Some(addr) => read_u64(process, addr).map(atom::decode_double),
@@ -36,21 +36,21 @@ pub fn as_number(process: &Process, atom: u64) -> Option<f64> {
     }
 }
 
-/// Capacite d'une table, a `tbl + 0x08` sur les deux plateformes.
+/// Table capacity, at `tbl + 0x08` on both platforms.
 const TBL_CAPACITY: u64 = 0x08;
 const MAX_CAPACITY: u64 = 1 << 16;
-/// Longueur max d'une clef decodee. Les noms obfusques font 2 a 8 caracteres.
+/// Maximum length of a decoded key. Obfuscated names are 2 to 8 characters.
 const MAX_KEY: usize = 64;
 
-/// Geometrie d'une table de proprietes.
+/// The geometry of a property table.
 #[derive(Copy, Clone, Debug)]
 pub struct Profile {
     pub name: &'static str,
-    /// Offset de la premiere clef depuis la base de la table.
+    /// Offset of the first key from the base of the table.
     pub keys: u64,
-    /// Taille d'une entree.
+    /// Size of one entry.
     pub stride: u64,
-    /// Position de la valeur, relative a la clef.
+    /// Position of the value, relative to the key.
     pub value: i64,
 }
 
@@ -59,13 +59,13 @@ pub const PROFILES: &[Profile] = &[
     Profile { name: "linux-x64", keys: 0x20, stride: 16, value: -0x08 },
 ];
 
-/// Offsets candidats pour `ScriptObject -> table` (0x30 sur les deux
-/// plateformes connues, mais derive tout de meme).
+/// Candidate offsets for `ScriptObject -> table`. The value is 0x30 on both
+/// known platforms, but we still derive it.
 const SO_TBL_CANDIDATES: [u64; 15] = [
     0x30, 0x08, 0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60,
     0x68, 0x70, 0x78,
 ];
-/// Offsets candidats pour le pointeur de buffer d'un objet String.
+/// Candidate offsets for the buffer pointer of a String object.
 pub const STR_BUF_CANDIDATES: [u64; 5] = [0x08, 0x10, 0x18, 0x20, 0x00];
 
 #[derive(Copy, Clone, Debug)]
@@ -95,7 +95,7 @@ impl Layout {
         v >= self.module.0 && v < self.module.1
     }
 
-    /// Lit un objet String dans `out`, et renvoie le nombre d'unites UTF-16.
+    /// Reads a String object into `out`, and returns the number of UTF-16 units.
     pub fn read_string(
         &self,
         process: &Process,
@@ -116,10 +116,10 @@ impl Layout {
         Some(n)
     }
 
-    /// La chaine a `addr` est-elle exactement `want` ?
+    /// Is the string at `addr` exactly `want`?
     ///
-    /// Comparer sans allouer : les clefs sont connues a la compilation, on
-    /// encode `want` en UTF-16 a la volee.
+    /// The comparison allocates nothing. The keys are known at compile time,
+    /// so we encode `want` to UTF-16 as we go.
     pub fn string_eq(&self, process: &Process, addr: u64, want: &str) -> bool {
         let mut buf = [0u16; MAX_KEY];
         let Some(n) = self.read_string(process, addr, &mut buf) else {
@@ -140,14 +140,15 @@ impl Layout {
         (cap > 0 && cap <= MAX_CAPACITY).then_some(cap)
     }
 
-    /// Adresse de la clef numero `i` de la table.
+    /// Address of key number `i` in the table.
     #[inline]
     pub fn key_addr(&self, tbl: u64, i: u64) -> u64 {
         tbl + self.profile.keys + i * self.profile.stride
     }
 
-    /// Nom de la clef stockee a `addr` -- masque le tag, une clef pouvant etre
-    /// stockee en pointeur brut ou en atome selon la plateforme.
+    /// The name of the key stored at `addr`. It masks the tag, because a key
+    /// can be stored as a raw pointer or as an atom, depending on the
+    /// platform.
     pub fn key_is(&self, process: &Process, addr: u64, want: &str) -> bool {
         match read_u64(process, addr) {
             Some(raw) => self.string_eq(process, raw & !7, want),
@@ -161,18 +162,18 @@ impl Layout {
         self.read_string(process, raw & !7, &mut buf)
     }
 
-    /// Atome de la propriete `key`, ou None.
+    /// The atom of property `key`, or None.
     pub fn get(&self, process: &Process, tbl: u64, key: &str) -> Option<u64> {
         let mut ignored = 0;
         self.get_cached(process, tbl, key, &mut ignored)
     }
 
-    /// Comme `get`, mais en retenant l'indice de l'entree.
+    /// Like `get`, but it remembers the index of the entry.
     ///
-    /// Parcourir les 128 entrees d'une table a chaque lecture couterait des
-    /// centaines d'acces memoire par tick. L'indice est donc memorise -- mais
-    /// re-verifie avant usage : si la clef n'est plus la, on rebalaye. C'est
-    /// l'adresse *finale* qu'il ne faut jamais garder, pas le chemin.
+    /// Walking the 128 entries of a table on every read would cost hundreds of
+    /// memory accesses per tick. So we keep the index -- but we check it again
+    /// before use: if the key is no longer there, we search again. The thing
+    /// we must never keep is the *final* address, not the path.
     pub fn get_cached(
         &self,
         process: &Process,
@@ -203,7 +204,7 @@ impl Layout {
         as_int(self.get(process, tbl, key)?)
     }
 
-    /// Table de proprietes de l'objet designe par `atom`.
+    /// The property table of the object that `atom` points to.
     pub fn table_of(&self, process: &Process, atom: u64) -> Option<u64> {
         let so = atom & !7;
         if !self.in_module(read_u64(process, so)?) {
@@ -213,7 +214,7 @@ impl Layout {
         (read_u64(process, t)? == self.tbl_vt).then_some(t)
     }
 
-    /// Table de l'objet stocke sous `key`.
+    /// The table of the object stored under `key`.
     pub fn child(&self, process: &Process, tbl: u64, key: &str) -> Option<u64> {
         self.table_of(process, self.get(process, tbl, key)?)
     }
@@ -228,11 +229,11 @@ impl Layout {
         self.table_of(process, self.get_cached(process, tbl, key, hint)?)
     }
 
-    /// Retrouve `so_tbl` a partir d'un objet dont on connait une propriete.
+    /// Finds `so_tbl` from an object whose property we know.
     ///
-    /// Sans la contrainte `expect_key`, plusieurs offsets menent a une table
-    /// plausible et le mauvais serait mis en cache pour toutes les lectures
-    /// suivantes.
+    /// Without the `expect_key` constraint, several offsets lead to a
+    /// plausible table, and the wrong one would be cached for every read that
+    /// follows.
     pub fn derive_so_tbl(&mut self, process: &Process, atom: u64, expect_key: &str) -> Option<u64> {
         let so = atom & !7;
         if !self.in_module(read_u64(process, so)?) {
@@ -256,15 +257,15 @@ impl Layout {
         None
     }
 
-    /// Base de la table contenant `keyslot`, selon le profil courant.
+    /// The base of the table that contains `keyslot`, for the current profile.
     ///
-    /// On remonte tant que le qword precedent decode comme une chaine, puis on
-    /// soustrait l'offset des clefs. Un mauvais profil donne une base dont la
-    /// vtable n'en est pas une, donc se rejette tout seul.
+    /// We walk back while the previous qword decodes as a string, then we
+    /// subtract the key offset. A wrong profile gives a base whose vtable is
+    /// not a vtable, so it rejects itself.
     ///
-    /// `tbl_vt` inconnue (zero) : n'importe quel pointeur vers le module fait
-    /// l'affaire et devient la vtable de reference. C'est ainsi qu'elle est
-    /// derivee plutot que codee en dur.
+    /// If `tbl_vt` is unknown (zero), any pointer into the module will do and
+    /// becomes the reference vtable. That is how it is derived instead of hard
+    /// coded.
     pub fn table_base(&mut self, process: &Process, keyslot: u64) -> Option<u64> {
         let mut first = keyslot;
         while first > self.profile.stride {

@@ -1,24 +1,24 @@
-//! Autosplitter Hammerfest pour LiveSplit (Auto Splitting Runtime).
+//! Hammerfest autosplitter for LiveSplit (Auto Splitting Runtime).
 //!
-//! Ce module ne decide de rien. Il fait trois choses, toutes tournees vers le
-//! runtime :
+//! This module decides nothing. It does three things, all of them turned
+//! toward the runtime:
 //!
-//! 1. trouver le process du plugin Flash et y lire l'etat du jeu ;
-//! 2. remettre cet etat a [`hammerfest_core::Policy`], qui decide ;
-//! 3. executer ce qu'elle repond, et publier le temps et les variables.
+//! 1. find the Flash plugin process and read the game state inside it;
+//! 2. hand that state to [`hammerfest_core::Policy`], which decides;
+//! 3. execute the answer, and publish the time and the variables.
 //!
-//! Tout ce qui se decide vit dans le crate `core`, sans memoire ni runtime,
-//! sous tests. C'est la seule facon de tester ces regles : les symboles du
-//! runtime ASR n'existent que dans le bac a sable WebAssembly.
+//! Everything that is decided lives in the `core` crate, with no memory access
+//! and no runtime, under tests. That is the only way to test those rules: the
+//! ASR runtime symbols exist only inside the WebAssembly sandbox.
 //!
-//! Le detail des mesures memoire est dans `reverse-engineering.md`.
+//! The memory measurements are in `reverse-engineering.md`.
 //!
-//! **Ce qui mesure ne vit pas ici.** La compilation normale ne contient que
-//! l'autosplitter : ni trace, ni compteur, ni horodatage. Tout cela est dans
-//! [`diagnostics`], derriere la feature du meme nom, et le code metier ne fait
-//! que l'appeler -- sans elle, ces appels n'ont pas de corps. La verification
-//! tient en une commande : aucune chaine `HF_` n'apparait dans le `.wasm`
-//! normal.
+//! **What measures does not live here.** The normal build holds the
+//! autosplitter and nothing else: no trace, no counter, no timestamp. All of
+//! that is in [`diagnostics`], behind the feature of the same name, and the
+//! product code only calls into it -- without the feature, those calls have no
+//! body. One command checks it: no `HF_` string appears in the normal
+//! `.wasm`.
 
 #![no_std]
 
@@ -31,7 +31,7 @@ mod avm1;
 mod diagnostics;
 mod hammerfest;
 
-/// Noms de proprietes obfusques, extraits de `vendor/hf.map.json` par build.rs.
+/// Obfuscated property names, taken from `vendor/hf.map.json` by build.rs.
 mod keys {
     include!(concat!(env!("OUT_DIR"), "/keys.rs"));
 }
@@ -44,23 +44,22 @@ use hammerfest::Game;
 asr::async_main!(stable);
 asr::panic_handler!();
 
-/// EternalTwin lance plusieurs process du meme nom ; seul celui qui a charge
-/// Pepper Flash nous interesse.
+/// EternalTwin starts several processes with the same name. Only the one that
+/// loaded Pepper Flash matters to us.
 const PROCESS_NAMES: &[&str] = &["Eternaltwin.exe", "Eternaltwin", "etwin"];
 
-/// Attente avant de retenter une resolution ratee, en ticks. Une resolution
-/// balaye tout le tas : la repeter 60 fois par seconde serait absurde, mais
-/// attendre une seconde de plus au debut d'une partie se voit. D'ou un depart
-/// court qui s'allonge tant que rien n'est trouve.
+/// Wait before a failed resolution is tried again, in ticks. A resolution
+/// scans the whole heap, so repeating it 60 times per second would be absurd.
+/// But one more second of wait at the start of a game is visible. Hence a
+/// short first wait that grows while nothing is found.
 const RESOLVE_MIN_COOLDOWN: u32 = 20;
 const RESOLVE_MAX_COOLDOWN: u32 = 60;
 
-/// Croissance du tas qui autorise a rebalayer sans attendre, en octets.
+/// Heap growth that allows an immediate new scan, in bytes.
 ///
-/// Le chargement du SWF le fait passer de deux a quatre-vingts Mio par bonds
-/// de plusieurs Mio ; le jeu, une fois lance, ne le fait plus varier que de
-/// quelques centaines de Kio. Le seuil separe les deux, et evite de rebalayer
-/// en boucle sur du bruit d'allocateur.
+/// Loading the SWF takes the heap from two to eighty MiB, in jumps of several
+/// MiB. Once the game runs, the heap only moves by a few hundred KiB. The
+/// threshold separates the two, and stops a scan loop on allocator noise.
 const HEAP_GROWTH: u64 = 4 << 20;
 
 fn timer_state() -> TimerState {
@@ -74,20 +73,21 @@ fn timer_state() -> TimerState {
 }
 
 async fn main() {
-    // Les process EternalTwin deja examines et ecartes : voir `attach_plugin`.
+    // EternalTwin processes already examined and set aside: see
+    // `attach_plugin`.
     let mut rejected = alloc::vec::Vec::new();
-    // Ce qu'une resolution apprend et que la suivante reutilise.
+    // What one resolution learns and the next one reuses.
     let mut anchor = hammerfest::Anchor::default();
-    // Ce qu'on retient du binaire, lui, survit au process plugin.
+    // What we keep about the binary outlives the plugin process.
     let mut binary = hammerfest::Binary::default();
-    // La politique traverse les process : un plugin qui disparait fait partie
-    // de l'histoire d'une partie.
+    // The policy crosses processes: a plugin that disappears is part of the
+    // story of a game.
     let mut policy = Policy::new();
 
-    // Une seule ligne au chargement, qui dit quelle compilation tourne : c'est
-    // ce qu'on cherche en premier dans un journal qu'on nous envoie.
+    // One line at load time, which says what build is running. It is the first
+    // thing we look for in a log someone sends us.
     asr::print_message(&alloc::format!(
-        "Hammerfest: autosplitter demarre (budget={}, diagnostics={})",
+        "Hammerfest: autosplitter started (budget={}, diagnostics={})",
         cfg!(feature = "scan-budget"),
         cfg!(feature = "diagnostics"),
     ));
@@ -96,10 +96,10 @@ async fn main() {
     loop {
         match hammerfest::attach_plugin(PROCESS_NAMES, &mut rejected) {
             Some((process, module, pid)) => {
-                asr::print_message("Hammerfest: plugin Flash attache");
+                asr::print_message("Hammerfest: Flash plugin attached");
                 diagnostics::event("plugin_attached");
-                // Rien de ce qu'un autre process avait appris ne vaut ici :
-                // l'ASLR deplace le module et le tas AVM1 est reconstruit.
+                // Nothing another process learned is valid here: ASLR moves
+                // the module, and the AVM1 heap is built again.
                 anchor.reset();
                 #[cfg(feature = "known-flash")]
                 {
@@ -118,7 +118,7 @@ async fn main() {
                     &mut policy,
                 )
                 .await;
-                asr::print_message("Hammerfest: plugin Flash ferme");
+                asr::print_message("Hammerfest: Flash plugin closed");
             }
             None => {
                 apply(policy.tick(timer_state(), &Rules::default(), None));
@@ -139,10 +139,10 @@ async fn run(
     let mut game: Option<Game> = None;
     let mut cooldown = 0u32;
     let mut backoff = RESOLVE_MIN_COOLDOWN;
-    // Taille du tas au dernier balayage : voir HEAP_GROWTH.
+    // Heap size at the last scan: see HEAP_GROWTH.
     let mut heap = 0u64;
-    // L'origine n'est annoncee qu'une fois par partie : c'est la seule trace
-    // qui dise de combien le balayage est arrive en retard.
+    // The origin is announced once per game. It is the only line that says how
+    // late the scan arrived.
     let mut announced = false;
     let mut fresh_map = diagnostics::FreshMap::default();
     #[cfg(feature = "diagnostics")]
@@ -161,18 +161,17 @@ async fn run(
         }
 
         if game.is_none() {
-            // La voie rapide suit `GameManager.current` : quelques lectures,
-            // donc on peut la tenter a chaque tick. Le balayage complet, lui,
-            // n'intervient que pour apprendre l'ancre, ou si elle a bouge.
+            // The fast path follows `GameManager.current`. It is a few reads,
+            // so we can try it every tick. The full scan only runs to learn
+            // the anchor, or when the anchor has moved.
             game = hammerfest::resolve_via_manager(process, anchor);
 
             if game.is_none() {
-                // Le tas qui grandit d'un coup, c'est le SWF qui cree ses
-                // objets : rebalayer tout de suite, sans attendre la
-                // temporisation. C'est la seule fenetre qui compte -- la
-                // partie commence une demi seconde plus tard -- et attendre
-                // une temporisation fixe y ajoutait jusqu'a une seconde de
-                // retard, au hasard de la tentative precedente.
+                // A heap that grows in one step is the SWF creating its
+                // objects. Scan again at once, without the wait. That is the
+                // only window that matters -- the game starts half a second
+                // later -- and a fixed wait added up to one second of delay
+                // there, at the mercy of the previous attempt.
                 let ranges = fresh_map.poll(pid);
                 let now = ranges.map_or_else(|| hammerfest::heap_size(process), |rs| rs.iter().map(|(a,b)| b-a).sum());
                 let grown = now > heap + HEAP_GROWTH;
@@ -222,7 +221,7 @@ async fn run(
             Some(ms) if !announced => {
                 announced = true;
                 asr::print_message(&alloc::format!(
-                    "Hammerfest: depart date, {ms} ms deja ecoulees"
+                    "Hammerfest: start dated, {ms} ms already elapsed"
                 ));
                 #[cfg(feature = "diagnostics")]
                 asr::print_message(&alloc::format!("HF_DIAG event=origin t_us={} elapsed_ms={ms} start={} fresh={}", diagnostics::now_us(), actions.start, true));
@@ -231,22 +230,22 @@ async fn run(
             _ => {}
         }
 
-        // Le chrono est pose **apres** `start()`, jamais avant : demarrer une
-        // course remet le game time a zero, donc une valeur posee plus tot
-        // serait perdue et le chrono afficherait zero pendant une image.
+        // The time is set **after** `start()`, never before: starting a run
+        // resets game time to zero, so a value set earlier would be lost and
+        // the timer would show zero for one frame.
         let drop_resolution = apply(actions);
         if let Some(ms) = actions.real_time_ms {
-            // Valeur absolue : le retard de detection ne decale pas le temps.
-            // LiveSplit ne doit pas ajouter sa propre avance entre les lectures.
+            // An absolute value: the detection delay does not shift the time.
+            // LiveSplit must not add its own advance between reads.
             timer::pause_game_time();
             timer::set_game_time(Duration::milliseconds(ms));
         }
 
         if drop_resolution {
-            // Perdre une partie annonce presque toujours la suivante : le jeu
-            // recree son GameManager a chaque lancement, donc l'ancre meurt
-            // avec la partie et il faut rebalayer. Attendre en plus serait du
-            // delai pur -- on repart sans temporisation.
+            // Losing a game almost always announces the next one. The game
+            // builds a new GameManager at every launch, so the anchor dies
+            // with the game and we must scan again. Waiting on top of that
+            // would be pure delay, so we restart with no wait.
             game = None;
             cooldown = 0;
             backoff = RESOLVE_MIN_COOLDOWN;
@@ -256,14 +255,14 @@ async fn run(
     }
 }
 
-/// Execute ce que la politique a decide. Rend `true` si la resolution courante
-/// doit etre relachee.
+/// Executes what the policy decided. Returns `true` if the current resolution
+/// must be dropped.
 fn apply(actions: hammerfest_core::Actions) -> bool {
     if actions.reset {
         timer::reset();
     }
     if actions.start {
-        asr::print_message("Hammerfest: partie lancee");
+        asr::print_message("Hammerfest: game started");
         timer::start();
         diagnostics::event("start_called");
     }
@@ -273,21 +272,21 @@ fn apply(actions: hammerfest_core::Actions) -> bool {
     actions.drop_resolution
 }
 
-/// Ce que LiveSplit affiche a cote du chrono.
+/// What LiveSplit shows next to the timer.
 fn publish(state: &State, set: &str) {
-    // `GameInterface.setLevel` ecrit `""+currentId` : le numero affiche par le
-    // jeu est bien cet index-la, sans decalage.
-    timer::set_variable_int("Niveau", state.level);
-    timer::set_variable("Monde", set);
-    // Le chrono que le jeu remonte lui-meme en fin de partie
-    // (`"T="+gameChrono.get()`). Il exclut les pauses et les transitions de
-    // niveau, donc il ne peut pas servir de temps reel -- mais c'est le chiffre
-    // que le joueur voit, d'ou son affichage a cote.
-    timer::set_variable_int("Chrono du jeu (ms)", state.chrono_ms);
-    // Ce qui date le depart de la run. Au premier affichage, le chrono doit
-    // valoir cette duree-la : c'est ce qui distingue un rattrapage normal d'une
-    // origine fausse.
-    timer::set_variable_int("Duree de jeu (ms)", state.duration_ms);
+    // `GameInterface.setLevel` writes `""+currentId`. The number the game
+    // displays is that index, with no offset.
+    timer::set_variable_int("Level", state.level);
+    timer::set_variable("World", set);
+    // The clock the game itself reports at the end of a game
+    // (`"T="+gameChrono.get()`). It excludes pauses and level transitions, so
+    // it cannot serve as real time -- but it is the number the player sees, so
+    // we show it next to the timer.
+    timer::set_variable_int("Game clock (ms)", state.chrono_ms);
+    // What dates the start of the run. On the first display, the timer must
+    // hold this same value. That is what separates a normal catch up from a
+    // wrong origin.
+    timer::set_variable_int("Play time (ms)", state.duration_ms);
     if state.dim != 0 {
         timer::set_variable_int("Dimension", state.dim);
     }
