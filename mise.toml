@@ -17,6 +17,33 @@ run = [
 description = "Lance les tests du coeur (logique pure, sans runtime)"
 run = "cargo test -p hammerfest-core"
 
+[tasks.build-diagnostics]
+description = "Compile le module de mesure A/B dans un dossier separe"
+run = [
+    "rustup target add wasm32-unknown-unknown",
+    "cargo build --release --target wasm32-unknown-unknown --features diagnostics --target-dir target/diagnostics",
+]
+
+[tasks.probe-runtime]
+description = "Mesure le cache de la DLL ASR chargee par LiveSplit"
+run = "python scripts/runtime_probe.py"
+
+[tasks.build-cold-start]
+description = "Compile la variante de mesure du premier depart"
+run = "cargo build --release --target wasm32-unknown-unknown --features diagnostics,known-flash --target-dir target/cold-start"
+
+[tasks.build-scan-budget]
+description = "Compile la variante pour mesurer les relances tardives"
+run = "cargo build --release --target wasm32-unknown-unknown --features diagnostics,scan-budget --target-dir target/scan-budget"
+
+[tasks.summarize-startup]
+description = "Resume les departs du journal A/B exporte"
+run = "python scripts/summarize_startup.py"
+
+[tasks.capture-startup]
+description = "Capture jusqu'a 25 departs pendant 15 minutes, sans export manuel"
+run = "python scripts/capture_startup.py"
+
 [tasks.state]
 description = "Affiche le niveau et le chrono de la partie en cours"
 run = "uv run python scripts/hf_state.py"
