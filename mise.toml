@@ -28,3 +28,7 @@ run = "uv run python scripts/hf_state.py --watch"
 [tasks.dump]
 description = "Affiche les tables GameMode, world et Chrono"
 run = "uv run python scripts/hf_state.py --dump"
+
+[tasks.trace]
+description = "Horodate le debut d'une partie, du process a la prise de controle"
+run = "uv run python scripts/hf_trace.py"

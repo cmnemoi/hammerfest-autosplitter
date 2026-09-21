@@ -16,3 +16,6 @@ logs/
 # Capture intermediaire de stable_slots.py
 .slots.json
 .xrefs.json
+
+# Releve de hf_trace.py
+trace.csv
