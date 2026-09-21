@@ -1,8 +1,8 @@
 # hammerfest-autosplitter
 
 Autosplitter [Hammerfest](https://github.com/motion-twin/hammerfest) pour
-LiveSplit : splitte au changement de niveau et affiche le temps reel exact de
-la run, compte depuis l'instant ou le niveau 0 apparait.
+LiveSplit : splitte au changement de niveau et affiche le temps reel corrige
+depuis le depart. L'IGT reste disponible comme information secondaire.
 
 Le jeu n'est pas modifie : lecture memoire seule, aucune ecriture, aucun patch.
 
@@ -12,7 +12,7 @@ Le jeu n'est pas modifie : lecture memoire seule, aucune ecriture, aucun patch.
 | --- | --- |
 | niveau | `GameMode.world.currentId` -- le numero affiche par le jeu, sans decalage |
 | temps reel | `Chrono.frameTimer` moins l'instant du depart, tous deux lus en memoire |
-| chrono du jeu | `GameMode.gameChrono` -- affiche en variable, a cote du chrono |
+| chrono du jeu (IGT) | `GameMode.gameChrono` -- publie en variable pour information |
 
 La regle de course fixe le depart : *the timer begins when the loading text
 disappears and fades in to level 0*. C'est l'image ou `GameMode.fl_lock`
@@ -101,6 +101,20 @@ qui ne doit pas se declencher avant d'avoir vu une partie.
 
 ## Utilisation
 
+La compilation normale inclut le budget de recherche (8 Mio ou 128 lectures
+avant de rendre la main). Utiliser le chemin normal ci-dessous dans LiveSplit
+et dans asr-debugger. La ligne `HF_BUILD` au chargement indique les fonctions
+actives ; `scan_budget=true` confirme cette amelioration.
+
+Pour mesurer le délai du premier affichage et comparer les deux modes de cache,
+voir [diagnostic-affichage.md](diagnostic-affichage.md).
+
+Le module normal rafraîchit la carte mémoire toutes les 100 ms pendant la
+recherche de la partie. Il utilise l'horloge monotone WASI, vérifiée avec le
+composant ASR installé dans LiveSplit 1.8.37. Les traces détaillées sont
+réservées à la compilation `diagnostics`. Le rafraîchissement est toujours actif,
+y compris dans cette compilation.
+
 ```sh
 mise run build     # -> target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
 ```
@@ -108,9 +122,15 @@ mise run build     # -> target/wasm32-unknown-unknown/release/hammerfest_autospl
 Charger le `.wasm` dans LiveSplit (Edit Splits -> Activate), ou dans
 asr-debugger pendant le developpement.
 
-Reglages exposes : demarrage automatique, split au changement de niveau,
-restriction au monde principal, affichage du temps reel exact comme game time,
-remise a zero automatique.
+Le module ne propose aucun reglage. Le demarrage, les splits au changement
+de niveau dans le monde principal et la remise a zero sont automatiques.
+Le temps reel corrige est toujours envoye au canal **Game Time** de LiveSplit.
+Il compte les pauses et les chargements. Choisir **Game Time** comme methode
+de comparaison dans LiveSplit.
+
+L'IGT est publie separement dans la variable `Chrono du jeu (ms)`.
+Un composant de layout capable de lire cette variable peut l'afficher.
+Les anciens reglages sauvegardes par LiveSplit sont ignores.
 
 Le *real time* de LiveSplit part de l'appel a `start()`, et l'API ASR ne sait
 pas reculer un chrono deja demarre. Il accuse donc le retard du balayage, 0,4 a
@@ -135,7 +155,7 @@ L'interface est un ensemble de panneaux :
 | **Main** | le fichier charge, `Restart` / `Kill`, la case `Optimize`, l'etat du timer avec `Start` / `Reset` |
 | **Logs** | ce que l'autosplitter ecrit ; `Save` les exporte dans un fichier |
 | **Variables** | `Niveau`, `Monde`, `Chrono du jeu (ms)` |
-| **Settings GUI** | les cinq reglages, modifiables a chaud |
+| **Settings GUI** | aucun reglage expose |
 | **Processes** | les process auxquels l'autosplitter s'est attache |
 | **Performance** | le temps passe par tick |
 

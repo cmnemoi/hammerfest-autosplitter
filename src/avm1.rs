@@ -84,7 +84,9 @@ pub fn read_u64(process: &Process, addr: u64) -> Option<u64> {
     if addr == 0 || addr >= 1 << 47 {
         return None;
     }
-    process.read::<u64>(Address::new(addr)).ok()
+    let result = process.read::<u64>(Address::new(addr));
+    crate::diagnostics::validation_read(8, result.is_ok());
+    result.ok()
 }
 
 impl Layout {
@@ -108,9 +110,9 @@ impl Layout {
         if n == 0 || n > MAX_KEY {
             return None;
         }
-        process
-            .read_into_slice(Address::new(buf), &mut out[..n])
-            .ok()?;
+        let result = process.read_into_slice(Address::new(buf), &mut out[..n]);
+        crate::diagnostics::validation_read(n * 2, result.is_ok());
+        result.ok()?;
         Some(n)
     }
 

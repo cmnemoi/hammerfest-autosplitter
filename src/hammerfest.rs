@@ -36,39 +36,106 @@ const CHUNK: usize = 1024 * 1024;
 /// Recouvrement entre deux morceaux, pour ne pas manquer un motif a cheval.
 const OVERLAP: usize = 32;
 /// Nombre de blocs lus avant de rendre la main au runtime.
+#[cfg(not(feature = "scan-budget"))]
 const CHUNKS_PER_TICK: usize = 8;
+// Meme plafond de volume que huit blocs de 1 Mio. Le plafond d'appels limite
+// le travail lorsque la carte contient beaucoup de petites regions.
+#[cfg(feature = "scan-budget")]
+const BYTES_PER_TICK: u64 = 8 * CHUNK as u64;
+#[cfg(feature = "scan-budget")]
+const READS_PER_TICK: u64 = 128;
 
 const MAX_LEVEL: i64 = 256;
 
-/// Ce qu'un balayage a coute.
-///
-/// Il n'y a pas d'horloge dans le module : le runtime ASR n'en expose aucune,
-/// et `Instant` d'`asr` n'existe que sur la cible WASI. Ces deux compteurs en
-/// tiennent lieu. `chunks` dit les octets recopies depuis le process, `yields`
-/// les pauses rendues au runtime -- et une pause coute au mieux un tick, soit
-/// 16 ms a la cadence ordinaire. Savoir lequel des deux domine decide de
-/// l'optimisation suivante.
-#[derive(Default)]
-pub struct Cost {
-    chunks: u32,
+/// Bilan de toute la tentative, y compris les sorties anticipees et le repli.
+struct Cost {
+    calls: u64,
+    requested: u64,
+    bytes: u64,
+    failures: u64,
     yields: u32,
+    started: u64,
+    stage_started: u64,
+    stage: &'static str,
+    outcome: &'static str,
+    validation: [u64; 3],
+    #[cfg(feature = "scan-budget")]
+    last_yield_requested: u64,
+    #[cfg(feature = "scan-budget")]
+    last_yield_calls: u64,
+}
+
+impl Default for Cost {
+    fn default() -> Self {
+        let now = if cfg!(feature = "diagnostics") { crate::diagnostics::now_us() } else { 0 };
+        Self { calls: 0, requested: 0, bytes: 0, failures: 0, yields: 0,
+            started: now, stage_started: now, stage: "ranges", outcome: "not_found",
+            validation: crate::diagnostics::validation_counts(),
+            #[cfg(feature = "scan-budget")]
+            last_yield_requested: 0,
+            #[cfg(feature = "scan-budget")]
+            last_yield_calls: 0,
+        }
+    }
 }
 
 impl Cost {
-    fn read(&mut self) {
-        self.chunks += 1;
+    fn read_block(&mut self, process: &Process, base: u64, buf: &mut [u8]) -> bool {
+        self.calls += 1;
+        self.requested += buf.len() as u64;
+        let ok = process.read_into_slice(Address::new(base), buf).is_ok();
+        if ok { self.bytes += buf.len() as u64; }
+        else { self.failures += 1; }
+        ok
     }
 
     fn paused(&mut self) {
         self.yields += 1;
+        #[cfg(feature = "scan-budget")]
+        {
+            self.last_yield_requested = self.requested;
+            self.last_yield_calls = self.calls;
+        }
     }
 
-    pub fn mib(&self) -> u32 {
-        self.chunks * (CHUNK as u32 >> 20)
+    fn should_yield(&self, _chunks: usize) -> bool {
+        #[cfg(feature = "scan-budget")]
+        {
+            self.requested - self.last_yield_requested >= BYTES_PER_TICK
+                || self.calls - self.last_yield_calls >= READS_PER_TICK
+        }
+        #[cfg(not(feature = "scan-budget"))]
+        { _chunks % CHUNKS_PER_TICK == 0 }
     }
 
-    pub fn pauses(&self) -> u32 {
-        self.yields
+    fn stage(&mut self, next: &'static str) {
+        #[cfg(feature = "diagnostics")]
+        asr::print_message(&alloc::format!(
+            "HF_DIAG event=stage t_us={} name={} elapsed_us={} scan_bytes_total={} scan_calls_total={}",
+            crate::diagnostics::now_us(), self.stage,
+            crate::diagnostics::now_us() - self.stage_started, self.bytes, self.calls
+        ));
+        self.stage = next;
+        if cfg!(feature = "diagnostics") {
+            self.stage_started = crate::diagnostics::now_us();
+        }
+    }
+}
+
+impl Drop for Cost {
+    fn drop(&mut self) {
+        self.stage("done");
+        let validation = crate::diagnostics::validation_counts();
+        if cfg!(feature = "diagnostics") {
+            asr::print_message(&alloc::format!(
+                "HF_SCAN timed={} t_us={} outcome={} elapsed_us={} requested_bytes={} read_bytes={} calls={} failures={} yields={} validation_calls={} validation_bytes={} validation_failures={}",
+                cfg!(feature = "diagnostics"), crate::diagnostics::now_us(), self.outcome,
+                crate::diagnostics::now_us() - self.started,
+                self.requested, self.bytes, self.calls, self.failures, self.yields,
+                validation[0] - self.validation[0], validation[1] - self.validation[1],
+                validation[2] - self.validation[2]
+            ));
+        }
     }
 }
 
@@ -152,11 +219,7 @@ async fn scan_bytes(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            cost.read();
-            if process
-                .read_into_slice(Address::new(base), &mut buf[..n])
-                .is_ok()
-            {
+            if cost.read_block(process, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + pat.len() <= n {
                     if &buf[i..i + pat.len()] == pat {
@@ -173,7 +236,7 @@ async fn scan_bytes(
             }
             base += (n - OVERLAP) as u64;
             chunks += 1;
-            if chunks % CHUNKS_PER_TICK == 0 {
+            if cost.should_yield(chunks) {
                 cost.paused();
                 next_tick().await;
             }
@@ -206,11 +269,7 @@ async fn scan_bytes_until(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            cost.read();
-            if process
-                .read_into_slice(Address::new(base), &mut buf[..n])
-                .is_ok()
-            {
+            if cost.read_block(process, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + pat.len() <= n {
                     if &buf[i..i + pat.len()] == pat && on_hit(base + i as u64, &buf[i..n]) {
@@ -224,7 +283,7 @@ async fn scan_bytes_until(
             }
             base += (n - OVERLAP) as u64;
             chunks += 1;
-            if chunks % CHUNKS_PER_TICK == 0 {
+            if cost.should_yield(chunks) {
                 cost.paused();
                 next_tick().await;
             }
@@ -251,11 +310,7 @@ async fn scan_u64_any(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            cost.read();
-            if process
-                .read_into_slice(Address::new(base), &mut buf[..n])
-                .is_ok()
-            {
+            if cost.read_block(process, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + 8 <= n {
                     let v = u64::from_le_bytes([
@@ -273,7 +328,7 @@ async fn scan_u64_any(
             }
             base += (n - OVERLAP) as u64;
             chunks += 1;
-            if chunks % CHUNKS_PER_TICK == 0 {
+            if cost.should_yield(chunks) {
                 cost.paused();
                 next_tick().await;
             }
@@ -308,11 +363,7 @@ async fn scan_atoms(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            cost.read();
-            if process
-                .read_into_slice(Address::new(base), &mut buf[..n])
-                .is_ok()
-            {
+            if cost.read_block(process, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + 8 <= n {
                     if buf[i] & !7 == lo && &buf[i + 1..i + 8] == tail && on_hit(base + i as u64) {
@@ -326,7 +377,7 @@ async fn scan_atoms(
             }
             base += (n - OVERLAP) as u64;
             chunks += 1;
-            if chunks % CHUNKS_PER_TICK == 0 {
+            if cost.should_yield(chunks) {
                 cost.paused();
                 next_tick().await;
             }
@@ -431,6 +482,37 @@ const MEASURED: Layout = Layout {
 };
 
 impl Binary {
+    /// Profil deja mesure, reconnu par les en-tetes PE et quatre methodes.
+    /// Le repli habituel reste actif si une seule verification echoue.
+    #[cfg(feature = "known-flash")]
+    pub fn recognize(&mut self, process: &Process, module: (u64, u64)) -> bool {
+        let u32_at = |off| process.read::<u32>(Address::new(module.0 + off)).ok();
+        let u16_at = |off| process.read::<u16>(Address::new(module.0 + off)).ok();
+        if u16_at(0) != Some(0x5a4d)
+            || u32_at(0x3c) != Some(0x158)
+            || u32_at(0x158) != Some(0x4550)
+            || u16_at(0x15c) != Some(0x8664)
+            || u32_at(0x160) != Some(0x5fbd874b)
+            || u16_at(0x170) != Some(0x20b)
+            || u32_at(0x1a8) != Some(0x209e000)
+            || u32_at(0x1b0) != Some(0x1f7c652)
+        {
+            return false;
+        }
+        for (slot, method) in [
+            (MEASURED.str_vt, 0x4391d0),
+            (MEASURED.str_vt + 8, 0x374620),
+            (MEASURED.tbl_vt, 0x39ec60),
+            (MEASURED.tbl_vt + 8, 0x3c2e10),
+        ] {
+            if read_u64(process, module.0 + slot) != Some(module.0 + method) {
+                return false;
+            }
+        }
+        self.layout = Some(MEASURED);
+        true
+    }
+
     /// Le layout, rebase sur le module de ce process-ci.
     fn layout(&self, module: (u64, u64)) -> Option<Layout> {
         let mut l = self.layout.unwrap_or(MEASURED);
@@ -521,13 +603,14 @@ pub async fn resolve(
     module: (u64, u64),
     anchor: &mut Anchor,
     binary: &mut Binary,
+    supplied_ranges: Option<&[(u64, u64)]>,
 ) -> Option<Game> {
     if let Some(game) = resolve_via_manager(process, anchor) {
         return Some(game);
     }
 
     let mut cost = Cost::default();
-    let all = heap_ranges(process);
+    let all = supplied_ranges.map_or_else(|| heap_ranges(process), |rs| rs.to_vec());
     if all.is_empty() {
         return None;
     }
@@ -553,6 +636,7 @@ pub async fn resolve(
     if ranges.is_empty() {
         anchor.sweeps += 1;
         if anchor.sweeps % FULL_SWEEP != 0 {
+            cost.outcome = "unchanged_ranges";
             return None;
         }
         ranges = all.clone();
@@ -570,30 +654,23 @@ pub async fn resolve(
     // balayage n'est necessaire, et le lancement d'une partie se voit en
     // quelques lectures au lieu d'une demi-seconde a plusieurs secondes.
     if anchor.manager.is_none() {
+        cost.stage("manager");
         if let Some((layout, tbl)) =
             scan_for_manager(process, module, &ranges, &mut full, anchor, binary, &mut cost).await
         {
             asr::print_message(&alloc::format!(
-                "Hammerfest: GameManager 0x{tbl:x}, layout {}, {} Mio lus, {} pauses",
+                "Hammerfest: GameManager 0x{tbl:x}, layout {}",
                 layout.profile.name,
-                cost.mib(),
-                cost.pauses(),
             ));
             binary.learn(&layout);
             anchor.layout = Some(layout);
             anchor.manager = Some(tbl);
             anchor.current_hint = 0;
-            return resolve_via_manager(process, anchor);
+            let game = resolve_via_manager(process, anchor);
+            cost.outcome = if game.is_some() { "game_via_manager" } else { "manager_only" };
+            return game;
         }
-        // Les balayages qui echouent sont ceux qui consomment la fenetre : ce
-        // sont eux qu'il faut mesurer, pas seulement celui qui aboutit.
-        if cost.chunks > 0 {
-            asr::print_message(&alloc::format!(
-                "Hammerfest: rien trouve, {} Mio lus, {} pauses",
-                cost.mib(),
-                cost.pauses(),
-            ));
-        }
+
     }
 
     // Ancre posee mais `current` ne designe pas de partie : il n'y en a
@@ -615,6 +692,7 @@ pub async fn resolve(
 
     // Repli : chercher le GameMode lui-meme, ancre sur `world` -- porte par une
     // poignee d'objets seulement.
+    cost.stage("world_string");
     let (layout, strobj) = find_string(
         process,
         module,
@@ -630,18 +708,17 @@ pub async fn resolve(
     // reste, et c'est ce qui rend la duree stable d'une fois sur l'autre.
     move_region_first(&mut full, strobj);
 
+    cost.stage("world_tables");
     let game = scan_tables(process, &full, layout, strobj, keys::WORLD, &mut cost, |l, t| {
         validate(process, l, t)
     })
     .await?;
 
     asr::print_message(&alloc::format!(
-        "Hammerfest: GameMode 0x{:x}, monde {}, layout {}, {} Mio lus, {} pauses",
+        "Hammerfest: GameMode 0x{:x}, monde {}, layout {}",
         game.game_mode,
         game.set,
         game.layout.profile.name,
-        cost.mib(),
-        cost.pauses(),
     ));
     binary.learn(&game.layout);
     anchor.last_game_mode = Some(game.game_mode);
@@ -652,6 +729,7 @@ pub async fn resolve(
     // re-resolution au sein d'une meme partie.
     anchor.manager = game.layout.child(process, game.game_mode, keys::MANAGER);
     anchor.current_hint = 0;
+    cost.outcome = "game_via_world";
     Some(game)
 }
 
@@ -680,6 +758,7 @@ async fn scan_for_manager(
     // vient de la creer. Les tables qui la citent, en revanche, se cherchent
     // partout : une fois la chaine trouvee, on sait qu'une partie existe, et
     // la passe suivante s'arrete a la premiere table valable.
+    cost.stage("manager_string");
     let (layout, strobj) = find_string(
         process,
         module,
@@ -697,6 +776,7 @@ async fn scan_for_manager(
     // cela manquait ici.
     move_region_first(ranges, strobj);
 
+    cost.stage("manager_tables");
     scan_tables(process, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
         // La reference croisee valide le candidat *et* derive au passage
         // l'offset `ScriptObject -> table`, sans lequel rien de ce qui suit ne
@@ -732,6 +812,11 @@ async fn find_string(
     cost: &mut Cost,
 ) -> Option<(Layout, u64)> {
     let units = key.encode_utf16().count() as u64;
+    #[cfg(feature = "diagnostics")]
+    asr::print_message(&alloc::format!(
+        "HF_DIAG event=find_string t_us={} key={key} proven={} cached={}",
+        crate::diagnostics::now_us(), binary.proven(), cache.is_some()
+    ));
     if let Some(so) = *cache {
         if let Some(layout) = string_layout_at(process, module, so, key, units) {
             return Some((layout, so));
@@ -741,6 +826,7 @@ async fn find_string(
 
     // Vtable connue : une seule passe suffit, sur les en-tetes d'objets.
     if let Some(seed) = binary.layout(module) {
+        cost.stage("string_seed");
         let mut found = None;
         scan_bytes_until(process, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
             // La longueur d'abord, et dans le tampon quand elle y tient : elle
@@ -771,12 +857,14 @@ async fn find_string(
     // binaire. Deux passes, pas davantage -- les octets de la clef d'abord,
     // puis une seule passe pour tous les candidats a la fois.
     let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    cost.stage("string_bytes");
     let buffers = scan_bytes(process, ranges, &needle, 2, 8, cost).await;
     if buffers.is_empty() {
         return None;
     }
 
     let mut found = None;
+    cost.stage("string_references");
     scan_u64_any(process, ranges, &buffers, cost, |slot| {
         for buf_off in STR_BUF_CANDIDATES {
             let Some(so) = slot.checked_sub(buf_off) else {
@@ -1062,7 +1150,7 @@ impl Game {
 pub fn attach_plugin(
     names: &[&str],
     rejected: &mut Vec<ProcessId>,
-) -> Option<(Process, (u64, u64))> {
+) -> Option<(Process, (u64, u64), ProcessId)> {
     let mut alive = Vec::new();
     let mut found = None;
 
@@ -1083,7 +1171,7 @@ pub fn attach_plugin(
                 Some((addr.value(), addr.value() + size))
             });
             match range {
-                Some(range) => found = Some((process, range)),
+                Some(range) => found = Some((process, range, pid)),
                 None => rejected.push(pid),
             }
         }

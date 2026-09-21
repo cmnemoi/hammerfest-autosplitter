@@ -21,6 +21,7 @@ extern crate alloc;
 static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 mod avm1;
+mod diagnostics;
 mod hammerfest;
 
 /// Noms de proprietes obfusques, extraits de `vendor/hf.map.json` par build.rs.
@@ -28,7 +29,7 @@ mod keys {
     include!(concat!(env!("OUT_DIR"), "/keys.rs"));
 }
 
-use asr::{future::next_tick, settings::Gui, time::Duration, timer, Process};
+use asr::{future::next_tick, time::Duration, timer, Process};
 use hammerfest_core::{Policy, Rules, State, TimerState};
 
 use hammerfest::Game;
@@ -55,40 +56,6 @@ const RESOLVE_MAX_COOLDOWN: u32 = 60;
 /// en boucle sur du bruit d'allocateur.
 const HEAP_GROWTH: u64 = 4 << 20;
 
-#[derive(Gui)]
-struct Settings {
-    /// Demarrer le chrono au debut d'une partie
-    #[default = true]
-    auto_start: bool,
-
-    /// Splitter a chaque niveau franchi
-    #[default = true]
-    split_on_level: bool,
-
-    /// Ignorer les niveaux des dimensions paralleles
-    #[default = true]
-    main_world_only: bool,
-
-    /// Afficher le temps reel exact comme game time
-    #[default = true]
-    use_game_time: bool,
-
-    /// Remettre a zero quand la partie est abandonnee ou relancee
-    #[default = true]
-    auto_reset: bool,
-}
-
-impl Settings {
-    fn rules(&self) -> Rules {
-        Rules {
-            auto_start: self.auto_start,
-            split_on_level: self.split_on_level,
-            main_world_only: self.main_world_only,
-            auto_reset: self.auto_reset,
-        }
-    }
-}
-
 fn timer_state() -> TimerState {
     match timer::state() {
         timer::TimerState::NotRunning => TimerState::NotRunning,
@@ -100,7 +67,6 @@ fn timer_state() -> TimerState {
 }
 
 async fn main() {
-    let mut settings = Settings::register();
     // Les process EternalTwin deja examines et ecartes : voir `attach_plugin`.
     let mut rejected = alloc::vec::Vec::new();
     // Ce qu'une resolution apprend et que la suivante reutilise.
@@ -110,30 +76,54 @@ async fn main() {
     // La politique traverse les process : un plugin qui disparait fait partie
     // de l'histoire d'une partie.
     let mut policy = Policy::new();
+    let mut started_in_module = false;
 
     asr::print_message("Hammerfest: autosplitter demarre");
+    asr::print_message(&alloc::format!(
+        "HF_BUILD revision=20260921-default-budget scan_budget={} diagnostics={} fresh_map_ms=100 timing=corrected_real",
+        cfg!(feature = "scan-budget"), cfg!(feature = "diagnostics")
+    ));
+    diagnostics::event("module_started");
+    #[cfg(feature = "diagnostics")]
+    asr::print_message(&alloc::format!(
+        "HF_DIAG event=scan_policy bytes_budget={}", cfg!(feature = "scan-budget")
+    ));
+    #[cfg(feature = "diagnostics")]
+    asr::print_message(&alloc::format!(
+        "HF_DIAG event=mode t_us={} fresh={}",
+        diagnostics::now_us(), true
+    ));
 
     loop {
         match hammerfest::attach_plugin(PROCESS_NAMES, &mut rejected) {
-            Some((process, module)) => {
+            Some((process, module, pid)) => {
                 asr::print_message("Hammerfest: plugin Flash attache");
+                diagnostics::event("plugin_attached");
                 // Rien de ce qu'un autre process avait appris ne vaut ici :
                 // l'ASLR deplace le module et le tas AVM1 est reconstruit.
                 anchor.reset();
+                #[cfg(feature = "known-flash")]
+                {
+                    let matched = binary.recognize(&process, module);
+                    asr::print_message(&alloc::format!(
+                        "HF_DIAG event=binary_profile t_us={} matched={matched}",
+                        diagnostics::now_us()
+                    ));
+                }
                 run(
                     &process,
+                    pid,
                     module,
-                    &mut settings,
                     &mut anchor,
                     &mut binary,
                     &mut policy,
+                    &mut started_in_module,
                 )
                 .await;
                 asr::print_message("Hammerfest: plugin Flash ferme");
             }
             None => {
-                settings.update();
-                apply(policy.tick(timer_state(), &settings.rules(), None));
+                apply(policy.tick(timer_state(), &Rules::default(), None));
                 next_tick().await;
             }
         }
@@ -142,12 +132,14 @@ async fn main() {
 
 async fn run(
     process: &Process,
+    pid: asr::ProcessId,
     module: (u64, u64),
-    settings: &mut Settings,
     anchor: &mut hammerfest::Anchor,
     binary: &mut hammerfest::Binary,
     policy: &mut Policy,
+    started_in_module: &mut bool,
 ) {
+    let mut started_in_process = false;
     let mut game: Option<Game> = None;
     let mut cooldown = 0u32;
     let mut backoff = RESOLVE_MIN_COOLDOWN;
@@ -156,9 +148,21 @@ async fn run(
     // L'origine n'est annoncee qu'une fois par partie : c'est la seule trace
     // qui dise de combien le balayage est arrive en retard.
     let mut announced = false;
+    let mut fresh_map = diagnostics::FreshMap::default();
+    #[cfg(feature = "diagnostics")]
+    let mut last_read = None;
+    #[cfg(feature = "diagnostics")]
+    let mut last_loop = diagnostics::now_us();
 
     while process.is_open() {
-        settings.update();
+        #[cfg(feature = "diagnostics")]
+        {
+            let now = diagnostics::now_us();
+            if now - last_loop > 50_000 {
+                asr::print_message(&alloc::format!("HF_DIAG event=loop_gap t_us={now} elapsed_us={}", now - last_loop));
+            }
+            last_loop = now;
+        }
 
         if game.is_none() {
             // La voie rapide suit `GameManager.current` : quelques lectures,
@@ -173,15 +177,25 @@ async fn run(
                 // partie commence une demi seconde plus tard -- et attendre
                 // une temporisation fixe y ajoutait jusqu'a une seconde de
                 // retard, au hasard de la tentative precedente.
-                let now = hammerfest::heap_size(process);
+                let ranges = fresh_map.poll(pid);
+                let now = ranges.map_or_else(|| hammerfest::heap_size(process), |rs| rs.iter().map(|(a,b)| b-a).sum());
                 let grown = now > heap + HEAP_GROWTH;
                 if cooldown > 0 && !grown {
                     cooldown -= 1;
                 } else {
+                    #[cfg(feature = "diagnostics")]
+                    asr::print_message(&alloc::format!(
+                        "HF_DIAG event=resolve_trigger t_us={} grown={grown} cooldown={cooldown} heap={now}",
+                        diagnostics::now_us()
+                    ));
                     heap = now;
-                    game = hammerfest::resolve(process, module, anchor, binary).await;
+                    game = hammerfest::resolve(process, module, anchor, binary, ranges).await;
                     if game.is_none() {
                         cooldown = backoff;
+                        #[cfg(feature = "diagnostics")]
+                        asr::print_message(&alloc::format!(
+                            "HF_DIAG event=retry_wait t_us={} ticks={cooldown}", diagnostics::now_us()
+                        ));
                         backoff = (backoff * 2).min(RESOLVE_MAX_COOLDOWN);
                     }
                 }
@@ -192,17 +206,36 @@ async fn run(
         }
 
         let read = game.as_mut().and_then(|g| g.read(process));
+        #[cfg(feature = "diagnostics")]
+        {
+            let signature = read.as_ref().map(|s| (game.as_ref().unwrap().game_mode, s.locked));
+            if signature != last_read {
+                asr::print_message(&alloc::format!("HF_DIAG event=read t_us={} state={signature:?}", diagnostics::now_us()));
+                last_read = signature;
+            }
+        }
         if let Some(state) = read.as_ref() {
             publish(state, game.as_ref().map_or("", |g| g.set));
         }
 
-        let actions = policy.tick(timer_state(), &settings.rules(), read);
+        let actions = policy.tick(timer_state(), &Rules::default(), read);
+        if actions.start {
+            asr::print_message(&alloc::format!(
+                "HF_START elapsed_ms={} first_module={} first_process={}",
+                actions.real_time_ms.map_or(-1, |ms| ms),
+                !*started_in_module, !started_in_process
+            ));
+            *started_in_module = true;
+            started_in_process = true;
+        }
         match actions.real_time_ms {
             Some(ms) if !announced => {
                 announced = true;
                 asr::print_message(&alloc::format!(
                     "Hammerfest: depart date, {ms} ms deja ecoulees"
                 ));
+                #[cfg(feature = "diagnostics")]
+                asr::print_message(&alloc::format!("HF_DIAG event=origin t_us={} elapsed_ms={ms} start={} fresh={}", diagnostics::now_us(), actions.start, true));
             }
             None => announced = false,
             _ => {}
@@ -212,13 +245,9 @@ async fn run(
         // course remet le game time a zero, donc une valeur posee plus tot
         // serait perdue et le chrono afficherait zero pendant une image.
         let drop_resolution = apply(actions);
-        if let (true, Some(ms)) = (settings.use_game_time, actions.real_time_ms) {
-            // Le temps reel de LiveSplit part de l'appel a `start()`, donc du
-            // moment ou le balayage du tas a fini -- quelques centaines de
-            // millisecondes trop tard, et variable. Celui-ci est calcule depuis
-            // l'instant ou le niveau 0 est apparu, et pose en absolu : le
-            // retard du balayage n'entre pas dans le chronometrage, il ne fait
-            // que retarder le premier affichage.
+        if let Some(ms) = actions.real_time_ms {
+            // Valeur absolue : le retard de detection ne decale pas le temps.
+            // LiveSplit ne doit pas ajouter sa propre avance entre les lectures.
             timer::pause_game_time();
             timer::set_game_time(Duration::milliseconds(ms));
         }
@@ -246,6 +275,7 @@ fn apply(actions: hammerfest_core::Actions) -> bool {
     if actions.start {
         asr::print_message("Hammerfest: partie lancee");
         timer::start();
+        diagnostics::event("start_called");
     }
     if actions.split {
         timer::split();
