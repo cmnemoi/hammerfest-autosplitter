@@ -1,5 +1,10 @@
 # Mesure du délai de départ
 
+> **Protocole de mesure**, toujours utilise. Les parties decrivant le choix A/B
+> sont perimees : les deux modes ont ete tranches, et le rafraichissement de
+> carte est desormais dans toutes les compilations.
+
+
 Les réglages utilisateur ont été supprimés. Toutes les compilations utilisent
 désormais le rafraîchissement de carte à 100 ms et le temps réel corrigé.
 Les instructions A/B ci-dessous décrivent les anciennes expériences ; le

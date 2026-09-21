@@ -205,24 +205,33 @@ etant deja en retard quand il rappelle.
 
 ## 6. Ce qui reste ouvert
 
-### La variance d'affichage n'a pas disparu
+### La variance d'affichage : resolue, et pas la ou je cherchais
 
-Sept parties sur dix-sept demarrent encore avec 158 a 906 ms de retard
-d'affichage. **La valeur reste juste dans tous les cas** -- c'est le moment ou
-le chrono apparait qui varie.
+**Mise a jour du 21/09/2026, apres ce recapitulatif.** Ce qui suit corrige ce
+que cette section disait -- a savoir que la variance etait structurelle, et
+qu'il fallait grappiller des Mio.
 
-La cause est structurelle : il n'existe que 0,55 s entre la creation du
-`GameMode` et l'apparition du niveau 0, et pendant le chargement les regions
-neuves font vraiment des dizaines de Mio a lire. Quand une tentative tombe
-juste avant la naissance des objets, elle occupe la fenetre.
+La cause etait ailleurs. `livesplit-auto-splitting` met la carte memoire en
+cache **une seconde par processus attache** (`refresh_memory_ranges`). Le
+balayage differentiel comparait donc des regions perimees : il ne pouvait pas
+voir naitre celles ou le SWF venait de creer ses objets, et attendait la
+prochaine expiration du cache. Toutes les optimisations decrites plus haut
+etaient justes, mais elles s'attaquaient a un dixieme du probleme.
 
-Pistes non explorees :
+Un acces temporaire au meme PID rend une carte independante de ce cache. Le
+module en prend une toutes les cent millisecondes pendant qu'il cherche la
+partie.
 
-* mesurer ou passent les Mio restants -- les tentatives ratees font encore 293
-  Mio en moyenne, avec des pointes a 775 ;
-* ne balayer que les regions **qui ont grandi**, et seulement la partie neuve
-  de chacune, plutot que la region entiere ;
-* abaisser `FULL_SWEEP`, ou le declencher sur autre chose que le comptage.
+Resultat : **douze departs, onze a 0 ms**. Le premier d'un module neuf, caches
+vides, tombe a 135 ms.
+
+Ce qu'il reste de couteux est mesure dans
+[exploration-premier-depart.md](exploration-premier-depart.md) : une tentative
+infructueuse lit 272 Mio en quatre passes, dont 76,5 % pour les deux
+recherches par contenu. C'est la que se trouvent les retards rares.
+
+Lecon, pour la prochaine fois : cinq iterations ont ete depensees a optimiser
+sans instrumenter. Les deux qui ont compte sont venues apres la mesure.
 
 ### Le *real time* de LiveSplit reste en retard
 

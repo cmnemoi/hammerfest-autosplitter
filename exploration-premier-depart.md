@@ -1,5 +1,10 @@
 # Retards rares : observations et limites
 
+> **Releve du 21/09/2026**, sur les retards rares qui subsistent apres la
+> correction du cache de carte memoire. Toujours valable : c'est la mesure la
+> plus fine du cout d'une tentative infructueuse.
+
+
 La priorité est de comprendre les retards extrêmes, pas de réduire quelques
 millisecondes sur les départs ordinaires.
 

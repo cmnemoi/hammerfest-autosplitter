@@ -1,5 +1,13 @@
 # Autosplitter Hammerfest — contexte / état des lieux
 
+> **Document de depart, anterieur au code.** Il definissait l'objectif et
+> l'architecture souhaitee avant qu'une ligne soit ecrite. Ce qui s'est
+> reellement passe est dans [hammerfest-level-re.md](hammerfest-level-re.md) ;
+> plusieurs choix envisages ici ont ete abandonnes, faute de chemin de
+> pointeurs statique. Garde comme intention d'origine, pas comme etat des
+> lieux.
+
+
 ## Objectif
 
 Construire un autosplitter Hammerfest pour LiveSplit avec **Rust + ASR / WebAssembly**.

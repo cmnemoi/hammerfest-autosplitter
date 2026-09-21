@@ -197,6 +197,23 @@ duration       19650.1 cycles  = 614.1 s
   niveau 21 -> 22  chrono 650878 ms  (+28112 ms)
 ```
 
+## Ou lire quoi
+
+Huit fichiers, dont la moitie sont dates. Ce qu'ils valent encore :
+
+| fichier | quoi |
+| --- | --- |
+| **[hammerfest-level-re.md](hammerfest-level-re.md)** | la reference. Comment le niveau et le temps sont trouves en memoire, chaque affirmation marquee **[PROUVE]** ou **[HYPOTHESE]** |
+| **[recap-temps-reel.md](recap-temps-reel.md)** | l'etat des lieux du chronometrage : ce qui est resolu, ce qui reste ouvert |
+| [scripts/README.md](scripts/README.md) | a quoi sert chaque script, et lesquels ne servent plus qu'a refaire une mesure passee |
+| [diagnostic-affichage.md](diagnostic-affichage.md) | comment mesurer le delai du premier affichage |
+| [exploration-premier-depart.md](exploration-premier-depart.md) | le cout detaille d'une tentative de resolution infructueuse |
+| [analyse-latence-affichage.md](analyse-latence-affichage.md) | l'analyse qui a mene au cache d'une seconde du runtime |
+| [recap.md](recap.md) | l'intention d'origine, anterieure au code |
+| [recap-21-09-2026.md](recap-21-09-2026.md) | la commande du 21/09, dont les trois questions ont recu reponse |
+
+Les quatre derniers portent un bandeau qui dit ce qu'ils valent aujourd'hui.
+
 ## Etat
 
 **Prouve**, sur EternalTwin / `pepflashplayer.dll` win32-x64 32.0.0.465 :
