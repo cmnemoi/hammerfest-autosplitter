@@ -93,7 +93,7 @@ class Proc:
         self.h = k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
                                  False, pid)
         if not self.h:
-            raise OSError("OpenProcess(%d) a echoue: erreur %d"
+            raise OSError("OpenProcess(%d) failed: error %d"
                           % (pid, C.get_last_error()))
         self._n = C.c_size_t()
 
@@ -153,12 +153,16 @@ class Proc:
                 return base, base + size, name
         return None
 
-    def regions(self, writable_only=True, private_only=True, min_size=0):
-        """Committed and readable regions.
+    def region_info(self, writable_only=True, private_only=True, min_size=0):
+        """Committed and readable regions, with the flags Windows reports.
 
         `writable_only` + `private_only` reproduces the "anonymous rw" filter
         of the Linux version: the AVM1 heap is allocated by the plugin, never
         mapped from a file.
+
+        The flags are not used to select anything. They are here so that a
+        capture can record what Windows said, which is what makes a memory
+        fixture reproducible rather than a bag of bytes.
         """
         out = []
         addr = 0
@@ -177,11 +181,25 @@ class Proc:
                 and (mbi.Type == MEM_PRIVATE or not private_only)
             )
             if ok:
-                out.append((mbi.BaseAddress, nxt))
+                out.append({
+                    "base": mbi.BaseAddress,
+                    "end": nxt,
+                    "size": mbi.RegionSize,
+                    "protect": mbi.Protect,
+                    "state": mbi.State,
+                    "type": mbi.Type,
+                })
             if nxt <= addr:
                 break
             addr = nxt
         return out
+
+    def regions(self, writable_only=True, private_only=True, min_size=0):
+        """The same regions as `region_info`, as `(base, end)` pairs."""
+        return [
+            (r["base"], r["end"])
+            for r in self.region_info(writable_only, private_only, min_size)
+        ]
 
     # -- scan --------------------------------------------------------------
     def chunks(self, regions, chunk=8 << 20):

@@ -59,3 +59,7 @@ run = "uv run python scripts/hf_state.py --dump"
 [tasks.trace]
 description = "Time the start of a game, from the process to the official start"
 run = "uv run python scripts/hf_trace.py"
+
+[tasks.capture-heap]
+description = "Record the plugin memory as a replayable fixture"
+run = "uv run python scripts/capture_heap.py"

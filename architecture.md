@@ -214,7 +214,35 @@ Three families, which do not read the same way.
 | --- | --- |
 | `mise run state` / `watch` / `dump` | read a running game without LiveSplit |
 | `mise run trace` | time a start, from the process to the official start, and write a CSV |
+| `mise run capture-heap` | record the plugin memory into `fixtures/<name>/`, for the documents and for off line tests |
 | `mise run capture-startup` / `summarize-startup` / `probe-runtime` | measure the display delay |
+
+### Memory captures
+
+`mise run capture-heap` writes a replayable fixture into `fixtures/<name>/`:
+`metadata.json`, one gzip stream for the heap, one for the plugin image.
+
+Measured on a live game, `pepflashplayer.dll` 32.0.0.465:
+
+| | regions | read | stored |
+| --- | --- | --- | --- |
+| heap | 124 | 85.4 MiB | 19 MiB, 22 % |
+| plugin image | 1 | 32.6 MiB | 18 MiB, 52 % |
+
+**The whole capture takes 0.3 to 0.6 s.** That duration is the error it
+carries: the game runs while we read, so the last region is younger than the
+first. `state_before` and `state_after` bracket it, and they check each other
+-- a capture of 0.59 s recorded a game clock 599 ms apart. The object graph
+survives the smear, because AVM1 objects do not move inside a game. The clocks
+do not, so a fixture must never assert an exact clock value.
+
+`--no-module` halves the fixture. Only `Binary::recognize` reads those bytes;
+the layout seed and the module range test need the range alone, which
+`metadata.json` always carries.
+
+Fixtures stay out of git until a measurement says otherwise. Compression uses
+level 1 on purpose: level 6 costs four times the time for 28 % fewer bytes,
+and here time is accuracy.
 
 **Readings** -- they ran once, to establish that no static pointer path leads
 to the game objects. Their conclusion is in section 10 of

@@ -6,16 +6,21 @@ __pycache__/
 *.pyc
 .venv/
 
-# Outils telecharges (asr-debugger)
+# Downloaded tools (asr-debugger)
 tools/
 
-# Journaux exportes depuis asr-debugger
+# Logs exported from asr-debugger
 auto_splitter_logs.txt
 logs/
 
-# Capture intermediaire de stable_slots.py
+# Intermediate capture of stable_slots.py
 .slots.json
 .xrefs.json
 
-# Releve de hf_trace.py
+# Reading of hf_trace.py
 trace.csv
+
+# Memory captures. One is a hundred MiB of heap before compression, so they
+# stay out of git until a measurement says otherwise.
+# See scripts/capture_heap.py.
+fixtures/
