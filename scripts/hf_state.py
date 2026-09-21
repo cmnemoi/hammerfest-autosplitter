@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Lit le niveau courant et le chrono de Hammerfest dans la memoire du plugin.
+"""Reads the current Hammerfest level and clock from the plugin memory.
 
-Chaine de resolution, sans aucune adresse en dur :
+The resolution chain, with no hard coded address:
 
-    process --type=ppapi          le plugin Flash, cree au chargement du SWF
-    pepflashplayer.dll            ASLR -> base du module
-    scan "]=[]8" dans le tas      `world`, clef obfusquee connue par hf.map.json
-    -> layout AVM1 derive         vtables, pas et offsets, mesures un par un
-    -> table de GameMode          celle qui possede cette clef
-    GameMode["]=[]8"]             -> world : GameMechanics
+    process --type=ppapi          the Flash plugin, born when the SWF loads
+    pepflashplayer.dll            ASLR -> module base
+    scan "]=[]8" in the heap      `world`, obfuscated key known from hf.map.json
+    -> AVM1 layout derived        vtables, stride and offsets, measured one by one
+    -> GameMode table             the one that owns this key
+    GameMode["]=[]8"]             -> world: GameMechanics
     world[" h;+A("]               -> setName == "]R;5E" = `xml_adventure`
-    world["-BBEO"]                -> currentId : le niveau
-    GameMode["8qkdA"]             -> gameChrono : Chrono
+    world["-BBEO"]                -> currentId: the level
+    GameMode["8qkdA"]             -> gameChrono: Chrono
     Chrono[...]                   -> fl_stop ? haltedTimer : frameTimer-gameTimer
 
 Usage:
-    hf_state.py                   un releve
-    hf_state.py --watch           suit les transitions de niveau
-    hf_state.py --dump            affiche GameMode, world et Chrono en entier
+    hf_state.py                   one reading
+    hf_state.py --watch           follows the level transitions
+    hf_state.py --dump            prints GameMode, world and Chrono in full
 """
 import argparse
 import sys
@@ -44,18 +44,17 @@ K_GAME_TIMER = hfmap.obf("gameTimer")
 K_HALTED_TIMER = hfmap.obf("haltedTimer")
 K_FL_STOP = hfmap.obf("fl_stop")
 
-SECOND = 32          # Data.SECOND : cycles de jeu par seconde
-MAX_LEVEL = 256      # borne de plausibilite pour currentId
+SECOND = 32          # Data.SECOND: game cycles per second
+MAX_LEVEL = 256      # plausibility bound for currentId
 
 
 class Hammerfest:
-    """Un etat Hammerfest resolu dans un process vivant.
+    """A Hammerfest state resolved in a live process.
 
-    Rien n'est cache au-dela de la table GameMode : le jeu reconstruit ses
-    objets entre deux parties, et un slot abandonne reste lisible en contenant
-    une valeur parfaitement plausible. Chaque lecture re-parcourt
-    GameMode -> world -> currentId, ce qui coute des microsecondes et ne peut
-    pas devenir obsolete en silence.
+    Nothing is cached beyond the GameMode table. The game rebuilds its objects
+    between two games, and an abandoned slot stays readable while holding a
+    perfectly plausible value. Every read walks GameMode -> world -> currentId
+    again, which costs microseconds and cannot go stale in silence.
     """
 
     def __init__(self, pid):
@@ -72,7 +71,7 @@ class Hammerfest:
 
     # -- resolution --------------------------------------------------------
     def resolve(self, verbose=False):
-        """Trouve la table GameMode. Coute un scan complet du tas."""
+        """Finds the GameMode table. Costs one full heap scan."""
         log = print if verbose else (lambda *_: None)
         self.heaps = self.p.regions()
         self.av.heaps = self.heaps
@@ -89,27 +88,27 @@ class Hammerfest:
             raw = self.av.as_string(self.av.get(wtbl, K_SET_NAME))
             name = hfmap.clear(raw) if raw else None
             level = self.av.as_int(self.av.get(wtbl, K_CURRENT_ID), bound=MAX_LEVEL)
-            # `world` ne suffit pas a identifier le GameMode : les objets View
-            # en portent un aussi, et pointent vers le meme GameMechanics. Seul
-            # le GameMode possede en plus un gameChrono.
+            # `world` is not enough to identify the GameMode: View objects
+            # carry one too, and they point at the same GameMechanics. Only
+            # the GameMode also owns a gameChrono.
             ctbl = self.av.child(tbl, K_CHRONO)
             has_chrono = ctbl is not None and self.av.get(ctbl, K_FRAME_TIMER) is not None
             log("  table 0x%x -> world 0x%x  setName=%r (%r)  currentId=%r"
                 "  gameChrono=%s"
-                % (tbl, wtbl, raw, name, level, "oui" if has_chrono else "non"))
+                % (tbl, wtbl, raw, name, level, "yes" if has_chrono else "no"))
             if name and name.startswith("xml_") and level is not None and has_chrono:
                 found.append((tbl, name))
 
         if not found:
             return False
         if len(found) > 1:
-            print("attention: %d GameMode vivants (%s), on prend le premier"
+            print("warning: %d live GameModes (%s), taking the first one"
                   % (len(found), ", ".join(hex(t) for t, _ in found)),
                   file=sys.stderr)
         self.gm, self.set_name = found[0]
         return True
 
-    # -- lectures ----------------------------------------------------------
+    # -- reads ---------------------------------------------------------------
     def world(self):
         return self.av.child(self.gm, K_WORLD)
 
@@ -117,7 +116,7 @@ class Hammerfest:
         return self.av.child(self.gm, K_CHRONO)
 
     def chrono_ms(self):
-        """Chrono.get() : millisecondes de jeu, figees pendant les pauses."""
+        """Chrono.get(): game milliseconds, frozen during pauses."""
         c = self.chrono()
         if c is None:
             return None
@@ -128,12 +127,12 @@ class Hammerfest:
         return None if frame is None or game is None else frame - game
 
     def frame_timer(self):
-        """Chrono.frameTimer : le battement de coeur du GameMode.
+        """Chrono.frameTimer: the heartbeat of the GameMode.
 
-        `GameMode.main()` appelle `gameChrono.update()` inconditionnellement et
-        avant le test de pause, donc ce compteur avance a chaque frame tant que
-        ce GameMode est celui qui tourne. Fige, l'objet est mort -- et un objet
-        mort reste lisible, avec un niveau et un chrono d'avant.
+        `GameMode.main()` calls `gameChrono.update()` unconditionally, and
+        before the pause test. So this counter advances every frame while this
+        GameMode is the one that runs. Frozen, the object is dead -- and a dead
+        object stays readable, with an old level and an old clock.
         """
         c = self.chrono()
         return None if c is None else self.av.as_int(self.av.get(c, K_FRAME_TIMER))
@@ -173,24 +172,24 @@ def attach(pid=None, verbose=True):
         print("pid            %d" % hf.pid)
         print("plugin         %s" % hf.plugin_path)
         print("module         0x%x .. 0x%x" % (hf.base, hf.end))
-        print("tas prive rw   %d regions, %.1f Mio"
+        print("private rw heap %d regions, %.1f MiB"
               % (len(hf.heaps), sum(b - a for a, b in hf.heaps) / (1 << 20)))
-        print("\nresolution, ancre %r = `world` :" % K_WORLD)
+        print("\nresolution, anchor %r = `world`:" % K_WORLD)
     t0 = time.time()
     ok = hf.resolve(verbose=verbose)
     if verbose:
         print("  -> %s en %.2f s"
-              % ("GameMode 0x%x" % hf.gm if ok else "ECHEC", time.time() - t0))
+              % ("GameMode 0x%x" % hf.gm if ok else "FAILED", time.time() - t0))
         if ok:
-            print("\nlayout AVM1 derive :\n%s" % hf.av.L)
+            print("\nAVM1 layout derived:\n%s" % hf.av.L)
     return hf if ok else None
 
 
 def show(s):
     print("\nset            %s (dimension %s)" % (s["set"], s["dim"]))
-    print("niveau         %s   (precedent %s)" % (s["level"], s["previous"]))
-    print("chrono         %s ms%s"
-          % (s["chrono_ms"], "   [en pause]" if s["paused"] else ""))
+    print("level          %s   (previous %s)" % (s["level"], s["previous"]))
+    print("clock          %s ms%s"
+          % (s["chrono_ms"], "   [paused]" if s["paused"] else ""))
     print("frameTimer     %s%s" % (s["frame"], "   [game over]" if s["game_over"] else ""))
     d = s["duration"]
     print("duration       %s cycles%s"
@@ -207,8 +206,8 @@ def main():
 
     hf = attach(a.pid)
     if hf is None:
-        sys.exit("\nnon resolu : le process --type=ppapi existe-t-il, et "
-                 "es-tu bien dans une partie ?")
+        sys.exit("\nnot resolved: does the --type=ppapi process exist, and "
+                 "are you in a game?")
 
     if a.dump:
         hf.dump(hf.gm, "GameMode")
@@ -223,7 +222,7 @@ def main():
     if not a.watch:
         return
 
-    print("\nsuivi des transitions, Ctrl-C pour arreter")
+    print("\nfollowing the transitions, Ctrl-C to stop")
     last = None
     last_frame = None
     stalled = 0
@@ -233,27 +232,27 @@ def main():
         except OSError:
             s = None
         if s is None or s["level"] is None:
-            print("  perdu -> re-resolution")
+            print("  lost -> resolving again")
             hf = attach(a.pid, verbose=False)
             if hf is None:
                 time.sleep(1)
                 continue
             last = None
             continue
-        # `last` ne bouge qu'au changement de niveau : le battement de coeur se
-        # suit donc a part, d'une lecture a l'autre.
+        # `last` only moves on a level change, so the heartbeat is followed
+        # separately, from one read to the next.
         if s["frame"] == last_frame:
             stalled += 1
             if stalled == 60:
-                print("  frameTimer fige depuis 60 lectures : GameMode mort ?")
+                print("  frameTimer frozen for 60 reads: dead GameMode?")
         else:
             stalled = 0
         last_frame = s["frame"]
         if last is None:
-            print("  niveau %-3s chrono %s ms" % (s["level"], s["chrono_ms"]))
+            print("  level %-3s clock %s ms" % (s["level"], s["chrono_ms"]))
             last = s
         elif s["level"] != last["level"]:
-            print("  niveau %s -> %-3s chrono %s ms  (+%s ms)"
+            print("  level %s -> %-3s clock %s ms  (+%s ms)"
                   % (last["level"], s["level"], s["chrono_ms"],
                      (s["chrono_ms"] or 0) - (last["chrono_ms"] or 0)))
             last = s
