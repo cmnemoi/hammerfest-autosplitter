@@ -2,7 +2,7 @@
 //!
 //! Un atome vaut `(valeur << 3) | tag`, les trois bits bas donnant le type.
 //! Valeurs mesurees sur pepflashplayer.dll 32.0.0.465 (voir
-//! `hammerfest-level-re.md`).
+//! `reverse-engineering.md`).
 
 pub const TAG_INT: u64 = 0;
 pub const TAG_DOUBLE: u64 = 1;

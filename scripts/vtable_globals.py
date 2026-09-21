@@ -32,7 +32,7 @@ import pefile
 DLL = (r"C:\Users\Charles-Meldhine\AppData\Local\Programs\Eternaltwin"
        r"\resources\app\plugins\flash\win32-x64\pepflashplayer.dll")
 
-# Relevees a l'execution, module-relatives (voir hammerfest-level-re.md).
+# Relevees a l'execution, module-relatives (voir reverse-engineering.md).
 VTABLES = {
     "String": 0x1756DB8,
     "ScriptObject": 0x1749ED8,

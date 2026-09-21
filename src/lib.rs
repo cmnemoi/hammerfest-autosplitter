@@ -11,7 +11,7 @@
 //! sous tests. C'est la seule facon de tester ces regles : les symboles du
 //! runtime ASR n'existent que dans le bac a sable WebAssembly.
 //!
-//! Le detail des mesures memoire est dans `hammerfest-level-re.md`.
+//! Le detail des mesures memoire est dans `reverse-engineering.md`.
 //!
 //! **Ce qui mesure ne vit pas ici.** La compilation normale ne contient que
 //! l'autosplitter : ni trace, ni compteur, ni horodatage. Tout cela est dans

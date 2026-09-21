@@ -10,6 +10,10 @@ Le travail precedent (`cmnemoi/hammerfest-re`, realise par Claude) avait resolu
 le *score* sous Linux. Ces notes-ci portent sur le niveau et le temps, sous
 Windows.
 
+Ce document dit **ce que le jeu cache et comment on l'y trouve**. Comment
+l'autosplitter est construit autour est dans
+[architecture.md](architecture.md).
+
 ---
 
 ## 1. Ce que le jeu traque vraiment

@@ -1,6 +1,6 @@
 //! Modele objet AVM1 dans un process Pepper Flash.
 //!
-//! Voir `hammerfest-level-re.md` pour les mesures. En resume : les objets
+//! Voir `reverse-engineering.md` pour les mesures. En resume : les objets
 //! String et ScriptObject ont le meme layout sous Linux et sous Windows, mais
 //! pas les tables de proprietes.
 //!
