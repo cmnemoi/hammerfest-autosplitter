@@ -16,4 +16,4 @@ pub mod end_sequence;
 pub mod policy;
 
 pub use end_sequence::EndSequence;
-pub use policy::{duration_ms, Actions, Policy, Rules, State, TimerState};
+pub use policy::{duration_ms, Actions, Policy, State, TimerState};

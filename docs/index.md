@@ -169,11 +169,14 @@ in the *game time* channel. In LiveSplit: **Compare Against → Game Time**.
 elevator is proved by the game source and covered by tests, but no finished run
 has confirmed it. Finishing Hammerfest takes a while.
 
-**No setting is exposed.** The module applies the defaults: start, split on a
-level crossed in the main world, split at the elevator, reset.
+**There are no settings.** The module always starts, splits on a level
+crossed in the main world, splits at the elevator, and resets. A settings
+struct existed, reached no LiveSplit control, and was removed. If a setting is
+ever wanted, it arrives through the runtime settings API with a real path from
+LiveSplit.
 
-**Parallel dimensions are out of scope.** They are read and reported, and they
-produce no split.
+**Parallel dimensions are out of scope.** They are read and reported. They
+produce no split, and no end of run.
 
 **One version, one machine.** The layout is derived at run time. A different
 Flash build should fail cleanly rather than report a wrong level, but that has

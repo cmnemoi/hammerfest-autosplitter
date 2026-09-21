@@ -37,7 +37,7 @@ mod keys {
 }
 
 use asr::{future::next_tick, time::Duration, timer, Process};
-use hammerfest_core::{Policy, Rules, State, TimerState};
+use hammerfest_core::{Policy, State, TimerState};
 
 use hammerfest::Game;
 
@@ -66,7 +66,10 @@ fn timer_state() -> TimerState {
     match timer::state() {
         timer::TimerState::NotRunning => TimerState::NotRunning,
         timer::TimerState::Running => TimerState::Running,
-        timer::TimerState::Paused => TimerState::Paused,
+        // A Hammerfest run has no legal pause: the time counts whatever the
+        // player does. A runner who pauses the LiveSplit timer is still in a
+        // run, so the core is told the run goes on.
+        timer::TimerState::Paused => TimerState::Running,
         timer::TimerState::Ended => TimerState::Ended,
         _ => TimerState::Unknown,
     }
@@ -121,7 +124,7 @@ async fn main() {
                 asr::print_message("Hammerfest: Flash plugin closed");
             }
             None => {
-                apply(policy.tick(timer_state(), &Rules::default(), None));
+                apply(policy.tick(timer_state(), None));
                 next_tick().await;
             }
         }
@@ -213,7 +216,7 @@ async fn run(
             publish(state, game.as_ref().map_or("", |g| g.set));
         }
 
-        let actions = policy.tick(timer_state(), &Rules::default(), read);
+        let actions = policy.tick(timer_state(), read);
         if actions.start {
             diagnostics::started(actions.real_time_ms.unwrap_or(-1), pid);
         }

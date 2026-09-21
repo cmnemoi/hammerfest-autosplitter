@@ -49,37 +49,19 @@ pub fn duration_ms(cycles: f64) -> i64 {
     (cycles * (1000.0 / SECOND)) as i64
 }
 
-/// The settings, as the core sees them: plain booleans.
-#[derive(Copy, Clone, Debug)]
-pub struct Rules {
-    pub auto_start: bool,
-    pub split_on_level: bool,
-    pub main_world_only: bool,
-    pub auto_reset: bool,
-    /// Split when the run ends, at the elevator. It is the last split of the
-    /// speedrun rule: *ends when the player enters the door and can no longer
-    /// control the character*.
-    pub split_on_finish: bool,
-}
-
-impl Default for Rules {
-    fn default() -> Self {
-        Self {
-            auto_start: true,
-            split_on_level: true,
-            main_world_only: true,
-            auto_reset: true,
-            split_on_finish: true,
-        }
-    }
-}
-
+/// What LiveSplit says about its own timer.
+///
+/// `Paused` is absent on purpose. A Hammerfest run has no legal pause: the
+/// time counts whatever the player does, so a runner who pauses the LiveSplit
+/// timer is still in a run. The adapter therefore reports `Running` for it,
+/// and the core never has to think about it.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum TimerState {
     NotRunning,
     Running,
-    Paused,
     Ended,
+    /// The runtime reported something we do not know. We then do nothing,
+    /// which is the only safe answer to "I cannot tell".
     Unknown,
 }
 
@@ -155,9 +137,9 @@ impl Policy {
     }
 
     /// One tick. `read` is None when no game could be read.
-    pub fn tick(&mut self, timer: TimerState, rules: &Rules, read: Option<State>) -> Actions {
+    pub fn tick(&mut self, timer: TimerState, read: Option<State>) -> Actions {
         let Some(now) = read else {
-            return self.no_game(timer, rules);
+            return self.no_game(timer);
         };
 
         let mut actions = Actions::nothing();
@@ -179,7 +161,7 @@ impl Policy {
             // A finished run must survive its own end. Game over arrives
             // fourteen seconds after the elevator, and a reset here would
             // erase the run on the finish line.
-            if rules.auto_reset && timer == TimerState::Running && !self.finished {
+            if timer == TimerState::Running && !self.finished {
                 actions.reset = true;
             }
             self.forget();
@@ -242,7 +224,7 @@ impl Policy {
             // over.
             self.finished = false;
             self.finish_time_ms = None;
-            if self.launched && rules.auto_start && timer == TimerState::NotRunning {
+            if self.launched && timer == TimerState::NotRunning {
                 actions.start = true;
             }
         }
@@ -258,7 +240,12 @@ impl Policy {
         // One read is enough, unlike the level. `Adventure.nextLevel` writes
         // the level three times inside one frame; this sequence is written
         // once.
+        //
+        // The main world only, like a level crossing. The elevator belongs to
+        // the last level of the adventure; a parallel dimension ending is not
+        // the end of this run.
         if now.end_sequence.started()
+            && now.dim == 0
             && !self.finished
             && self.seen.is_some_and(|s| !s.end_sequence.started())
         {
@@ -268,7 +255,7 @@ impl Policy {
             self.finish_time_ms = actions
                 .real_time_ms
                 .map(|ms| ms - now.end_sequence.since_the_elevator_ms());
-            if rules.split_on_finish && timer == TimerState::Running {
+            if timer == TimerState::Running {
                 actions.split = true;
             }
         }
@@ -283,14 +270,14 @@ impl Policy {
         // with the game frame. Without this confirmation, a read that lands in
         // the middle would produce two splits instead of one, at random.
         if self.seen.map(|s| s.level) == Some(now.level) {
-            self.decide(timer, rules, &now, &mut actions);
+            self.decide(timer, &now, &mut actions);
             self.prev = Some(now);
         }
         self.seen = Some(now);
         actions
     }
 
-    fn no_game(&mut self, timer: TimerState, rules: &Rules) -> Actions {
+    fn no_game(&mut self, timer: TimerState) -> Actions {
         let mut actions = Actions::nothing();
         actions.drop_resolution = true;
         self.saw_no_game = true;
@@ -306,8 +293,11 @@ impl Policy {
             // Not after a finished run. The plugin navigates away seconds
             // after the elevator, so losing the game is the normal end of a
             // run that succeeded.
+            // `==`, not `>=`: this fires once. Firing on every later tick
+            // would send LiveSplit a reset per tick for as long as no game
+            // comes back. The only way to miss it is an `Unknown` timer state
+            // on that exact tick, which the runtime does not produce.
             if self.lost == LOST_BEFORE_RESET
-                && rules.auto_reset
                 && timer == TimerState::Running
                 && !self.finished
             {
@@ -333,7 +323,7 @@ impl Policy {
         self.duration_seen = 0;
     }
 
-    fn decide(&self, timer: TimerState, rules: &Rules, now: &State, actions: &mut Actions) {
+    fn decide(&self, timer: TimerState, now: &State, actions: &mut Actions) {
         // A finished run decides nothing more. The end sequence still reads as
         // a live game for fourteen seconds.
         if self.finished {
@@ -343,13 +333,8 @@ impl Policy {
             return;
         };
 
-        // A finished timer does not accept `start`. It must be reset first,
-        // and only if we have permission to do so.
-        if rules.auto_start
-            && rules.auto_reset
-            && timer == TimerState::Ended
-            && now.level == FIRST_LEVEL
-        {
+        // A finished timer does not accept `start`. It must be reset first.
+        if timer == TimerState::Ended && now.level == FIRST_LEVEL {
             actions.reset = true;
             actions.start = true;
             return;
@@ -358,12 +343,10 @@ impl Policy {
         // The game clock goes backwards: another game started and we did not
         // see the transition.
         if now.chrono_ms + 2_000 < prev.chrono_ms {
-            if rules.auto_reset && timer == TimerState::Running {
+            if timer == TimerState::Running {
                 actions.reset = true;
             }
-            if rules.auto_start {
-                actions.start = true;
-            }
+            actions.start = true;
             return;
         }
 
@@ -374,11 +357,15 @@ impl Policy {
         //
         // One split per crossing, whatever the number of levels skipped. The
         // route of a run goes through these shortcuts, so one segment matches
-        // them. Going backwards -- death, restart -- is not progress.
-        if rules.split_on_level
-            && timer == TimerState::Running
+        // them.
+        //
+        // Only forward counts, and nothing in a run moves backwards: a death
+        // costs a life and keeps the same level, and a warp cannot arrive
+        // below where it left. A lower number means a script jump, the writes
+        // inside one frame, or a misread.
+        if timer == TimerState::Running
             && now.level > prev.level
-            && (!rules.main_world_only || now.dim == 0)
+            && now.dim == 0
         {
             actions.split = true;
         }
@@ -440,7 +427,6 @@ mod tests {
     /// we tell it, which saves us from simulating LiveSplit.
     struct Run {
         policy: Policy,
-        rules: Rules,
         timer: TimerState,
     }
 
@@ -448,7 +434,6 @@ mod tests {
         fn new() -> Self {
             Self {
                 policy: Policy::new(),
-                rules: Rules::default(),
                 timer: TimerState::NotRunning,
             }
         }
@@ -459,7 +444,7 @@ mod tests {
         }
 
         fn tick(&mut self, read: Option<State>) -> Actions {
-            let actions = self.policy.tick(self.timer, &self.rules, read);
+            let actions = self.policy.tick(self.timer, read);
             if actions.reset {
                 self.timer = TimerState::NotRunning;
             }
@@ -663,10 +648,30 @@ mod tests {
     }
 
     #[test]
-    fn does_not_split_backwards() {
+    fn a_level_number_going_backwards_splits_nothing_and_resets_nothing() {
+        // Nothing in a run sends the player to a lower level. A death costs a
+        // life and puts them back in the same level, without touching
+        // `currentId`, and `SpecialManager.warpZone` can only move forward:
+        // its arrival is `currentId + w`, and the loop that lowers it stops at
+        // `currentId`.
+        //
+        // So a lower number means one of three things: a level script calling
+        // `forcedGoto` backwards, the three writes `Adventure.nextLevel` makes
+        // inside one frame, or a misread. None of them is progress, and none
+        // of them ends the attempt.
+        //
+        // A new game is the fourth case, and the game clock catches that one:
+        // see `restarts_when_the_game_clock_jumps_backwards`.
         let mut r = Run::new().running();
         r.confirm(at(7, 30_000));
-        assert!(!r.confirm(at(0, 31_000)).split);
+
+        let back_one = r.confirm(at(6, 31_000));
+        assert!(!back_one.split);
+        assert!(!back_one.reset);
+
+        let all_the_way = r.confirm(at(0, 32_000));
+        assert!(!all_the_way.split);
+        assert!(!all_the_way.reset);
     }
 
     #[test]
@@ -718,6 +723,48 @@ mod tests {
             let s = at(9, 40_000 + i as i64);
             assert!(!r.tick(Some(s)).drop_resolution);
         }
+    }
+
+    #[test]
+    fn restarts_the_run_when_the_timer_has_already_ended() {
+        // The runner reached the last split of their file, so LiveSplit is
+        // finished. They launch another game. A finished timer refuses
+        // `start`, so it has to be reset first, in that order.
+        let mut r = Run::new();
+        r.timer = TimerState::Ended;
+        r.tick(Some(at(0, 3_000)));
+        r.tick(Some(at(0, 3_050)));
+
+        let actions = r.tick(Some(at(0, 3_100)));
+        assert!(actions.reset);
+        assert!(actions.start);
+    }
+
+    #[test]
+    fn restarts_when_the_game_clock_jumps_backwards() {
+        // A new game began and we never saw the gap: the GameMode was rebuilt
+        // and its clock restarted from zero. More than two seconds backwards
+        // is not a misread, it is another game.
+        let mut r = Run::new().running();
+        r.confirm(at(7, 40_000));
+
+        let actions = r.confirm(at(0, 900));
+        assert!(actions.reset);
+        assert!(actions.start);
+    }
+
+    #[test]
+    fn an_unknown_timer_state_makes_nothing_happen() {
+        // The runtime reported something we cannot read. Doing nothing is the
+        // only safe answer to "I cannot tell".
+        let mut r = Run::new();
+        r.timer = TimerState::Unknown;
+        r.confirm(at(3, 10_000));
+
+        let actions = r.confirm(at(4, 20_000));
+        assert!(!actions.split);
+        assert!(!actions.start);
+        assert!(!actions.reset);
     }
 
     // -- the end of the run --------------------------------------------------
@@ -792,6 +839,24 @@ mod tests {
         let mut late = elevator_since(103, 600_000, 320.0); // 10 s
         late.frame_timer = start.frame_timer + 610_000;
         assert_eq!(r.tick(Some(late)).real_time_ms, Some(610_000));
+    }
+
+    #[test]
+    fn the_elevator_of_a_parallel_dimension_ends_nothing() {
+        // The elevator belongs to the last level of the adventure. Whatever a
+        // parallel world does, it is not the end of this run.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+
+        let mut elsewhere = elevator(103, 601_000);
+        elsewhere.dim = 1;
+        let actions = r.tick(Some(elsewhere));
+        assert!(!actions.split);
+
+        // And the time still moves, because the run is not over.
+        let mut later = elsewhere;
+        later.frame_timer += 5_000;
+        assert!(r.tick(Some(later)).real_time_ms > actions.real_time_ms);
     }
 
     #[test]
@@ -873,12 +938,76 @@ mod tests {
         assert_eq!(r.tick(Some(later)).real_time_ms, Some(3_000));
     }
 
+    // -- the invariant -------------------------------------------------------
+
+    /// Plays a sequence and returns the last time published.
+    ///
+    /// Fails the moment the published time goes backwards. That is the one
+    /// defect a runner sees at once, and no scenario test holds every guard
+    /// against it at the same time.
+    fn play(r: &mut Run, reads: &[Option<State>]) -> i64 {
+        let mut last = -1;
+        for read in reads {
+            if let Some(ms) = r.tick(*read).real_time_ms {
+                assert!(ms >= last, "the time went backwards: {ms} after {last}");
+                last = ms;
+            }
+        }
+        last
+    }
+
     #[test]
-    fn honours_the_setting_that_turns_the_last_split_off() {
-        let mut r = Run::new().running();
-        r.rules.split_on_finish = false;
-        r.confirm(at(103, 600_000));
-        assert!(!r.tick(Some(elevator(103, 601_000))).split);
+    fn the_published_time_never_goes_backwards_inside_a_run() {
+        // One whole run, through everything that has ever moved the origin:
+        // the black screen, the start, a level shortcut, a game pause, the
+        // resolution lost and taken again, then the elevator.
+        //
+        // `frame_timer` is the only clock that never stops, so it is the one
+        // that drives this. `duration` freezes with the pause, as the game
+        // does it.
+        let read = |level: i64, frame: i64, duration: i64| State {
+            level,
+            previous: level - 1,
+            chrono_ms: duration,
+            frame_timer: frame,
+            dim: 0,
+            game_over: false,
+            locked: false,
+            duration_ms: duration,
+            end_sequence: EndSequence::NONE,
+        };
+        let black_screen = State {
+            locked: true,
+            ..read(0, 100_000, 0)
+        };
+        let mut elevator_frame = read(12, 130_100, 12_100);
+        elevator_frame.end_sequence = EndSequence::from_cycles(EndSequence::FULL_CYCLES);
+        let mut after_the_end = elevator_frame;
+        after_the_end.frame_timer += 5_000;
+
+        let mut r = Run::new();
+        let final_time = play(
+            &mut r,
+            &[
+                None,                                  // no game yet
+                Some(black_screen),                    // loading, level 0 hidden
+                Some(read(0, 100_550, 0)),             // the start
+                Some(read(0, 102_550, 2_000)),
+                Some(read(10, 109_000, 8_450)),        // the level 0 shortcut
+                Some(State { locked: true, ..read(10, 123_000, 8_450) }), // paused
+                Some(read(10, 124_000, 9_450)),
+                None,                                  // resolution lost
+                None,
+                Some(read(12, 130_000, 12_000)),       // taken again
+                Some(elevator_frame),
+                Some(after_the_end),                   // the cinematic runs on
+            ],
+        );
+
+        // The origin is the frame of the unlock, 100_550. The elevator is at
+        // 130_100, so the run lasted 29_550 ms -- pause included, as the rule
+        // says -- and it must not move afterwards.
+        assert_eq!(final_time, 29_550);
     }
 
     // -- no game ------------------------------------------------------------
@@ -914,27 +1043,4 @@ mod tests {
         assert!(r.tick(Some(at(0, 2_000))).start);
     }
 
-    // -- settings ------------------------------------------------------------
-
-    #[test]
-    fn honours_the_settings_that_are_off() {
-        let mut r = Run::new();
-        r.rules = Rules {
-            auto_start: false,
-            split_on_level: false,
-            main_world_only: true,
-            auto_reset: false,
-            split_on_finish: false,
-        };
-        r.tick(None);
-        assert!(!r.tick(Some(at(0, 1_000))).start);
-
-        r.timer = TimerState::Running;
-        r.confirm(at(3, 10_000));
-        assert!(!r.confirm(at(4, 20_000)).split);
-
-        let mut end = at(4, 21_000);
-        end.game_over = true;
-        assert!(!r.tick(Some(end)).reset);
-    }
 }
