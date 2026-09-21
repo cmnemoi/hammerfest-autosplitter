@@ -152,7 +152,8 @@ simply the old ones. Three separate checks guard against that.
 | why a valid read can lie | [About stale memory](internals/stale-memory.md) |
 | how the run is timed to the frame | [About the clocks](internals/the-clocks.md) |
 | why the search must stay cheap | [About speed](internals/speed-matters.md) |
-| what the memory reader promises, and how it is tested | [About testing the memory reader](internals/testing-the-memory-reader.md) |
+| what the memory reader must do | [Memory reader](specs/memory-reader.md) |
+| how that is proved, and in what order | [About testing the memory reader](internals/testing-the-memory-reader.md) |
 | to read a live game yourself | [Read a live game](how-to/read-a-live-game.md) |
 | to record memory for tests | [Capture a fixture](how-to/capture-a-fixture.md) |
 | to measure the start delay | [Measure the startup](how-to/measure-the-startup.md) |
