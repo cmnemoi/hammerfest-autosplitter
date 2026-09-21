@@ -381,7 +381,7 @@ def trace(args):
         try:
             manager, loader, how, tables = find_anchors(av)
         except OSError:
-            print("  process disparu avant la resolution")
+            print("  process gone before the resolution")
             return
         scans += 1
         print("  scan %2d: %5.1f MiB (%d new regions), %.2f s -> %s%s"
@@ -395,7 +395,7 @@ def trace(args):
     mode = None
     last = None
     t_dead = None
-    print("\ntrace en cours, Ctrl-C pour arreter\n")
+    print("\ntrace running, Ctrl-C to stop\n")
 
     try:
         while True:
@@ -522,11 +522,11 @@ def summary(ev, rows):
         d = pauses[-1]["duration"] - pauses[0]["duration"]
         g = (pauses[-1]["chrono_ms"] or 0) - (pauses[0]["chrono_ms"] or 0)
         fr = (pauses[-1]["frame_timer"] or 0) - (pauses[0]["frame_timer"] or 0)
-        reelle = pauses[-1]["t"] - pauses[0]["t"]
-        print("\npendant la pause (%.1f s reelles) :" % reelle)
+        real_seconds = pauses[-1]["t"] - pauses[0]["t"]
+        print("\nduring the pause (%.1f real s):" % real_seconds)
         print("  duration    %+.1f cycles = %+.2f s" % (d, d / SECOND))
         print("  gameChrono  %+d ms" % g)
-        print("  frameTimer  %+d ms   <- doit suivre le temps real" % fr)
+        print("  frameTimer  %+d ms   <- must follow real time" % fr)
 
 
 def main():

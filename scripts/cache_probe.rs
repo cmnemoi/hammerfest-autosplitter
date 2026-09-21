@@ -1,4 +1,4 @@
-//! Sonde compilee par runtime_probe.py. Ne lit que le processus de test.
+//! Probe built by runtime_probe.py. It reads only the test process.
 #![no_std]
 
 const PID: u64 = __PROBE_PID__;

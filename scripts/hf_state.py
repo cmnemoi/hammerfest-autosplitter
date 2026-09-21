@@ -62,7 +62,7 @@ class Hammerfest:
         self.p = winmem.Proc(pid)
         m = self.p.module(PLUGIN)
         if m is None:
-            raise RuntimeError("pepflashplayer.dll absent du pid %d" % pid)
+            raise RuntimeError("pepflashplayer.dll is missing from pid %d" % pid)
         self.base, self.end, self.plugin_path = m
         self.heaps = self.p.regions()
         self.av = avm1.Avm1(self.p, (self.base, self.end), self.heaps)
@@ -83,7 +83,7 @@ class Hammerfest:
             wtbl = (self.av.table_of(world_atom)
                     or self.av.derive_script_object(world_atom, K_SET_NAME))
             if wtbl is None:
-                log("  table 0x%x : `world` ne mene pas a un objet, ignoree" % tbl)
+                log("  table 0x%x: `world` leads to no object, skipped" % tbl)
                 continue
             raw = self.av.as_string(self.av.get(wtbl, K_SET_NAME))
             name = hfmap.clear(raw) if raw else None
@@ -155,7 +155,7 @@ class Hammerfest:
 
     # -- inspection --------------------------------------------------------
     def dump(self, tbl, title):
-        print("\n%s : table 0x%x, capacite %s" % (title, tbl, self.av.capacity(tbl)))
+        print("\n%s: table 0x%x, capacity %s" % (title, tbl, self.av.capacity(tbl)))
         for name, atom, addr in self.av.entries(tbl):
             c = hfmap.clear(name)
             label = name if c == name else "%s -> %s" % (name, c)

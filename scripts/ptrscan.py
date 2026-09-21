@@ -1,37 +1,37 @@
 #!/usr/bin/env python3
-"""Cherche une chaine de pointeurs depuis les donnees du module jusqu'a un objet.
+"""Looks for a pointer chain from the module data to an object.
 
-Pourquoi. Tout ce qui est AVM1 est recree a chaque lancement de partie -- le
-GameMode, le GameManager, l'objet de classe, et jusqu'aux chaines internees du
-pool de constantes du SWF (mesure par `anchors.py`). Aucune adresse du tas ne
-peut donc servir d'ancre d'une partie a l'autre, et c'est ce qui force a
-rebalayer cent Mo a chaque fois.
+Why. Everything AVM1 is built again at every game launch -- the GameMode, the
+GameManager, the class object, and even the interned strings of the SWF
+constant pool (measured by `anchors.py`). So no heap address can serve as an
+anchor from one game to the next, and that is what forces a new scan of a
+hundred MB every time.
 
-Le module, lui, ne bouge pas de tout le process. Et le lecteur Flash garde
-forcement un pointeur vers le contexte qu'il execute, sinon il ne saurait pas
-quel film faire tourner. Une chaine
+The module, on the other hand, does not move for the life of the process. And
+the Flash player must hold a pointer to the context it runs, otherwise it
+would not know which movie to play. A chain
 
-    pepflashplayer.dll + offset -> +offset -> ... -> objet
+    pepflashplayer.dll + offset -> +offset -> ... -> object
 
-suivrait donc automatiquement chaque nouvelle instanciation, et rendrait la
-resolution aussi directe que celle d'un autosplitter ordinaire.
+would therefore follow every new instance by itself, and make the resolution
+as direct as that of an ordinary autosplitter.
 
-Methode. Recherche a rebours, niveau par niveau :
+Method. A backward search, level by level:
 
-  niveau 0   les adresses `a` telles que *(a) == cible
-  niveau n   les adresses `b` telles que *(b) tombe dans [a-MAXOFF, a],
-             c'est-a-dire qui pointent vers l'objet contenant `a`
+  level 0    the addresses `a` where *(a) == target
+  level n    the addresses `b` where *(b) falls in [a-MAXOFF, a], that is,
+             which point at the object that contains `a`
 
-On s'arrete des qu'une adresse tombe dans les sections de donnees du module :
-c'est une racine statique, et le chemin se lit a l'envers.
+We stop as soon as an address falls inside the data sections of the module:
+that is a static root, and the path reads backwards.
 
-Le tri des candidats privilegie ceux qui ne sont *pas* dans le tas AVM1 : les
-objets AVM1 se referencent massivement entre eux (le reverse du score avait
-compte 2390 referents pour un seul objet), alors que la sortie cherchee passe
-par les structures C++ du lecteur.
+The candidates are sorted to prefer those *outside* the AVM1 heap. AVM1
+objects reference each other heavily -- the score reverse counted 2390
+referents for a single object -- while the exit we look for goes through the
+C++ structures of the player.
 
 Usage:  ptrscan.py --target 0x... [--depth 4] [--max-off 0x400]
-        ptrscan.py --map            (juste la carte memoire, pour se reperer)
+        ptrscan.py --map            (just the memory map, to get your bearings)
 """
 import argparse
 import sys
@@ -44,26 +44,26 @@ PLUGIN = r"pepflashplayer\.dll"
 
 
 def readable_regions(p):
-    """Toutes les regions engagees et lisibles, pas seulement le tas prive.
+    """Every committed and readable region, not only the private heap.
 
-    Les structures C++ du lecteur ne vivent pas dans le tas AVM1 : les exclure
-    reviendrait a couper la chaine en son milieu.
+    The C++ structures of the player do not live in the AVM1 heap. Excluding
+    them would cut the chain in the middle.
     """
     return p.regions(writable_only=False, private_only=False)
 
 
 def module_data(p, base, end):
-    """Les sections *ecrivables* du module : `.data`, `.bss`.
+    """The *writable* sections of the module: `.data`, `.bss`.
 
-    C'est la seule memoire a la fois fixe pour la duree du process et
-    susceptible de contenir un pointeur vers le tas.
+    This is the only memory that is both fixed for the life of the process and
+    likely to hold a pointer into the heap.
     """
     return [(a, b) for a, b in p.regions(writable_only=True, private_only=False)
             if base <= a < end]
 
 
 def chunks(p, regions, chunk=8 << 20):
-    """Rend (adresse, tableau d'entiers 64 bits) pour toute la memoire."""
+    """Yields (address, array of 64 bit integers) for all the memory."""
     for a, b in regions:
         start = (a + 7) & ~7
         pos = start
@@ -79,9 +79,9 @@ def chunks(p, regions, chunk=8 << 20):
 
 
 def find_pointers(p, regions, targets, max_off, limit):
-    """Adresses dont le contenu tombe dans [t - max_off, t] pour un t cible.
+    """Addresses whose content falls in [t - max_off, t] for a target t.
 
-    -> [(adresse, cible, ecart)]
+    -> [(address, target, gap)]
     """
     order = np.sort(np.array(sorted(targets), dtype=np.uint64))
     hits = []
@@ -109,15 +109,15 @@ def main():
     ap.add_argument("--depth", type=int, default=4)
     ap.add_argument("--max-off", type=lambda x: int(x, 0), default=0x100)
     ap.add_argument("--width", type=int, default=64,
-                    help="candidats retenus par niveau")
+                    help="candidates kept per level")
     ap.add_argument("--limit", type=int, default=200_000,
-                    help="hits max par niveau, garde-fou")
-    ap.add_argument("--map", action="store_true", help="afficher la carte")
+                    help="maximum hits per level, a safety limit")
+    ap.add_argument("--map", action="store_true", help="print the memory map")
     a = ap.parse_args()
 
     pids = [a.pid] if a.pid else winmem.ppapi_pids()
     if not pids:
-        sys.exit("pas de process --type=ppapi : lance une partie.")
+        sys.exit("no --type=ppapi process: start a game.")
     p = winmem.Proc(pids[0])
     base, end, _path = p.module(PLUGIN)
     regions = readable_regions(p)
@@ -126,7 +126,7 @@ def main():
     total = sum(b - x for x, b in regions)
     print("pid            %d" % p.pid)
     print("module         0x%x .. 0x%x" % (base, end))
-    print("memoire lisible %d regions, %.0f Mio" % (len(regions), total / (1 << 20)))
+    print("readable memory %d regions, %.0f MiB" % (len(regions), total / (1 << 20)))
     print("donnees module  %d regions, %.0f Kio"
           % (len(data), sum(b - x for x, b in data) / 1024))
     for x, b in data:
@@ -145,22 +145,22 @@ def main():
         hits = find_pointers(p, regions, targets, 0 if level == 0 else a.max_off,
                              a.limit)
         if not hits:
-            print("  niveau %d : aucun referent, impasse" % level)
+            print("  level %d: no referent, dead end" % level)
             return
         statics = [h for h in hits if in_module_data(h[0])]
         if statics:
-            print("\n  RACINE STATIQUE au niveau %d :" % level)
+            print("\n  STATIC ROOT at level %d:" % level)
             for addr, tgt, gap in statics[:10]:
                 print("    module+0x%-8x -> ... -> 0x%x  (ecart %d)"
                       % (addr - base, tgt, gap))
             return
 
-        # Un champ de structure est a quelques dizaines d'octets de sa base ;
-        # un ecart de plusieurs centaines est presque toujours une coincidence
-        # dans un tableau. On explore donc les plus petits ecarts d'abord.
+        # A structure field sits a few tens of bytes from its base. A gap of
+        # several hundred is almost always a coincidence inside an array. So
+        # we explore the smallest gaps first.
         hits.sort(key=lambda h: (h[2], h[0]))
         kept = hits[: a.width]
-        print("  niveau %d : %d referents, %d retenus (ecart 0 : %d)"
+        print("  level %d: %d referents, %d kept (gap 0: %d)"
               % (level, len(hits), len(kept), sum(1 for h in hits if h[2] == 0)))
         for addr, tgt, gap in kept[:6]:
             print("      0x%x -> 0x%x  (ecart %d)" % (addr, tgt, gap))
@@ -171,7 +171,7 @@ def main():
         chains = new_chains
         targets = set(new_chains)
 
-    print("\n  aucune racine statique a profondeur %d." % a.depth)
+    print("\n  no static root at depth %d." % a.depth)
 
 
 if __name__ == "__main__":

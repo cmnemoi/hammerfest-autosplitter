@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Verifie qu'une chaine `module+X -> +off -> ...` mene bien au film courant.
+"""Checks that a chain `module+X -> +off -> ...` really leads to the current movie.
 
-Une chaine trouvee une fois ne vaut rien : tout ce qui est AVM1 est recree a
-chaque partie, donc le seul test valable est de la reparcourir **apres avoir
-relance une partie** et de comparer a une resolution independante.
+A chain found once is worth nothing: everything AVM1 is built again at every
+game. So the only valid test is to walk it again **after a game restart** and
+compare with an independent resolution.
 
 Usage:
     checkchain.py 0x1e58468 0xa8 0x178
@@ -16,7 +16,7 @@ import stable_slots
 
 
 def follow(p, base, static_off, offsets):
-    """Parcourt la chaine et rend chaque etape, pour pouvoir la lire."""
+    """Walks the chain and returns every step, so it can be read."""
     steps = []
     addr = base + static_off
     value = p.u64(addr)
@@ -34,20 +34,20 @@ def follow(p, base, static_off, offsets):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("static", type=lambda x: int(x, 0),
-                    help="offset dans le module, ex 0x1e58468")
+                    help="offset inside the module, e.g. 0x1e58468")
     ap.add_argument("offsets", nargs="+", type=lambda x: int(x, 0))
     ap.add_argument("--pid", type=int)
     a = ap.parse_args()
 
     hf = hf_state.attach(a.pid, verbose=False)
     if hf is None:
-        sys.exit("pas de partie resolue : lance une partie Hammerfest.")
+        sys.exit("no game resolved: start a Hammerfest game.")
 
     targets = stable_slots.movie_objects(hf)
     targets["GameMode"] = hf.gm
 
     print("pid %d   module 0x%x" % (hf.pid, hf.base))
-    print("\nresolution independante (par balayage) :")
+    print("\nindependent resolution (by scan):")
     for name, addr in targets.items():
         print("  %-12s 0x%x" % (name, addr))
 
@@ -60,9 +60,9 @@ def main():
     match = [n for n, v in targets.items() if v == final]
     print()
     if match:
-        print("  CONCORDE : la chaine mene a %s" % ", ".join(match))
+        print("  MATCH: the chain leads to %s" % ", ".join(match))
     else:
-        print("  ne concorde avec aucune cible (obtenu 0x%x)" % final)
+        print("  matches no target (got 0x%x)" % final)
 
 
 if __name__ == "__main__":

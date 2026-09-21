@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Quelles adresses survivent a un relancement de partie ?
+"""Which addresses survive a game restart?
 
-Le journal de l'autosplitter montre que `GameManager` est recree a chaque
-lancement -- six adresses differentes dans un seul process plugin. Tant que
-l'ancre est ce GameManager-la, chaque partie coute un balayage complet du tas.
+The autosplitter log shows that `GameManager` is built again at every launch
+-- six different addresses inside one single plugin process. While the anchor
+is that GameManager, every game costs a full heap scan.
 
-`GameManager.SELF` est un `static var` : il vit sur l'objet de *classe*, cree une
-fois avec le SWF. S'il survit aux parties, la chaine
+`GameManager.SELF` is a `static var`: it lives on the *class* object, created
+once with the SWF. If it survives across games, then the chain
 
-    classe -> SELF -> GameManager -> current -> GameMode
+    class -> SELF -> GameManager -> current -> GameMode
 
-se parcourt en quelques lectures, et le balayage retombe a une fois par process.
+is walked in a few reads, and the scan falls back to once per process.
 
-Ce script affiche les adresses candidates. Le releve n'a de sens que compare a
-lui-meme : lancer une partie, relever, quitter, relancer, relever a nouveau, et
-regarder ce qui a bouge.
+This script prints the candidate addresses. The reading only means something
+compared to itself: start a game, read, quit, start again, read again, and
+look at what moved.
 
 Usage:  anchors.py [--pid N]
 """
@@ -33,7 +33,7 @@ K_MANAGER = hfmap.obf("manager")
 
 
 def string_objects(av, text):
-    """Tous les objets String valant `text`."""
+    """Every String object whose value is `text`."""
     out = []
     for buf in av.p.scan(text.encode("utf-16-le"), align=2, regions=av.heaps):
         for ref in av.p.scan(struct.pack("<Q", buf), align=8, regions=av.heaps):
@@ -44,7 +44,7 @@ def string_objects(av, text):
 
 
 def tables_owning(av, key):
-    """Toutes les tables qui possedent `key`, via l'objet String interne."""
+    """Every table that owns `key`, through the interned String object."""
     out = []
     for so in string_objects(av, key):
         for slot in av.p.scan_tagged(so, regions=av.heaps):
@@ -57,7 +57,7 @@ def tables_owning(av, key):
 
 
 def base_from_keyslot(av, keyslot):
-    """Remonte au debut de la table depuis un slot de clef."""
+    """Walks back to the start of the table from a key slot."""
     first = keyslot
     while av.key_at(first - av.L.tbl_stride) is not None:
         first -= av.L.tbl_stride
@@ -72,7 +72,7 @@ def main():
 
     hf = hf_state.attach(a.pid, verbose=False)
     if hf is None:
-        sys.exit("pas de partie resolue : lance une partie Hammerfest.")
+        sys.exit("no game resolved: start a Hammerfest game.")
     av = hf.av
 
     print("pid            %d" % hf.pid)
@@ -82,13 +82,13 @@ def main():
     gm = hf.gm
     manager = av.child(gm, K_MANAGER)
     world = hf.world()
-    print("GameMode       0x%x   (recree a chaque partie)" % gm)
+    print("GameMode       0x%x   (rebuilt at every game)" % gm)
     print("world          0x%x" % (world or 0))
-    print("GameManager    0x%x   (recree a chaque partie, d'apres les logs)"
+    print("GameManager    0x%x   (rebuilt at every game, per the logs)"
           % (manager or 0))
 
-    # L'objet de classe : celui qui possede la statique SELF.
-    print("\nrecherche de l'objet de classe (clef SELF = %r)..." % K_SELF)
+    # The class object: the one that owns the SELF static.
+    print("\nlooking for the class object (SELF key = %r)..." % K_SELF)
     classes = tables_owning(av, K_SELF)
     for t in classes:
         self_atom = av.get(t, K_SELF)
@@ -99,14 +99,14 @@ def main():
               % (t, (self_atom or 0) & ~7,
                  "== GameManager courant" if points_to_manager else "(autre)"))
 
-    # Les chaines internees du pool de constantes du SWF.
-    print("\nchaines internees (survivent tant que le SWF est charge) :")
+    # The interned strings of the SWF constant pool.
+    print("\ninterned strings (they survive while the SWF is loaded):")
     for key in (hfmap.obf("world"), hfmap.obf("fVersion"), K_SELF):
         for so in string_objects(av, key):
             print("  String %-8r 0x%x" % (key, so))
 
-    print("\nA comparer avec un second releve apres avoir relance une partie :")
-    print("  ce qui ne bouge pas peut servir d'ancre et supprime le balayage.")
+    print("\nCompare with a second reading after a game restart:")
+    print("  what does not move can serve as an anchor and remove the scan.")
 
 
 if __name__ == "__main__":

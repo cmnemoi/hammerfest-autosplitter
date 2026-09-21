@@ -1,7 +1,7 @@
-"""Mesure le cache de la DLL LiveSplit, dans un timer prive au processus de test.
+"""Measures the cache of the LiveSplit DLL, in a timer private to this test.
 
 Usage : mise run probe-runtime [--dll CHEMIN_ASR_CAPI_DLL]
-La DLL et LiveSplit ne sont pas modifies. Les allocations appartiennent a ce script.
+The DLL and LiveSplit are not modified. The allocations belong to this script.
 """
 import argparse
 import ctypes as C
@@ -14,7 +14,7 @@ import time
 
 
 class Runtime:
-    """Interface C du composant ASR, avec un faux timer et des callbacks locaux."""
+    """The C interface of the ASR component, with a fake timer and local callbacks."""
     def __init__(self, path):
         self.dll = C.CDLL(str(path))
         self.runtime = None
@@ -98,7 +98,7 @@ def main():
                                 capture_output=True, text=True, check=True)
         paths = result.stdout.strip().splitlines()
         if len(paths) != 1:
-            ap.error("Ouvrir LiveSplit avec le composant ASR, ou fournir --dll.")
+            ap.error("Open LiveSplit with the ASR component, or pass --dll.")
         args.dll = Path(paths[0])
     dll = args.dll.resolve(strict=True)
     root = Path(__file__).resolve().parents[1]

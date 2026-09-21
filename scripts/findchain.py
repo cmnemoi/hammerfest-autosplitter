@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Cherche une chaine courte : donnees du module -> film courant.
+"""Looks for a short chain: module data -> current movie.
 
-`stable_slots.py` a montre que les donnees du module contiennent des pointeurs
-dont l'*adresse* est fixe mais dont la *valeur* suit ce que le lecteur recree a
-chaque partie. C'est la forme meme d'une racine statique.
+`stable_slots.py` showed that the module data holds pointers whose *address*
+is fixed but whose *value* follows what the player rebuilds at every game.
+That is the very shape of a static root.
 
-Ici on fait se rejoindre les deux bouts, au lieu d'explorer a l'aveugle :
+Here we make both ends meet, instead of exploring blind:
 
-    en avant    depuis chaque pointeur statique, les valeurs atteintes en 1, 2
-                puis 3 sauts, en lisant une fenetre autour de chaque objet
-    en arriere  les adresses dont le contenu vaut exactement le MovieClip
-                courant -- elles sont peu nombreuses
+    forward     from each static pointer, the values reached in 1, 2 then 3
+                hops, reading a window around each object
+    backward    the addresses whose content is exactly the current MovieClip
+                -- there are few of them
 
-Une jonction a lieu quand une valeur atteinte en avant designe un objet dont la
-fenetre contient une de ces adresses : le chemin est alors complet, et se lit
-`module+X -> +off1 -> ... -> film`.
+A junction happens when a value reached forward points at an object whose
+window holds one of those addresses. The path is then complete, and it reads
+`module+X -> +off1 -> ... -> movie`.
 
 Usage:  findchain.py [--depth 3] [--window 0x200]
 """
@@ -38,7 +38,7 @@ def plausible(v, heaps):
 
 
 def window_values(p, addr, window):
-    """Les qwords contenus dans [addr, addr+window), avec leur offset."""
+    """The qwords held in [addr, addr+window), with their offset."""
     buf = p.read(addr, window)
     if not buf:
         return []
@@ -54,12 +54,12 @@ def main():
     ap.add_argument("--depth", type=int, default=3)
     ap.add_argument("--window", type=lambda x: int(x, 0), default=0x200)
     ap.add_argument("--min-xrefs", type=int, default=4,
-                    help="ne partir que des statiques que le code lit")
+                    help="start only from the statics the code reads")
     a = ap.parse_args()
 
     hf = hf_state.attach(a.pid, verbose=False)
     if hf is None:
-        sys.exit("pas de partie resolue : lance une partie Hammerfest.")
+        sys.exit("no game resolved: start a Hammerfest game.")
     p = hf.p
     heaps = ptrscan.readable_regions(p)
 
@@ -67,49 +67,48 @@ def main():
     targets["GameMode"] = hf.gm
     print("pid %d   module 0x%x" % (hf.pid, hf.base))
     for name, addr in targets.items():
-        print("  cible %-12s 0x%x" % (name, addr))
+        print("  target %-12s 0x%x" % (name, addr))
 
-    # En arriere : qui pointe exactement vers ces objets.
+    # Backward: what points exactly at these objects.
     back = stable_slots.referents(p, targets.values())
     slots = sorted({s for lst in back.values() for s in lst})
-    print("\n%d adresse(s) pointent vers une cible" % len(slots))
+    print("\n%d address(es) point at a target" % len(slots))
     if not slots:
-        sys.exit("aucun referent : rien a raccorder.")
+        sys.exit("no referent: nothing to join.")
 
     def junction(value):
-        """`value` designe-t-il un objet dont la fenetre contient un referent ?"""
+        """Does `value` point at an object whose window holds a referent?"""
         for s in slots:
             if value <= s < value + a.window:
                 return s
         return None
 
     statics = stable_slots.module_statics(p, hf.base, hf.end)
-    print("%d pointeur(s) statique(s) dans les donnees du module" % len(statics))
+    print("%d static pointer(s) in the module data" % len(statics))
 
-    # Filtre par nature plutot que par hasard : un vrai global est lu depuis
-    # de nombreux endroits du code, un bucket d'allocateur ne l'est pas. Le
-    # classement vient de `xrefs.py --save`.
+    # Filter by nature rather than by chance: a real global is read from many
+    # places in the code, an allocator bucket is not. The ranking comes from
+    # `xrefs.py --save`.
     if a.min_xrefs and os.path.exists(RANKING):
         with open(RANKING, encoding="utf-8") as f:
             ranking = {int(k): v for k, v in json.load(f).items()}
         statics = {addr: v for addr, v in statics.items()
                    if ranking.get(addr - hf.base, 0) >= a.min_xrefs}
-        print("  %d retenue(s) avec au moins %d reference(s) de code"
+        print("  %d kept with at least %d code reference(s)"
               % (len(statics), a.min_xrefs))
 
-    # En avant, niveau par niveau. Chaque noeud retient son chemin d'offsets.
+    # Forward, level by level. Each node keeps its own path of offsets.
     frontier = {v: (addr - hf.base, []) for addr, v in statics.items()}
     seen = set(frontier)
 
     wanted = set(targets.values())
 
     def resolves(static_off, path):
-        """La chaine mene-t-elle *encore* a une cible, deux fois a distance ?
+        """Does the chain *still* lead to a target, twice, apart in time?
 
-        Beaucoup de pointeurs des donnees du module sont des tetes de liste ou
-        des buckets d'allocateur : leur valeur change en permanence, meme au
-        sein d'une partie. Une jonction relevee a un instant donne ne vaut rien
-        tant qu'elle ne s'est pas reproduite.
+        Many pointers in the module data are list heads or allocator buckets:
+        their value changes all the time, even inside one game. A junction seen
+        at one instant is worth nothing until it happens again.
         """
         for attempt in range(2):
             if attempt:
@@ -130,17 +129,17 @@ def main():
             if s is not None:
                 found.append((static_off, path, value, s))
         if found:
-            print("  niveau %d : %d jonction(s) brute(s), verification..."
+            print("  level %d: %d raw junction(s), checking..."
                   % (level, len(found)))
             solid = [f for f in found if resolves(f[0], f[1])]
             if solid:
-                print("\n  CHAINE STABLE :")
+                print("\n  STABLE CHAIN:")
                 for static_off, path, value, _s in solid[:10]:
                     chain = " -> ".join("+0x%x" % o for o in path)
                     print("    module+0x%-8x %s  -> 0x%x"
                           % (static_off, chain or "(direct)", value))
                 return
-            print("    aucune ne se reproduit : pointeurs volatils.")
+            print("    none happens again: volatile pointers.")
 
         nxt = {}
         for value, (static_off, path) in frontier.items():
@@ -149,12 +148,12 @@ def main():
                     continue
                 seen.add(v)
                 nxt[v] = (static_off, path + [off])
-        print("  niveau %d : %d noeuds -> %d" % (level, len(frontier), len(nxt)))
+        print("  level %d: %d nodes -> %d" % (level, len(frontier), len(nxt)))
         frontier = nxt
         if not frontier:
             break
 
-    print("\n  aucune jonction a profondeur %d." % a.depth)
+    print("\n  no junction at depth %d." % a.depth)
 
 
 if __name__ == "__main__":

@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Quels globals les methodes des objets AVM1 consultent-elles ?
+"""Which globals do the methods of AVM1 objects read?
 
-`xrefs.py` classait les globals du binaire entier par nombre de references. Les
-mieux classes se sont reveles etre l'allocateur et le runtime C++ du lecteur :
-normal, ils sont touches partout, mais ils ne menent pas a l'interpreteur.
+`xrefs.py` ranked the globals of the whole binary by number of references. The
+best ranked turned out to be the allocator and the C++ runtime of the player.
+That is expected: they are touched everywhere, but they do not lead to the
+interpreter.
 
-Ici on retourne la question. On connait trois vtables AVM1, relevees dans la
-memoire d'un process vivant :
+Here we turn the question round. We know three AVM1 vtables, read from the
+memory of a live process:
 
     String        MODULE+0x1756db8
     ScriptObject  MODULE+0x1749ed8
     table         MODULE+0x174a460
     MovieClip     MODULE+0x1749f48
 
-Leurs entrees sont les methodes de ces objets. Les globals que *ces
-fonctions-la* consultent appartiennent au sous-systeme AVM1. Un global partage
-par beaucoup d'entre elles est un bon candidat pour le contexte de
-l'interpreteur -- c'est-a-dire la racine qu'on cherche.
+Their entries are the methods of these objects. The globals that *those
+functions* read belong to the AVM1 subsystem. A global shared by many of them
+is a good candidate for the interpreter context -- that is, the root we look
+for.
 
 Usage:  vtable_globals.py [--entries 48] [--budget 0x400]
 """
@@ -60,7 +61,7 @@ def read_rva(pe, rva, size):
 
 
 def vtable_functions(pe, vt_rva, count):
-    """Les rva des fonctions listees dans une vtable."""
+    """The rvas of the functions listed in a vtable."""
     base = pe.OPTIONAL_HEADER.ImageBase
     raw = read_rva(pe, vt_rva, count * 8)
     out = []
@@ -75,7 +76,7 @@ def vtable_functions(pe, vt_rva, count):
 
 
 def globals_used(pe, md, func_rva, budget, data_ranges):
-    """Les globals lus par une fonction, jusqu'a `ret` ou epuisement du budget."""
+    """The globals a function reads, up to `ret` or until the budget runs out."""
     code = read_rva(pe, func_rva, budget)
     found = set()
     for addr, size, mnemonic, op_str in md.disasm_lite(code, func_rva):
@@ -95,9 +96,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dll", default=DLL)
     ap.add_argument("--entries", type=int, default=48,
-                    help="entrees de vtable examinees")
+                    help="vtable entries examined")
     ap.add_argument("--budget", type=lambda x: int(x, 0), default=0x400,
-                    help="octets desassembles par fonction")
+                    help="bytes disassembled per function")
     ap.add_argument("--top", type=int, default=20)
     a = ap.parse_args()
 
@@ -105,7 +106,7 @@ def main():
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
     md.skipdata = True
 
-    # Les sections de donnees inscriptibles : c'est la que vivent les globals.
+    # The writable data sections: that is where the globals live.
     data_ranges = [(s.VirtualAddress,
                     s.VirtualAddress + max(s.Misc_VirtualSize, s.SizeOfRawData))
                    for s in pe.sections if s.Characteristics & 0x80000000]
@@ -126,7 +127,7 @@ def main():
                 by_vtable[g].add(name)
 
     print("\n%d fonctions examinees, %d globals distincts" % (total, len(counts)))
-    print("les plus partages -- un contexte d'interpreteur est vu par "
+    print("the most shared -- an interpreter context is seen by "
           "beaucoup de methodes :")
     for g, n in counts.most_common(a.top):
         print("    module+0x%-9x %3d fonction(s)   vtables: %s"

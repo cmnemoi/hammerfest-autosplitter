@@ -79,10 +79,10 @@ class Layout:
 
     def __str__(self):
         return (
-            "  String        vtable %-18s buffer +0x%02x   longueur +0x%02x\n"
+            "  String        vtable %-18s buffer +0x%02x   length +0x%02x\n"
             "  ScriptObject  vtable %-18s table  +0x%02x\n"
-            "  table         vtable %-18s capacite +0x%02x  entrees +0x%02x\n"
-            "  entree        %d octets, clef a +0x00, valeur a %+#04x"
+            "  table         vtable %-18s capacity +0x%02x  entries +0x%02x\n"
+            "  entry         %d bytes, key at +0x00, value at %+#04x"
             % (self._rel(self.str_vt), self.str_buf, self.str_len,
                self._rel(self.so_vt), self.so_tbl,
                self._rel(self.tbl_vt), self.tbl_cap, self.tbl_keys,
@@ -181,7 +181,7 @@ class Avm1:
 
     def describe(self, atom):
         if atom is None:
-            return "<illisible>"
+            return "<unreadable>"
         tag = atom & 7
         if tag == TAG_SPECIAL:
             return {ATOM_NULL: "null", ATOM_FALSE: "false",
@@ -265,9 +265,9 @@ class Avm1:
         log = print if verbose else (lambda *_: None)
         strobj = self._derive_string(anchor)
         if strobj is None:
-            log("  chaine %r introuvable dans le tas" % anchor)
+            log("  string %r not found in the heap" % anchor)
             return []
-        log("  String %r a 0x%x : vtable %s, buffer +0x%02x, longueur +0x%02x"
+        log("  String %r at 0x%x: vtable %s, buffer +0x%02x, length +0x%02x"
             % (anchor, strobj, self.L._rel(self.L.str_vt),
                self.L.str_buf, self.L.str_len))
 
@@ -278,7 +278,7 @@ class Avm1:
             t = self._derive_table(ks)
             if t is not None and t not in tables:
                 tables.append(t)
-                log("  table 0x%x : capacite %d, %d entrees lisibles"
+                log("  table 0x%x: capacity %d, %d readable entries"
                     % (t, self.capacity(t) or 0, len(self.entries(t))))
         return tables
 

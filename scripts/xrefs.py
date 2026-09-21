@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
-"""Compte les references croisees vers les donnees globales du lecteur Flash.
+"""Counts the cross references to the global data of the Flash player.
 
-Pourquoi. La recherche de chaine a l'aveugle (`findchain.py`) ne converge pas :
-les donnees du module contiennent surtout des tetes de liste et des buckets
-d'allocateur, qui contiennent fortuitement des objets du film et changent en
-permanence. Les essayer au hasard ne mene nulle part.
+Why. The blind chain search (`findchain.py`) does not converge: the module
+data holds mostly list heads and allocator buckets, which happen to hold movie
+objects and change all the time. Trying them at random leads nowhere.
 
-Mais leur *nature* se lit dans le code. Un vrai singleton global est lu depuis
-de nombreux endroits -- c'est ce qui en fait un global. Un bucket d'allocateur
-est touche par une poignee d'instructions, et le plus souvent par index calcule
-plutot qu'en adressage relatif direct. Compter les instructions qui referencent
-chaque adresse trie donc les candidats par nature.
+But their *nature* is readable in the code. A real global singleton is read
+from many places -- that is what makes it a global. An allocator bucket is
+touched by a handful of instructions, and most often through a computed index
+rather than direct relative addressing. Counting the instructions that
+reference each address therefore sorts the candidates by nature.
 
-Le desassemblage est un balayage lineaire : il produit des instructions fausses
-la ou le code est entrecoupe de donnees. Ca n'a pas d'importance ici, on ne
-cherche pas a reconstruire des fonctions mais a compter, et le bruit ne se
-concentre pas sur une adresse particuliere.
+The disassembly is a linear sweep: it produces wrong instructions where code
+is interleaved with data. That does not matter here. We do not try to rebuild
+functions, only to count, and the noise does not gather on one address.
 
 Usage:
-    xrefs.py                     classe les statiques releves par stable_slots
-    xrefs.py --rva 0x1e58468     detaille les references a une adresse
+    xrefs.py                     ranks the statics recorded by stable_slots
+    xrefs.py --rva 0x1e58468     details the references to one address
 """
 import argparse
 import json
@@ -47,15 +45,16 @@ def executable_sections(pe):
 
 
 def count_rip_targets(path, want=None):
-    """-> {rva cible: nombre d'instructions qui la referencent}
+    """-> {target rva: number of instructions that reference it}
 
-    `want` limite le comptage a un ensemble de rva, ce qui evite de garder un
-    dictionnaire de plusieurs millions d'entrees.
+    `want` limits the count to a set of rvas, which saves us from keeping a
+    dictionary of several million entries.
     """
     pe = pefile.PE(path, fast_load=True)
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
-    # Sans cela le balayage s'arrete au premier octet indecodable -- et il y en
-    # a beaucoup, le code etant entrecoupe de tables de sauts et de donnees.
+    # Without this the sweep stops at the first byte it cannot decode -- and
+    # there are many, since the code is interleaved with jump tables and
+    # data.
     md.skipdata = True
     counts = {}
     detail = {}
@@ -83,22 +82,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dll", default=DLL)
     ap.add_argument("--rva", type=lambda x: int(x, 0),
-                    help="detaille les references a cette rva")
+                    help="details the references to this rva")
     ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--save", action="store_true",
-                    help="ecrit le classement dans .xrefs.json")
+                    help="writes the ranking to .xrefs.json")
     a = ap.parse_args()
 
     if a.rva is not None:
         want = {a.rva}
     else:
         if not os.path.exists(STORE):
-            sys.exit("pas de capture : lancer stable_slots.py --capture d'abord.")
+            sys.exit("no capture: run stable_slots.py --capture first.")
         with open(STORE, encoding="utf-8") as f:
             saved = json.load(f)
         module = saved["module"]
         want = {int(k) - module for k in saved["statics"]}
-        print("%d statiques relevees, module 0x%x" % (len(want), module))
+        print("%d statics recorded, module 0x%x" % (len(want), module))
 
     print("desassemblage de %s" % os.path.basename(a.dll))
     counts, detail = count_rip_targets(a.dll, want)
@@ -110,21 +109,21 @@ def main():
         return
 
     ranked = sorted(counts.items(), key=lambda kv: -kv[1])
-    print("\n%d statiques referencees par du code, les %d premieres :"
+    print("\n%d statics referenced by code, the first %d:"
           % (len(ranked), a.top))
-    print("  un global lu partout est un candidat ; un bucket ne l'est pas.")
+    print("  a global read everywhere is a candidate; a bucket is not.")
     for rva, n in ranked[:a.top]:
         print("    module+0x%-9x %4d reference(s)" % (rva, n))
 
     if a.save:
         with open(RANKING, "w", encoding="utf-8") as f:
             json.dump({str(rva): n for rva, n in ranked}, f, indent=1)
-        print("\n  classement ecrit dans %s" % RANKING)
+        print("\n  ranking written to %s" % RANKING)
 
     orphans = len(want) - len(ranked)
-    print("\n  %d statiques ne sont referencees par aucune instruction en "
+    print("\n  %d statics are referenced by no instruction in "
           "adressage relatif :" % orphans)
-    print("  ce sont des donnees atteintes par calcul -- tableaux, buckets.")
+    print("  these are data reached by computation -- arrays, buckets.")
 
 
 if __name__ == "__main__":

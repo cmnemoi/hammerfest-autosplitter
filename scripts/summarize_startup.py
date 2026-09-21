@@ -1,4 +1,4 @@
-"""Resume les departs normaux ou HF_DIAG (delai de detection, pas delai visuel)."""
+"""Summarises normal or HF_DIAG starts (detection delay, not visual delay)."""
 import argparse
 import math
 from pathlib import Path
@@ -13,7 +13,7 @@ def main():
     groups = {"false": [], "true": [], "standard": []}
     diagnostic_lines = 0
     origins = 0
-    contexts = {"Premier depart du module": [], "Premier depart du processus suivant": [], "Relances": []}
+    contexts = {"First start of the module": [], "First start of the next process": [], "Later starts": []}
     for path in args.logs:
         try:
             data = path.read_bytes()
@@ -21,9 +21,9 @@ def main():
         except (OSError, UnicodeError) as error:
             ap.exit(1, f"Lecture impossible : {path} : {error}\n")
         if not text.strip():
-            ap.exit(1, f"Journal vide : {path} ({len(data)} octets).\n"
-                    "Exporter le panneau Logs avec Save dans asr-debugger, "
-                    "puis utiliser le chemin du fichier exporte.\n")
+            ap.exit(1, f"Empty log: {path} ({len(data)} bytes).\n"
+                    "Export the Logs panel with Save in asr-debugger, "
+                    "then use the path of the exported file.\n")
         pending = None
         for line in text.splitlines():
             diagnostic_lines += "HF_DIAG " in line
@@ -31,15 +31,15 @@ def main():
                 fields = dict(re.findall(r"(\w+)=(\S+)", line))
                 ms = int(fields["elapsed_ms"])
                 if ms >= 0:
-                    label = ("Premier depart du module" if fields.get("first_module") == "true"
-                             else "Premier depart du processus suivant" if fields.get("first_process") == "true"
-                             else "Relances")
+                    label = ("First start of the module" if fields.get("first_module") == "true"
+                             else "First start of the next process" if fields.get("first_process") == "true"
+                             else "Later starts")
                     contexts[label].append(ms)
-            normal = re.search(r"Hammerfest: depart date, (-?\d+) ms deja ecoulees", line)
+            normal = re.search(r"Hammerfest: start dated, (-?\d+) ms already elapsed", line)
             if normal:
                 pending = int(normal[1])
                 continue
-            if "Hammerfest: partie lancee" in line:
+            if "Hammerfest: game started" in line:
                 if pending is not None:
                     groups["standard"].append(pending)
                 pending = None
@@ -48,8 +48,8 @@ def main():
                 pending = None
             if "HF_DIAG event=origin " not in line:
                 continue
-            # Le diagnostic emet aussi la ligne ordinaire juste avant :
-            # ne compter ce depart qu'une fois, dans son groupe A ou B.
+            # The diagnostics build also prints the ordinary line just
+            # before, so count this start once only, in its own group.
             pending = None
             origins += 1
             fields = dict(re.findall(r"(\w+)=(\S+)", line))
@@ -57,15 +57,16 @@ def main():
                 groups[fields["fresh"]].append(int(fields["elapsed_ms"]))
     if not any(groups.values()):
         if diagnostic_lines == 0:
-            reason = ("Aucun depart mesure. Il faut une ligne 'depart date' suivie "
-                      "de 'partie lancee', ou une origine HF_DIAG avec start=true.")
+            reason = ("No start measured. A 'start dated' line followed by "
+                      "'game started' is needed, or an HF_DIAG origin with "
+                      "start=true.")
         elif origins == 0:
-            reason = "Traces HF_DIAG presentes, mais aucune origine de partie detectee."
+            reason = "HF_DIAG traces present, but no game origin found."
         else:
-            reason = (f"{origins} origine(s) detectee(s), mais aucun depart automatique "
-                      "avec un mode A/B reconnu. Verifier les champs start et fresh.")
+            reason = (f"{origins} origin(s) found, but no automatic start "
+                      "with a known mode. Check the start and fresh fields.")
         ap.exit(1, reason + "\n")
-    print("Delai reconstruit a la premiere lecture (ms). Ce n'est pas le delai visuel.")
+    print("Delay rebuilt at the first read (ms). This is not the visual delay.")
     print("Mode        N    zeros    mediane      P95      max")
     for mode, values in groups.items():
         label = {"false": "A normal", "true": "B 100 ms", "standard": "Sans A/B"}[mode]
@@ -81,18 +82,18 @@ def main():
         print(f"{label:10} {len(values):3} {values.count(0):8} "
               f"{statistics.median(values):10.1f} {p95:8} {values[-1]:8}")
     if groups["standard"]:
-        print("Sans A/B : departs du journal ordinaire; le mode de cache n'y est pas indique.")
+        print("Starts from the ordinary log; the cache mode is not given there.")
     if any(contexts.values()):
-        print("\nContexte des departs mesures (ms) :")
+        print("\nContext of the measured starts (ms):")
         for label, values in contexts.items():
             if values:
                 print(f"{label} : N={len(values)}, max={max(values)}, "
                       f">100ms={sum(v > 100 for v in values)}, >500ms={sum(v > 500 for v in values)}")
     else:
         print("Contexte non enregistre : impossible de classer automatiquement premiers departs et relances.")
-    print("Avec moins de 100 departs par contexte, le P99 empirique correspond au maximum observe ; il reste peu documente.")
+    print("With fewer than 100 starts per context, the empirical P99 equals the maximum observed; it stays weakly supported.")
     if len(args.logs) > 1:
-        print("Attention : les fichiers sont additionnes. Ne pas fournir deux exports de la meme session.")
+        print("Warning: the files are added together. Do not give two exports of the same session.")
 
 
 if __name__ == "__main__":

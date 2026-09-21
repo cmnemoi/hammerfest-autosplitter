@@ -1,4 +1,4 @@
-"""Capture plusieurs departs avec un timer prive et sans export manuel."""
+"""Captures several starts with a private timer and no manual export."""
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -59,7 +59,7 @@ def main():
                         status["last_delay_ms"] = pending_delay
                         if pending_delay is not None:
                             status["late_runs"] += pending_delay > 100
-                        print(f"Depart {status['runs']}/{args.runs} : {pending_delay} ms", flush=True)
+                        print(f"Start {status['runs']}/{args.runs}: {pending_delay} ms", flush=True)
                         pending_delay = None
                         new_start = True
                 runtime.messages.clear()
@@ -78,9 +78,9 @@ def main():
     finally:
         runtime.close()
         save_status()
-    print(f"CAPTURE TERMINEE : {status['runs']} departs, {status['late_runs']} au-dessus de 100 ms. {args.out}", flush=True)
+    print(f"CAPTURE DONE: {status['runs']} starts, {status['late_runs']} above 100 ms. {args.out}", flush=True)
     if not status["runs"]:
-        ap.exit(1, "Aucun depart automatique capture pendant cette periode.\n")
+        ap.exit(1, "No automatic start captured during this period.\n")
 
 
 if __name__ == "__main__":
