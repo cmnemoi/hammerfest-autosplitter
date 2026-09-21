@@ -1,45 +1,47 @@
-"""Modele objet AVM1 dans un process Pepper Flash, layout *derive* a l'execution.
+"""The AVM1 object model in a Pepper Flash process, layout *derived* at run time.
 
-Le reverse precedent (Linux x86-64, libpepflashplayer.so 32.0.0.465) avait
-prouve ce layout. Sous Windows (pepflashplayer.dll win32-x64, meme version
-32.0.0.465) il n'est vrai qu'a moitie -- mesure, pas suppose :
+The earlier reverse work (Linux x86-64, libpepflashplayer.so 32.0.0.465) had
+proved this layout. On Windows (pepflashplayer.dll win32-x64, same version
+32.0.0.465) only half of it holds -- measured, not assumed:
 
                           Linux x86-64           Windows x86-64
-    String   vtable       +0x00                  +0x00        identique
-             buffer       +0x08                  +0x08        identique
-             longueur     +0x30                  +0x30        identique
-    ScriptObject table    +0x30                  +0x30        identique
-    table    capacite     +0x08                  +0x08        identique
-             entrees      +0x18                  +0x48        DIFFERENT
-             pas          16 octets              24 octets    DIFFERENT
-             entree       (valeur, clef)         (valeur, _, clef)
+    String   vtable       +0x00                  +0x00        same
+             buffer       +0x08                  +0x08        same
+             length       +0x30                  +0x30        same
+    ScriptObject table    +0x30                  +0x30        same
+    table    capacity     +0x08                  +0x08        same
+             entries      +0x18                  +0x48        DIFFERENT
+             stride       16 bytes               24 bytes     DIFFERENT
+             entry        (value, key)           (value, _, key)
 
-Autrement dit : les objets se ressemblent, mais une entree de table fait 24
-octets et non 16, et la clef est le troisieme qword et non le second. Un port
-qui aurait recopie les offsets Linux aurait lu des valeurs decalees d'un champ
--- plausibles, et fausses.
+In other words: the objects look alike, but a table entry is 24 bytes and not
+16, and the key is the third qword and not the second. A port that copied the
+Linux offsets would have read values shifted by one field -- plausible, and
+wrong.
 
-Ce module ne code donc aucun de ces offsets en dur. Il part d'une seule
-certitude, le SWF est le meme partout, donc une chaine connue du SWF est
-internee dans le tas :
+So this module hard codes none of these offsets. It starts from one certainty:
+the SWF is the same everywhere, so a string known from the SWF is interned in
+the heap:
 
-    chaine connue du SWF        ex. "]=[]8", le nom obfusque de `world`
-      -> son buffer UTF-16LE    scan du tas
-      -> l'objet String         le qword module-pointant devant = la vtable
-      -> l'offset longueur      le qword valant la longueur de la chaine
-      -> les slots qui la citent scan des 8 encodages d'atome
-      -> le pas des entrees     mesure sur les clefs voisines
-      -> la base de la table    premier qword module-pointant avant les entrees
-      -> l'offset des valeurs   vote : l'offset ou tous les atomes sont valides
+    string known from the SWF   e.g. "]=[]8", the obfuscated name of `world`
+      -> its UTF-16LE buffer    heap scan
+      -> the String object      the qword in front that points into the module
+                                is the vtable
+      -> the length offset      the qword that holds the length of the string
+      -> the slots citing it    scan of the 8 atom encodings
+      -> the entry stride       measured on the neighbouring keys
+      -> the table base         first qword pointing into the module, before
+                                the entries
+      -> the value offset       a vote: the offset where all atoms are valid
 
-Encodage des atomes, mesure sur ce process :
+Atom encoding, measured on this process:
 
-    tag 0   entier signe          valeur = atome >> 3, arithmetique
-    tag 1   flottant              pointeur vers un double IEEE 8 octets
-    tag 2   special               0x0a null/undefined, 0x12 faux, 0x32 vrai
-    tag 5   String                pointeur vers un objet String
-    tag 6   objet                 pointeur vers un ScriptObject
-    tag 3   objet natif / MovieClip
+    tag 0   signed integer        value = atom >> 3, arithmetic
+    tag 1   float                 pointer to an 8 byte IEEE double
+    tag 2   special               0x0a null/undefined, 0x12 false, 0x32 true
+    tag 5   String                pointer to a String object
+    tag 6   object                pointer to a ScriptObject
+    tag 3   native object / MovieClip
 """
 import struct
 
@@ -58,7 +60,7 @@ ATOM_NULL, ATOM_FALSE, ATOM_TRUE = 0x0A, 0x12, 0x32
 
 
 class Layout:
-    """Les offsets retrouves pour ce process."""
+    """The offsets found for this process."""
 
     def __init__(self, module_lo=0):
         self.module_lo = module_lo
@@ -89,7 +91,7 @@ class Layout:
 
 
 class Avm1:
-    """Vue AVM1 d'un process, une fois le layout derive."""
+    """An AVM1 view of a process, once the layout is derived."""
 
     def __init__(self, proc, module, heaps=None):
         self.p = proc
@@ -103,7 +105,7 @@ class Avm1:
         return v is not None and self.lo <= v < self.hi
 
     def string_at(self, addr):
-        """Decode l'objet String a `addr`, ou None si ce n'en est pas un."""
+        """Decodes the String object at `addr`, or None if it is not one."""
         L = self.L
         if addr is None or self.p.u64(addr) != L.str_vt:
             return None
@@ -119,21 +121,21 @@ class Avm1:
             return None
 
     def key_at(self, addr):
-        """Nom de la clef stockee a `addr`, ou None."""
+        """The name of the key stored at `addr`, or None."""
         return self.string_at((self.p.u64(addr) or 0) & ~7)
 
-    # -- decodage des atomes ----------------------------------------------
+    # -- atom decoding -----------------------------------------------------
     @staticmethod
     def tag(atom):
         return None if atom is None else atom & 7
 
     @staticmethod
     def as_int(atom, bound=1 << 31):
-        """Atome -> entier signe, ou None si ce n'est pas un entier plausible."""
+        """Atom -> signed integer, or None if it is not a plausible one."""
         if atom is None or atom & 7:
             return None
         v = atom - (1 << 64) if atom >> 63 else atom
-        v >>= 3                      # decalage arithmetique: les negatifs marchent
+        v >>= 3                      # arithmetic shift: negatives work
         return v if -bound < v < bound else None
 
     def as_double(self, atom):
@@ -143,7 +145,7 @@ class Avm1:
         return struct.unpack("<d", b)[0] if b and len(b) == 8 else None
 
     def as_number(self, atom):
-        """Entier ou flottant, selon le tag."""
+        """Integer or float, depending on the tag."""
         d = self.as_double(atom)
         return d if d is not None else self.as_int(atom)
 
@@ -161,7 +163,7 @@ class Avm1:
         return self.string_at(atom & ~7)
 
     def well_formed(self, atom):
-        """L'atome est-il interpretable ? Sert au vote sur l'offset valeur."""
+        """Can the atom be read? Used by the vote on the value offset."""
         if atom is None:
             return False
         tag = atom & 7
@@ -199,7 +201,7 @@ class Avm1:
         return cap if cap and 0 < cap <= MAX_TABLE_CAP else None
 
     def entries(self, tbl):
-        """[(nom de clef, atome valeur, adresse de la clef)] pour la table."""
+        """[(key name, value atom, key address)] for the table."""
         cap = self.capacity(tbl)
         if cap is None:
             return []
@@ -212,10 +214,10 @@ class Avm1:
         return out
 
     def slot(self, tbl, key):
-        """Adresse du slot *valeur* de `key`, ou None.
+        """The address of the *value* slot of `key`, or None.
 
-        Les clefs sont internees : une fois l'atome connu, la recherche
-        suivante est une comparaison d'entiers, pas un decodage de chaine.
+        The keys are interned: once the atom is known, the next search is an
+        integer comparison, not a string decode.
         """
         cap = self.capacity(tbl)
         if cap is None:
@@ -240,7 +242,7 @@ class Avm1:
         return None if s is None else self.p.u64(s)
 
     def table_of(self, atom):
-        """Atome objet -> sa table de proprietes, ou None."""
+        """Object atom -> its property table, or None."""
         if (atom is None or self.L.so_tbl is None
                 or atom & 7 not in (TAG_OBJECT, TAG_NATIVE, TAG_INT)):
             return None
@@ -251,14 +253,14 @@ class Avm1:
         return t if t and self.p.u64(t) == self.L.tbl_vt else None
 
     def child(self, tbl, key):
-        """Raccourci : table de l'objet stocke sous `key`."""
+        """Shortcut: the table of the object stored under `key`."""
         return self.table_of(self.get(tbl, key))
 
-    # -- derivation du layout ---------------------------------------------
+    # -- layout derivation -------------------------------------------------
     def derive(self, anchor, verbose=False):
-        """Retrouve tous les offsets a partir d'une clef connue du SWF.
+        """Finds every offset from one key known from the SWF.
 
-        -> liste des tables possedant cette clef.
+        -> the list of tables that own this key.
         """
         log = print if verbose else (lambda *_: None)
         strobj = self._derive_string(anchor)
@@ -281,7 +283,7 @@ class Avm1:
         return tables
 
     def _derive_string(self, text):
-        """Trouve l'objet String de `text` et en deduit le layout String."""
+        """Finds the String object of `text` and derives the String layout."""
         pat = text.encode("utf-16-le")
         for buf in self.p.scan(pat, align=2, regions=self.heaps):
             for ref in self.p.scan(struct.pack("<Q", buf), align=8,
@@ -299,11 +301,11 @@ class Avm1:
         return None
 
     def _derive_table(self, keyslot):
-        """Deduit pas, base, capacite et offset des valeurs depuis une clef.
+        """Derives stride, base, capacity and value offset from one key.
 
-        La geometrie n'est deduite qu'une fois : les tables suivantes sont
-        simplement localisees avec, sinon la derniere table examinee
-        imposerait sa mesure a toutes les autres.
+        The geometry is derived only once. The tables that follow are simply
+        located with it. Otherwise the last table examined would force its own
+        measurement on all the others.
         """
         if self.L.tbl_stride is not None:
             return self._table_base(keyslot)
@@ -332,7 +334,7 @@ class Avm1:
         return None
 
     def _table_base(self, keyslot):
-        """Base de la table contenant `keyslot`, geometrie deja connue."""
+        """The base of the table holding `keyslot`, geometry already known."""
         L = self.L
         first = keyslot
         while self.key_at(first - L.tbl_stride) is not None:
@@ -341,7 +343,7 @@ class Avm1:
         return t if self.p.u64(t) == L.tbl_vt and self.capacity(t) else None
 
     def _measure_stride(self, keyslot):
-        """Le pas est l'ecart minimal ou les deux voisins sont aussi des clefs."""
+        """The stride is the smallest gap where both neighbours are keys too."""
         for d in STRIDE_CANDS:
             if (self.key_at(keyslot + d) is not None
                     and self.key_at(keyslot + 2 * d) is not None):
@@ -349,12 +351,12 @@ class Avm1:
         return None
 
     def _derive_value_offset(self, tbl):
-        """Vote : le bon offset est celui ou les atomes sont valides ET varies.
+        """A vote: the right offset is where atoms are valid AND varied.
 
-        La validite seule ne suffit pas. Une entree contient un qword inutilise
-        toujours nul, et zero est un atome entier parfaitement valide : cette
-        colonne-la obtient donc un score parfait sans rien contenir. C'est le
-        critere de diversite qui l'elimine, et lui seul.
+        Validity alone is not enough. An entry holds an unused qword that is
+        always zero, and zero is a perfectly valid integer atom. So that
+        column scores perfectly while holding nothing. The diversity test is
+        what rejects it, and nothing else.
         """
         best, best_score = None, 0
         for d in VAL_DELTA_CANDS:
@@ -373,12 +375,12 @@ class Avm1:
         return best is not None and best_score > 0.95
 
     def derive_script_object(self, atom, expect_key=None):
-        """Deduit so_vt / so_tbl depuis un atome connu pour etre un objet.
+        """Derives so_vt / so_tbl from an atom known to be an object.
 
-        `expect_key` est une propriete que l'objet vise possede a coup sur.
-        Sans elle plusieurs offsets peuvent mener a une table plausible, et
-        le mauvais serait alors mis en cache pour toutes les lectures
-        suivantes -- donc on exige la contrainte quand on en a une.
+        `expect_key` is a property the target object certainly owns. Without
+        it, several offsets can lead to a plausible table, and the wrong one
+        would then be cached for every read that follows. So we demand the
+        constraint whenever we have one.
         """
         so = (atom or 0) & ~7
         vt = self.p.u64(so)

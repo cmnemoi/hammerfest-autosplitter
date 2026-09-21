@@ -1,17 +1,17 @@
-"""Noms du source Hammerfest -> noms obfusques du SWF.
+"""Hammerfest source names -> obfuscated SWF names.
 
-La table vient de `eternalfest/game-types` (voir vendor/NOTICE.md). Elle evite
-tout le reverse dynamique : plus besoin de chercher `currentId` par differences
-memoire, on connait sa clef exacte.
+The table comes from `eternalfest/game-types` (see vendor/NOTICE.md). It saves
+all the dynamic reverse work: no need to look for `currentId` by memory
+differences, we know its exact key.
 
     >>> obf("currentId")
     '-BBEO'
     >>> clear("70dik")
     'realScores'
 
-Un identifiant absent de la table est un identifiant que l'obfuscateur n'a pas
-renomme (API AS2 standard : `duration`, `length`...). Il garde son nom en clair,
-donc l'identite est la bonne reponse et non une erreur.
+An identifier missing from the table is one the obfuscator did not rename
+(standard AS2 API: `duration`, `length`...). It keeps its clear name, so
+identity is the right answer and not an error.
 """
 import json
 import os
@@ -28,12 +28,12 @@ for _c, _o in CLEAR_TO_OBF.items():
 
 
 def obf(name):
-    """Nom de propriete tel qu'il apparait dans le SWF."""
+    """The property name as it appears in the SWF."""
     return CLEAR_TO_OBF.get(name, name)
 
 
 def clear(name):
-    """Nom du source pour une clef lue en memoire, ou la clef elle-meme."""
+    """The source name for a key read from memory, or the key itself."""
     return OBF_TO_CLEAR.get(name, name)
 
 

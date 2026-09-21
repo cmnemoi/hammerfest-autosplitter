@@ -4,58 +4,58 @@ rust = "1.98"
 uv = "latest"
 
 [tasks.build]
-description = "Compile l'autosplitter en .wasm"
-# `rustup target add` est idempotent : le mettre ici evite d'avoir a installer
-# la cible a la main apres un clone. La compilation exige en revanche un linker
-# systeme, voir README.md.
+description = "Build the autosplitter as a .wasm"
+# `rustup target add` is idempotent, so putting it here saves installing the
+# target by hand after a clone. The build does need a system linker, however.
+# See README.md.
 run = [
     "rustup target add wasm32-unknown-unknown",
     "cargo build --release --target wasm32-unknown-unknown",
 ]
 
 [tasks.test]
-description = "Lance les tests du coeur (logique pure, sans runtime)"
+description = "Run the core tests (pure logic, no runtime)"
 run = "cargo test -p hammerfest-core"
 
 [tasks.build-diagnostics]
-description = "Compile le module de mesure A/B dans un dossier separe"
+description = "Build the measurement module in its own directory"
 run = [
     "rustup target add wasm32-unknown-unknown",
     "cargo build --release --target wasm32-unknown-unknown --features diagnostics --target-dir target/diagnostics",
 ]
 
 [tasks.probe-runtime]
-description = "Mesure le cache de la DLL ASR chargee par LiveSplit"
+description = "Measure the cache of the ASR DLL that LiveSplit loads"
 run = "python scripts/runtime_probe.py"
 
 [tasks.build-cold-start]
-description = "Compile la variante de mesure du premier depart"
+description = "Build the variant that measures the first start"
 run = "cargo build --release --target wasm32-unknown-unknown --features diagnostics,known-flash --target-dir target/cold-start"
 
 [tasks.build-scan-budget]
-description = "Compile la variante pour mesurer les relances tardives"
+description = "Build the variant that measures late retries"
 run = "cargo build --release --target wasm32-unknown-unknown --features diagnostics,scan-budget --target-dir target/scan-budget"
 
 [tasks.summarize-startup]
-description = "Resume les departs du journal A/B exporte"
+description = "Summarise the starts from an exported log"
 run = "python scripts/summarize_startup.py"
 
 [tasks.capture-startup]
-description = "Capture jusqu'a 25 departs pendant 15 minutes, sans export manuel"
+description = "Capture up to 25 starts over 15 minutes, with no manual export"
 run = "python scripts/capture_startup.py"
 
 [tasks.state]
-description = "Affiche le niveau et le chrono de la partie en cours"
+description = "Show the level and the clock of the game in progress"
 run = "uv run python scripts/hf_state.py"
 
 [tasks.watch]
-description = "Suit les changements de niveau en direct"
+description = "Follow the level changes live"
 run = "uv run python scripts/hf_state.py --watch"
 
 [tasks.dump]
-description = "Affiche les tables GameMode, world et Chrono"
+description = "Show the GameMode, world and Chrono tables"
 run = "uv run python scripts/hf_state.py --dump"
 
 [tasks.trace]
-description = "Horodate le debut d'une partie, du process a la prise de controle"
+description = "Time the start of a game, from the process to the official start"
 run = "uv run python scripts/hf_trace.py"

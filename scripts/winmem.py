@@ -1,12 +1,12 @@
-"""Lecture seule de la memoire d'un process Windows. ctypes, aucune dependance.
+"""Read only access to the memory of a Windows process. ctypes, no dependency.
 
-Equivalent Windows de `memlib.py` / `heap.py` de hammerfest-re, qui lisaient
-/proc/<pid>/mem et /proc/<pid>/maps :
+The Windows equivalent of `memlib.py` / `heap.py` in hammerfest-re, which read
+/proc/<pid>/mem and /proc/<pid>/maps:
 
     /proc/<pid>/maps   ->  VirtualQueryEx + EnumProcessModulesEx
     /proc/<pid>/mem    ->  ReadProcessMemory
 
-Rien n'est ecrit dans le process cible.
+Nothing is written into the target process.
 """
 import ctypes as C
 import ctypes.wintypes as W
@@ -60,8 +60,8 @@ k32.VirtualQueryEx.argtypes = [W.HANDLE, C.c_void_p,
                                C.POINTER(MEMORY_BASIC_INFORMATION64), C.c_size_t]
 k32.VirtualQueryEx.restype = C.c_size_t
 
-# Sans argtypes, ctypes passe un HMODULE 64 bits dans un int C 32 bits et
-# leve OverflowError des que le module est charge haut.
+# Without argtypes, ctypes passes a 64 bit HMODULE in a 32 bit C int and
+# raises OverflowError as soon as the module is loaded high.
 psapi.EnumProcessModulesEx.argtypes = [W.HANDLE, C.POINTER(C.c_void_p), W.DWORD,
                                        C.POINTER(W.DWORD), W.DWORD]
 psapi.GetModuleFileNameExW.argtypes = [W.HANDLE, C.c_void_p, C.c_wchar_p, W.DWORD]
@@ -70,11 +70,10 @@ psapi.GetModuleInformation.argtypes = [W.HANDLE, C.c_void_p,
 
 
 def ppapi_pids(exe_hint="Eternaltwin.exe"):
-    """PIDs des process plugin Flash (--type=ppapi).
+    """PIDs of the Flash plugin processes (--type=ppapi).
 
-    Le process n'existe que tant qu'une instance Flash est vivante : il
-    apparait au chargement du SWF et disparait quand on quitte la page. Ne
-    jamais mettre son pid en cache.
+    The process exists only while a Flash instance lives: it appears when the
+    SWF loads and disappears when you leave the page. Never cache its pid.
     """
     ps = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
@@ -87,7 +86,7 @@ def ppapi_pids(exe_hint="Eternaltwin.exe"):
 
 
 class Proc:
-    """Un process ouvert en lecture seule."""
+    """A process opened for reading only."""
 
     def __init__(self, pid):
         self.pid = pid
@@ -103,7 +102,7 @@ class Proc:
             k32.CloseHandle(self.h)
             self.h = None
 
-    # -- lecture -----------------------------------------------------------
+    # -- reading -----------------------------------------------------------
     def read(self, addr, n):
         if not (0 < addr < (1 << 47)) or n <= 0:
             return None
@@ -125,9 +124,9 @@ class Proc:
         b = self.read(addr, 4)
         return struct.unpack("<i", b)[0] if b and len(b) == 4 else None
 
-    # -- cartographie ------------------------------------------------------
+    # -- mapping -----------------------------------------------------------
     def modules(self):
-        """-> [(chemin, base, taille)] pour tous les modules charges."""
+        """-> [(path, base, size)] for every loaded module."""
         needed = W.DWORD()
         arr = (C.c_void_p * 2048)()
         if not psapi.EnumProcessModulesEx(self.h, arr, C.sizeof(arr),
@@ -147,7 +146,7 @@ class Proc:
         return out
 
     def module(self, pattern):
-        """(base, fin, chemin) du premier module dont le chemin matche."""
+        """(base, end, path) of the first module whose path matches."""
         rx = re.compile(pattern, re.I)
         for name, base, size in self.modules():
             if rx.search(name):
@@ -155,11 +154,11 @@ class Proc:
         return None
 
     def regions(self, writable_only=True, private_only=True, min_size=0):
-        """Regions engagees et lisibles.
+        """Committed and readable regions.
 
-        `writable_only` + `private_only` reproduit le filtre "rw anonyme" de la
-        version Linux : le tas AVM1 est alloue par le plugin, jamais mappe
-        depuis un fichier.
+        `writable_only` + `private_only` reproduces the "anonymous rw" filter
+        of the Linux version: the AVM1 heap is allocated by the plugin, never
+        mapped from a file.
         """
         out = []
         addr = 0
@@ -194,8 +193,8 @@ class Proc:
                 if buf:
                     yield p, buf
                 elif n > 65536:
-                    # une page illisible au milieu ne doit pas faire sauter
-                    # tout le bloc : on redecoupe.
+                    # One unreadable page in the middle must not lose the
+                    # whole block, so we cut it up again.
                     for q in range(p, p + n, 65536):
                         sub = self.read(q, min(65536, p + n - q))
                         if sub:
@@ -203,7 +202,7 @@ class Proc:
                 p += n
 
     def scan(self, pat, align=1, regions=None):
-        """Toutes les adresses de `pat` dans les regions donnees."""
+        """Every address of `pat` in the given regions."""
         hits = []
         regs = self.regions() if regions is None else regions
         for base, buf in self.chunks(regs):
@@ -215,11 +214,11 @@ class Proc:
         return hits
 
     def scan_tagged(self, ptr, regions=None):
-        """Les 8 encodages d'atome possibles d'un pointeur aligne sur 8.
+        """The 8 possible atom encodings of a pointer aligned on 8.
 
-        Un atome AVM1 est `(valeur << 3) | tag` : les variantes ne different
-        que par les 3 bits bas du premier octet, donc on cherche la queue de
-        7 octets et on verifie l'octet de tete apres coup.
+        An AVM1 atom is `(value << 3) | tag`. The variants differ only in the
+        3 low bits of the first byte, so we search the 7 byte tail and check
+        the leading byte afterwards.
         """
         tail = struct.pack("<Q", ptr)[1:]
         lo = ptr & 0xFF
