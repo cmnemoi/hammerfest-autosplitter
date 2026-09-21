@@ -4,7 +4,7 @@ use crate::policy::duration_ms;
 
 /// The end sequence of an adventure.
 ///
-/// The race rule ends the run when the player *enters the door and can no
+/// The speedrun rule ends the run when the player *enters the door and can no
 /// longer control the character*. In the last level that door is an elevator.
 /// The game then plays a cinematic, reaches game over, and navigates away.
 ///

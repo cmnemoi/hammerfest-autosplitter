@@ -1,5 +1,10 @@
 # Hammerfest level and time, on Windows
 
+> This document proves. It assumes the vocabulary -- heap, vtable, atom,
+> property table. If that is new,
+> [docs/avm1-values.md](docs/concepts/avm1-values.md) and
+> [docs/avm1-objects.md](docs/concepts/avm1-objects.md) teach it first, with real bytes.
+
 Reverse engineering notes. Every claim is marked **[PROVED]** (checked on the
 live process, with the measurement that shows it) or **[ASSUMPTION]**.
 
@@ -10,7 +15,7 @@ The earlier work (`cmnemoi/hammerfest-re`, done by Claude) had solved the
 *score* on Linux. These notes are about the level and the time, on Windows.
 
 This document says **what the game hides and how we find it there**. How the
-autosplitter is built around that is in [architecture.md](architecture.md).
+autosplitter is built around that is in [docs/index.md](docs/index.md).
 
 ---
 
@@ -364,7 +369,7 @@ stops answering.
 
 ## 9. Dating the start of the run, without winning a race
 
-The race rule sets the start: *the timer begins when the loading text
+The speedrun rule sets the start: *the timer begins when the loading text
 disappears and fades in to level 0*. On the memory side, that instant is the
 one where `GameMode.fl_lock` falls.
 
@@ -504,7 +509,7 @@ which is exactly the kind of array that point 3 ruled out.
 
 ## 11. The end of the run: the elevator
 
-The race rule ends the run when the player *enters the door and can no longer
+The speedrun rule ends the run when the player *enters the door and can no longer
 control the character*. In the last level of the adventure, that door is an
 elevator.
 

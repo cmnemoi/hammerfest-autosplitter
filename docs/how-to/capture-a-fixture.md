@@ -1,0 +1,110 @@
+# Capture a fixture
+
+Record the memory of a running game, so it can be read again later with no
+game and no Flash.
+
+**Before you start:** a game must be running, in any state. The menus are a
+useful capture too.
+
+---
+
+## Take one
+
+```sh
+mise run capture-heap --name my-capture
+```
+
+It takes 0.3 to 0.6 s and writes:
+
+```text
+   fixtures/my-capture/
+       metadata.json     every address, every size, every flag, and the state
+       heap.bin.gz       the regions, concatenated in address order
+       module.bin.gz     the plugin image
+```
+
+```text
+124 regions, 118.0 MiB read in 0.6 s
+stored         35.4 MiB  (30.0 % of the bytes read)
+  heap.bin.gz   19.0 MiB of  85.4 MiB read
+  module.bin.gz 18.0 MiB of  32.6 MiB read
+level          2 -> 2
+```
+
+Useful flags:
+
+| flag | effect |
+| --- | --- |
+| `--no-module` | halve the fixture. Only `Binary::recognize` reads those bytes |
+| `--level 6` | smaller, and four times slower to take |
+| `--raw` | no compression, to see what it saves |
+
+Fixtures stay out of git.
+
+---
+
+## What a fixture holds, and why
+
+Bytes alone are not enough. The search steers itself on the shape of the heap,
+so the shape is recorded too:
+
+```text
+   the base address of every region      the differential scan compares these
+   the size of every region              the same
+   the flags Windows reported            so the selection can be reproduced
+   the range of the plugin module        every "is this pointer in the module"
+   the game state, before and after      what the fixture is a picture of
+```
+
+A flat dump loses all of it, and with it every address in the object graph.
+
+One gzip stream rather than one file per region: there are 124 of them, and a
+single stream shares its dictionary across all. `metadata.json` gives the
+offset of each region inside the stream.
+
+---
+
+## The one thing to keep in mind
+
+**A capture is not atomic.** The game runs while we read, so the last region is
+younger than the first.
+
+`state_before` and `state_after` bracket that, and they check each other. In a
+real capture of 0.59 s, the two recorded game clocks were **599 ms apart**.
+
+```text
+   the object graph   survives the smear     AVM1 objects do not move in a game
+   the clocks         do not                 never assert an exact clock value
+```
+
+That is also why the default compression level is 1 rather than 6. Level 6
+costs four times the time for 28 % fewer bytes, and here time is accuracy.
+
+---
+
+## Read it back
+
+A fixture carries enough to replay the whole resolution off line. A recorded
+process is the live one with three methods replaced — `read`, `regions` and
+`module`. Everything else, including the scans, is the production code
+unchanged.
+
+On the capture above, the replay derived the same layout, found the same
+`GameMode` address and read the same level, in 0.55 s, with no game running.
+
+That is the point: a fixture is a test, not a souvenir.
+
+---
+
+## Situations worth recording
+
+```text
+   in the menus            no GameMode exists yet
+   the SWF loading         the heap growing from two to eighty MiB
+   a game running          the ordinary case
+   a parallel dimension    xml_deepnight, levels above 103
+   right after a game      a stale GameMode, still readable
+```
+
+The last one is the hardest to get and the most valuable. See [About stale
+memory](../internals/stale-memory.md).

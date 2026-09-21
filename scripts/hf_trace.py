@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Times the start of a game, from the process to the official start.
 
-The race rule sets the start: *the timer begins when the loading text
+The speedrun rule sets the start: *the timer begins when the loading text
 disappears and fades in to level 0*. In EternalTwin that instant is the frame
 where `GameMode.fl_lock` falls: `GameMechanics.onViewReady` attaches the view
 and calls `GameMode.onLevelReady`, which unlocks, in the same frame. The black

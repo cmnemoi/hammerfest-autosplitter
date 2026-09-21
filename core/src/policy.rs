@@ -57,7 +57,7 @@ pub struct Rules {
     pub main_world_only: bool,
     pub auto_reset: bool,
     /// Split when the run ends, at the elevator. It is the last split of the
-    /// race rule: *ends when the player enters the door and can no longer
+    /// speedrun rule: *ends when the player enters the door and can no longer
     /// control the character*.
     pub split_on_finish: bool,
 }
@@ -724,7 +724,7 @@ mod tests {
 
     #[test]
     fn splits_when_the_player_enters_the_elevator() {
-        // The last split of the race rule. The level stays at 103: the run
+        // The last split of the speedrun rule. The level stays at 103: the run
         // ends inside the last level, not by leaving it.
         let mut r = Run::new().running();
         r.confirm(at(103, 600_000));
