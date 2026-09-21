@@ -47,50 +47,34 @@ const READS_PER_TICK: u64 = 128;
 
 const MAX_LEVEL: i64 = 256;
 
-/// Bilan de toute la tentative, y compris les sorties anticipees et le repli.
-struct Cost {
+/// Ce que le balayage doit compter pour se conduire : rien de plus.
+///
+/// Le budget decide quand rendre la main au runtime. Tout ce qui ne sert qu'a
+/// mesurer -- durees, etapes, issue -- vit dans `trace`, qui n'existe pas dans
+/// la compilation normale.
+#[derive(Default)]
+struct Scan {
+    /// Lectures demandees au runtime, et octets qu'elles portaient.
     calls: u64,
     requested: u64,
-    bytes: u64,
-    failures: u64,
-    yields: u32,
-    started: u64,
-    stage_started: u64,
-    stage: &'static str,
-    outcome: &'static str,
-    validation: [u64; 3],
     #[cfg(feature = "scan-budget")]
     last_yield_requested: u64,
     #[cfg(feature = "scan-budget")]
     last_yield_calls: u64,
+    trace: crate::diagnostics::ScanTrace,
 }
 
-impl Default for Cost {
-    fn default() -> Self {
-        let now = if cfg!(feature = "diagnostics") { crate::diagnostics::now_us() } else { 0 };
-        Self { calls: 0, requested: 0, bytes: 0, failures: 0, yields: 0,
-            started: now, stage_started: now, stage: "ranges", outcome: "not_found",
-            validation: crate::diagnostics::validation_counts(),
-            #[cfg(feature = "scan-budget")]
-            last_yield_requested: 0,
-            #[cfg(feature = "scan-budget")]
-            last_yield_calls: 0,
-        }
-    }
-}
-
-impl Cost {
+impl Scan {
     fn read_block(&mut self, process: &Process, base: u64, buf: &mut [u8]) -> bool {
         self.calls += 1;
         self.requested += buf.len() as u64;
         let ok = process.read_into_slice(Address::new(base), buf).is_ok();
-        if ok { self.bytes += buf.len() as u64; }
-        else { self.failures += 1; }
+        self.trace.read(buf.len(), ok);
         ok
     }
 
     fn paused(&mut self) {
-        self.yields += 1;
+        self.trace.paused();
         #[cfg(feature = "scan-budget")]
         {
             self.last_yield_requested = self.requested;
@@ -98,6 +82,11 @@ impl Cost {
         }
     }
 
+    /// Rendre la main sur un volume, et non sur un nombre de blocs.
+    ///
+    /// Une carte faite de beaucoup de petites regions donnait une pause par
+    /// region -- donc une pause pour quelques Kio lus, la ou huit blocs de
+    /// 1 Mio en autorisent une pour huit Mio.
     fn should_yield(&self, _chunks: usize) -> bool {
         #[cfg(feature = "scan-budget")]
         {
@@ -108,34 +97,21 @@ impl Cost {
         { _chunks % CHUNKS_PER_TICK == 0 }
     }
 
+    /// Marque l'etape en cours. Sans la feature `diagnostics`, ne fait rien.
     fn stage(&mut self, next: &'static str) {
-        #[cfg(feature = "diagnostics")]
-        asr::print_message(&alloc::format!(
-            "HF_DIAG event=stage t_us={} name={} elapsed_us={} scan_bytes_total={} scan_calls_total={}",
-            crate::diagnostics::now_us(), self.stage,
-            crate::diagnostics::now_us() - self.stage_started, self.bytes, self.calls
-        ));
-        self.stage = next;
-        if cfg!(feature = "diagnostics") {
-            self.stage_started = crate::diagnostics::now_us();
-        }
+        self.trace.stage(next, self.requested, self.calls);
+    }
+
+    /// Issue de la tentative, pour la trace. Sans la feature, ne fait rien.
+    fn outcome(&mut self, outcome: &'static str) {
+        self.trace.outcome(outcome);
     }
 }
 
-impl Drop for Cost {
+impl Drop for Scan {
     fn drop(&mut self) {
-        self.stage("done");
-        let validation = crate::diagnostics::validation_counts();
-        if cfg!(feature = "diagnostics") {
-            asr::print_message(&alloc::format!(
-                "HF_SCAN timed={} t_us={} outcome={} elapsed_us={} requested_bytes={} read_bytes={} calls={} failures={} yields={} validation_calls={} validation_bytes={} validation_failures={}",
-                cfg!(feature = "diagnostics"), crate::diagnostics::now_us(), self.outcome,
-                crate::diagnostics::now_us() - self.started,
-                self.requested, self.bytes, self.calls, self.failures, self.yields,
-                validation[0] - self.validation[0], validation[1] - self.validation[1],
-                validation[2] - self.validation[2]
-            ));
-        }
+        self.trace.stage("done", self.requested, self.calls);
+        self.trace.finish(self.requested, self.calls);
     }
 }
 
@@ -209,7 +185,7 @@ async fn scan_bytes(
     pat: &[u8],
     align: usize,
     limit: usize,
-    cost: &mut Cost,
+    cost: &mut Scan,
 ) -> Vec<u64> {
     let mut out = Vec::new();
     let mut buf = vec![0u8; CHUNK];
@@ -259,7 +235,7 @@ async fn scan_bytes_until(
     ranges: &[(u64, u64)],
     pat: &[u8],
     align: usize,
-    cost: &mut Cost,
+    cost: &mut Scan,
     mut on_hit: impl FnMut(u64, &[u8]) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
@@ -300,7 +276,7 @@ async fn scan_u64_any(
     process: &Process,
     ranges: &[(u64, u64)],
     values: &[u64],
-    cost: &mut Cost,
+    cost: &mut Scan,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
@@ -351,7 +327,7 @@ async fn scan_atoms(
     process: &Process,
     ranges: &[(u64, u64)],
     ptr: u64,
-    cost: &mut Cost,
+    cost: &mut Scan,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
     let bytes = ptr.to_le_bytes();
@@ -609,7 +585,7 @@ pub async fn resolve(
         return Some(game);
     }
 
-    let mut cost = Cost::default();
+    let mut cost = Scan::default();
     let all = supplied_ranges.map_or_else(|| heap_ranges(process), |rs| rs.to_vec());
     if all.is_empty() {
         return None;
@@ -636,7 +612,7 @@ pub async fn resolve(
     if ranges.is_empty() {
         anchor.sweeps += 1;
         if anchor.sweeps % FULL_SWEEP != 0 {
-            cost.outcome = "unchanged_ranges";
+            cost.outcome("unchanged_ranges");
             return None;
         }
         ranges = all.clone();
@@ -667,7 +643,7 @@ pub async fn resolve(
             anchor.manager = Some(tbl);
             anchor.current_hint = 0;
             let game = resolve_via_manager(process, anchor);
-            cost.outcome = if game.is_some() { "game_via_manager" } else { "manager_only" };
+            cost.outcome(if game.is_some() { "game_via_manager" } else { "manager_only" });
             return game;
         }
 
@@ -729,7 +705,7 @@ pub async fn resolve(
     // re-resolution au sein d'une meme partie.
     anchor.manager = game.layout.child(process, game.game_mode, keys::MANAGER);
     anchor.current_hint = 0;
-    cost.outcome = "game_via_world";
+    cost.outcome("game_via_world");
     Some(game)
 }
 
@@ -752,7 +728,7 @@ async fn scan_for_manager(
     ranges: &mut [(u64, u64)],
     anchor: &mut Anchor,
     binary: &mut Binary,
-    cost: &mut Cost,
+    cost: &mut Scan,
 ) -> Option<(Layout, u64)> {
     // La chaine ne se cherche que dans ce qui a change -- c'est la que le SWF
     // vient de la creer. Les tables qui la citent, en revanche, se cherchent
@@ -809,7 +785,7 @@ async fn find_string(
     key: &str,
     cache: &mut Option<u64>,
     binary: &Binary,
-    cost: &mut Cost,
+    cost: &mut Scan,
 ) -> Option<(Layout, u64)> {
     let units = key.encode_utf16().count() as u64;
     #[cfg(feature = "diagnostics")]
@@ -896,7 +872,7 @@ async fn scan_tables<T>(
     layout: Layout,
     strobj: u64,
     key: &str,
-    cost: &mut Cost,
+    cost: &mut Scan,
     mut accept: impl FnMut(Layout, u64) -> Option<T>,
 ) -> Option<T> {
     let mut layout = layout;

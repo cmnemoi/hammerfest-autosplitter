@@ -102,18 +102,22 @@ qui ne doit pas se declencher avant d'avoir vu une partie.
 ## Utilisation
 
 La compilation normale inclut le budget de recherche (8 Mio ou 128 lectures
-avant de rendre la main). Utiliser le chemin normal ci-dessous dans LiveSplit
-et dans asr-debugger. La ligne `HF_BUILD` au chargement indique les fonctions
-actives ; `scan_budget=true` confirme cette amelioration.
+avant de rendre la main). C'est elle qu'on charge dans LiveSplit et dans
+asr-debugger. La ligne annoncee au chargement dit laquelle tourne :
 
-Pour mesurer le délai du premier affichage et comparer les deux modes de cache,
-voir [diagnostic-affichage.md](diagnostic-affichage.md).
+```text
+Hammerfest: autosplitter demarre (budget=true, diagnostics=false)
+```
 
-Le module normal rafraîchit la carte mémoire toutes les 100 ms pendant la
-recherche de la partie. Il utilise l'horloge monotone WASI, vérifiée avec le
-composant ASR installé dans LiveSplit 1.8.37. Les traces détaillées sont
-réservées à la compilation `diagnostics`. Le rafraîchissement est toujours actif,
-y compris dans cette compilation.
+Le module rafraichit la carte memoire toutes les 100 ms pendant qu'il cherche
+la partie -- celle que le runtime lui donne a une seconde de retard, et c'est
+ce retard qui decalait le premier affichage. Il lui faut pour cela l'horloge
+monotone WASI, verifiee avec le composant ASR de LiveSplit 1.8.37.
+
+**La compilation normale ne mesure rien.** Aucune trace, aucun compteur : le
+`.wasm` ne contient meme pas les chaines correspondantes. Tout ce qui mesure
+est derriere la feature `diagnostics`, decrite dans
+[diagnostic-affichage.md](diagnostic-affichage.md).
 
 ```sh
 mise run build     # -> target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm

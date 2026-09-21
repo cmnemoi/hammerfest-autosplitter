@@ -12,6 +12,13 @@
 //! runtime ASR n'existent que dans le bac a sable WebAssembly.
 //!
 //! Le detail des mesures memoire est dans `hammerfest-level-re.md`.
+//!
+//! **Ce qui mesure ne vit pas ici.** La compilation normale ne contient que
+//! l'autosplitter : ni trace, ni compteur, ni horodatage. Tout cela est dans
+//! [`diagnostics`], derriere la feature du meme nom, et le code metier ne fait
+//! que l'appeler -- sans elle, ces appels n'ont pas de corps. La verification
+//! tient en une commande : aucune chaine `HF_` n'apparait dans le `.wasm`
+//! normal.
 
 #![no_std]
 
@@ -76,23 +83,15 @@ async fn main() {
     // La politique traverse les process : un plugin qui disparait fait partie
     // de l'histoire d'une partie.
     let mut policy = Policy::new();
-    let mut started_in_module = false;
 
-    asr::print_message("Hammerfest: autosplitter demarre");
+    // Une seule ligne au chargement, qui dit quelle compilation tourne : c'est
+    // ce qu'on cherche en premier dans un journal qu'on nous envoie.
     asr::print_message(&alloc::format!(
-        "HF_BUILD revision=20260921-default-budget scan_budget={} diagnostics={} fresh_map_ms=100 timing=corrected_real",
-        cfg!(feature = "scan-budget"), cfg!(feature = "diagnostics")
+        "Hammerfest: autosplitter demarre (budget={}, diagnostics={})",
+        cfg!(feature = "scan-budget"),
+        cfg!(feature = "diagnostics"),
     ));
     diagnostics::event("module_started");
-    #[cfg(feature = "diagnostics")]
-    asr::print_message(&alloc::format!(
-        "HF_DIAG event=scan_policy bytes_budget={}", cfg!(feature = "scan-budget")
-    ));
-    #[cfg(feature = "diagnostics")]
-    asr::print_message(&alloc::format!(
-        "HF_DIAG event=mode t_us={} fresh={}",
-        diagnostics::now_us(), true
-    ));
 
     loop {
         match hammerfest::attach_plugin(PROCESS_NAMES, &mut rejected) {
@@ -117,7 +116,6 @@ async fn main() {
                     &mut anchor,
                     &mut binary,
                     &mut policy,
-                    &mut started_in_module,
                 )
                 .await;
                 asr::print_message("Hammerfest: plugin Flash ferme");
@@ -137,9 +135,7 @@ async fn run(
     anchor: &mut hammerfest::Anchor,
     binary: &mut hammerfest::Binary,
     policy: &mut Policy,
-    started_in_module: &mut bool,
 ) {
-    let mut started_in_process = false;
     let mut game: Option<Game> = None;
     let mut cooldown = 0u32;
     let mut backoff = RESOLVE_MIN_COOLDOWN;
@@ -220,13 +216,7 @@ async fn run(
 
         let actions = policy.tick(timer_state(), &Rules::default(), read);
         if actions.start {
-            asr::print_message(&alloc::format!(
-                "HF_START elapsed_ms={} first_module={} first_process={}",
-                actions.real_time_ms.map_or(-1, |ms| ms),
-                !*started_in_module, !started_in_process
-            ));
-            *started_in_module = true;
-            started_in_process = true;
+            diagnostics::started(actions.real_time_ms.unwrap_or(-1), pid);
         }
         match actions.real_time_ms {
             Some(ms) if !announced => {
