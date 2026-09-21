@@ -22,6 +22,19 @@ use asr::{Address, Process};
 
 // Le decodage des atomes vit dans le coeur, ou il est teste.
 pub use hammerfest_core::atom::{as_bool, as_int};
+use hammerfest_core::atom;
+
+/// Atome -> nombre, entier ou flottant.
+///
+/// `duration` vaut l'entier 0 a la construction du GameMode, puis devient un
+/// flottant des la premiere image jouee. Les deux formes sont donc normales, et
+/// n'en lire qu'une reviendrait a ne rien lire pendant l'ecran noir.
+pub fn as_number(process: &Process, atom: u64) -> Option<f64> {
+    match atom::double_at(atom) {
+        Some(addr) => read_u64(process, addr).map(atom::decode_double),
+        None => as_int(atom).map(|v| v as f64),
+    }
+}
 
 /// Capacite d'une table, a `tbl + 0x08` sur les deux plateformes.
 const TBL_CAPACITY: u64 = 0x08;

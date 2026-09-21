@@ -38,6 +38,22 @@ pub fn as_int(atom: u64) -> Option<i64> {
     Some((atom as i64) >> 3)
 }
 
+/// Atome flottant -> l'adresse des huit octets du double.
+///
+/// Contrairement aux entiers, un flottant ne tient pas dans l'atome : celui-ci
+/// pointe sur la valeur. Le coeur ne lit aucune memoire, donc il rend
+/// l'adresse et [`decode_double`] fait le reste.
+#[inline]
+pub fn double_at(atom: u64) -> Option<u64> {
+    (tag(atom) == TAG_DOUBLE).then(|| ptr(atom))
+}
+
+/// Les huit octets lus a cette adresse, en flottant.
+#[inline]
+pub fn decode_double(raw: u64) -> f64 {
+    f64::from_bits(raw)
+}
+
 #[inline]
 pub fn as_bool(atom: u64) -> Option<bool> {
     match atom {
@@ -79,6 +95,20 @@ mod tests {
         // une partie en pause pour une partie en cours.
         assert_eq!(as_bool(NULL), None);
         assert_eq!(as_bool(0), None);
+    }
+
+    #[test]
+    fn decode_les_flottants() {
+        // `duration` relevee en fin de partie : 14815.6 cycles.
+        let raw = 14815.6f64.to_bits();
+        assert_eq!(decode_double(raw), 14815.6);
+
+        let atom = 0x4d6381a94d8 | TAG_DOUBLE;
+        assert_eq!(double_at(atom), Some(0x4d6381a94d8));
+        // Un entier n'est pas un flottant : le confondre lirait huit octets a
+        // une adresse qui n'en est pas une.
+        assert_eq!(double_at(9 << 3), None);
+        assert_eq!(double_at(TRUE), None);
     }
 
     #[test]

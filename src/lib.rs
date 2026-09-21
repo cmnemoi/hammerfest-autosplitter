@@ -47,6 +47,14 @@ const PROCESS_NAMES: &[&str] = &["Eternaltwin.exe", "Eternaltwin", "etwin"];
 const RESOLVE_MIN_COOLDOWN: u32 = 20;
 const RESOLVE_MAX_COOLDOWN: u32 = 60;
 
+/// Croissance du tas qui autorise a rebalayer sans attendre, en octets.
+///
+/// Le chargement du SWF le fait passer de deux a quatre-vingts Mio par bonds
+/// de plusieurs Mio ; le jeu, une fois lance, ne le fait plus varier que de
+/// quelques centaines de Kio. Le seuil separe les deux, et evite de rebalayer
+/// en boucle sur du bruit d'allocateur.
+const HEAP_GROWTH: u64 = 4 << 20;
+
 #[derive(Gui)]
 struct Settings {
     /// Demarrer le chrono au debut d'une partie
@@ -61,7 +69,7 @@ struct Settings {
     #[default = true]
     main_world_only: bool,
 
-    /// Utiliser le chrono interne du jeu comme game time
+    /// Afficher le temps reel exact comme game time
     #[default = true]
     use_game_time: bool,
 
@@ -109,8 +117,8 @@ async fn main() {
         match hammerfest::attach_plugin(PROCESS_NAMES, &mut rejected) {
             Some((process, module)) => {
                 asr::print_message("Hammerfest: plugin Flash attache");
-                // Un process plugin par partie : les adresses apprises dans le
-                // precedent n'ont aucun sens ici.
+                // Rien de ce qu'un autre process avait appris ne vaut ici :
+                // l'ASLR deplace le module et le tas AVM1 est reconstruit.
                 anchor.reset();
                 run(
                     &process,
@@ -143,6 +151,11 @@ async fn run(
     let mut game: Option<Game> = None;
     let mut cooldown = 0u32;
     let mut backoff = RESOLVE_MIN_COOLDOWN;
+    // Taille du tas au dernier balayage : voir HEAP_GROWTH.
+    let mut heap = 0u64;
+    // L'origine n'est annoncee qu'une fois par partie : c'est la seule trace
+    // qui dise de combien le balayage est arrive en retard.
+    let mut announced = false;
 
     while process.is_open() {
         settings.update();
@@ -154,9 +167,18 @@ async fn run(
             game = hammerfest::resolve_via_manager(process, anchor);
 
             if game.is_none() {
-                if cooldown > 0 {
+                // Le tas qui grandit d'un coup, c'est le SWF qui cree ses
+                // objets : rebalayer tout de suite, sans attendre la
+                // temporisation. C'est la seule fenetre qui compte -- la
+                // partie commence une demi seconde plus tard -- et attendre
+                // une temporisation fixe y ajoutait jusqu'a une seconde de
+                // retard, au hasard de la tentative precedente.
+                let now = hammerfest::heap_size(process);
+                let grown = now > heap + HEAP_GROWTH;
+                if cooldown > 0 && !grown {
                     cooldown -= 1;
                 } else {
+                    heap = now;
                     game = hammerfest::resolve(process, module, anchor, binary).await;
                     if game.is_none() {
                         cooldown = backoff;
@@ -172,15 +194,36 @@ async fn run(
         let read = game.as_mut().and_then(|g| g.read(process));
         if let Some(state) = read.as_ref() {
             publish(state, game.as_ref().map_or("", |g| g.set));
-            if settings.use_game_time {
-                // Le chrono du jeu est pose en absolu : un demarrage tardif se
-                // rattrape de lui-meme des la premiere lecture.
-                timer::pause_game_time();
-                timer::set_game_time(Duration::milliseconds(state.chrono_ms));
-            }
         }
 
-        if apply(policy.tick(timer_state(), &settings.rules(), read)) {
+        let actions = policy.tick(timer_state(), &settings.rules(), read);
+        match actions.real_time_ms {
+            Some(ms) if !announced => {
+                announced = true;
+                asr::print_message(&alloc::format!(
+                    "Hammerfest: depart date, {ms} ms deja ecoulees"
+                ));
+            }
+            None => announced = false,
+            _ => {}
+        }
+
+        // Le chrono est pose **apres** `start()`, jamais avant : demarrer une
+        // course remet le game time a zero, donc une valeur posee plus tot
+        // serait perdue et le chrono afficherait zero pendant une image.
+        let drop_resolution = apply(actions);
+        if let (true, Some(ms)) = (settings.use_game_time, actions.real_time_ms) {
+            // Le temps reel de LiveSplit part de l'appel a `start()`, donc du
+            // moment ou le balayage du tas a fini -- quelques centaines de
+            // millisecondes trop tard, et variable. Celui-ci est calcule depuis
+            // l'instant ou le niveau 0 est apparu, et pose en absolu : le
+            // retard du balayage n'entre pas dans le chronometrage, il ne fait
+            // que retarder le premier affichage.
+            timer::pause_game_time();
+            timer::set_game_time(Duration::milliseconds(ms));
+        }
+
+        if drop_resolution {
             // Perdre une partie annonce presque toujours la suivante : le jeu
             // recree son GameManager a chaque lancement, donc l'ancre meurt
             // avec la partie et il faut rebalayer. Attendre en plus serait du
@@ -216,7 +259,15 @@ fn publish(state: &State, set: &str) {
     // jeu est bien cet index-la, sans decalage.
     timer::set_variable_int("Niveau", state.level);
     timer::set_variable("Monde", set);
-    timer::set_variable_int("Chrono (ms)", state.chrono_ms);
+    // Le chrono que le jeu remonte lui-meme en fin de partie
+    // (`"T="+gameChrono.get()`). Il exclut les pauses et les transitions de
+    // niveau, donc il ne peut pas servir de temps reel -- mais c'est le chiffre
+    // que le joueur voit, d'ou son affichage a cote.
+    timer::set_variable_int("Chrono du jeu (ms)", state.chrono_ms);
+    // Ce qui date le depart de la run. Au premier affichage, le chrono doit
+    // valoir cette duree-la : c'est ce qui distingue un rattrapage normal d'une
+    // origine fausse.
+    timer::set_variable_int("Duree de jeu (ms)", state.duration_ms);
     if state.dim != 0 {
         timer::set_variable_int("Dimension", state.dim);
     }

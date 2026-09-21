@@ -1,8 +1,8 @@
 # hammerfest-autosplitter
 
 Autosplitter [Hammerfest](https://github.com/motion-twin/hammerfest) pour
-LiveSplit : splitte au changement de niveau et pilote le game time avec le
-chrono interne du jeu.
+LiveSplit : splitte au changement de niveau et affiche le temps reel exact de
+la run, compte depuis l'instant ou le niveau 0 apparait.
 
 Le jeu n'est pas modifie : lecture memoire seule, aucune ecriture, aucun patch.
 
@@ -11,11 +11,26 @@ Le jeu n'est pas modifie : lecture memoire seule, aucune ecriture, aucun patch.
 | valeur | provenance |
 | --- | --- |
 | niveau | `GameMode.world.currentId` -- le numero affiche par le jeu, sans decalage |
-| temps | `GameMode.gameChrono` -- millisecondes, **figees pendant les pauses** |
+| temps reel | `Chrono.frameTimer` moins l'instant du depart, tous deux lus en memoire |
+| chrono du jeu | `GameMode.gameChrono` -- affiche en variable, a cote du chrono |
 
-`gameChrono` est le chrono que Hammerfest lui-meme remonte en fin de partie
-(`"T="+gameChrono.get()` dans `Adventure.onGameOver`). C'est donc le temps de
-jeu officiel, et non une mesure exterieure.
+La regle de course fixe le depart : *the timer begins when the loading text
+disappears and fades in to level 0*. C'est l'image ou `GameMode.fl_lock`
+retombe, et cet instant se **reconstruit apres coup** : `GameMode.duration` ne
+court que depuis lui, donc elle dit de combien on est arrive en retard.
+
+```text
+origine    = frameTimer - duration       a la premiere lecture deverrouillee
+temps reel = frameTimer - origine
+```
+
+`frameTimer` est `Std.getTimer()`, et `Chrono.update()` tourne avant le test de
+pause : il suit donc le temps reel sans jamais s'arreter. Mesure de bout en
+bout : **6 ms d'ecart sur 60,9 s**.
+
+C'est ce qui sort le balayage du tas du chemin critique -- il ne retarde plus
+que l'affichage, pas le chronometrage. Le detail est en
+[§9](hammerfest-level-re.md).
 
 ## Comment ca marche
 
@@ -94,8 +109,12 @@ Charger le `.wasm` dans LiveSplit (Edit Splits -> Activate), ou dans
 asr-debugger pendant le developpement.
 
 Reglages exposes : demarrage automatique, split au changement de niveau,
-restriction au monde principal, usage du chrono du jeu comme game time, remise
-a zero automatique.
+restriction au monde principal, affichage du temps reel exact comme game time,
+remise a zero automatique.
+
+Le *real time* de LiveSplit part de l'appel a `start()`, et l'API ASR ne sait
+pas reculer un chrono deja demarre. Il accuse donc le retard du balayage, 0,4 a
+0,7 s. Le chrono juste est celui du canal *game time* : comparer contre lui.
 
 ### asr-debugger
 
@@ -115,7 +134,7 @@ L'interface est un ensemble de panneaux :
 | --- | --- |
 | **Main** | le fichier charge, `Restart` / `Kill`, la case `Optimize`, l'etat du timer avec `Start` / `Reset` |
 | **Logs** | ce que l'autosplitter ecrit ; `Save` les exporte dans un fichier |
-| **Variables** | `Niveau`, `Monde`, `Chrono (ms)` |
+| **Variables** | `Niveau`, `Monde`, `Chrono du jeu (ms)` |
 | **Settings GUI** | les cinq reglages, modifiables a chaud |
 | **Processes** | les process auxquels l'autosplitter s'est attache |
 | **Performance** | le temps passe par tick |
@@ -165,10 +184,18 @@ jeu entre eux.
 compris sur le raccourci du niveau 0, et la remise a zero est immediate en fin
 de partie.
 
-**Instable** : le delai avant le demarrage du chrono, qui varie entre une demi
-seconde et plusieurs secondes selon le temps que met le balayage du tas. Le
-*game time* n'en souffre pas -- il vient de `gameChrono` et se recale en absolu
--- mais un chronometrage en temps reel en patirait.
+**Mesure** : le depart de la run est date a l'image pres, meme quand le
+balayage aboutit une demi seconde trop tard. Quatre parties tracees par
+`scripts/hf_trace.py`, ecart final de 6 ms sur une minute.
+
+**Verifie en jeu** : quatre parties d'affilee, le chrono s'affiche avec 841,
+501, 715 et **0 ms** de retard -- la derniere resolue pendant l'ecran noir,
+donc a l'instant exact du depart. La valeur affichee, elle, est juste des la
+premiere image dans les quatre cas.
+
+**Reste en retard** : le *real time* de LiveSplit, du meme delai, faute d'une
+API qui sache reculer un chrono demarre. Le chrono juste est celui du canal
+*game time*.
 
 **Hors perimetre** : les dimensions paralleles.
 

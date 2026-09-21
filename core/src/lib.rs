@@ -14,4 +14,4 @@
 pub mod atom;
 pub mod policy;
 
-pub use policy::{Actions, Policy, Rules, State, TimerState};
+pub use policy::{duration_ms, Actions, Policy, Rules, State, TimerState};

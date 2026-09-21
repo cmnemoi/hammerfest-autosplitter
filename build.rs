@@ -29,7 +29,16 @@ const WANTED: &[(&str, &str)] = &[
     ("GAME_TIMER", "gameTimer"),
     ("HALTED_TIMER", "haltedTimer"),
     ("FL_STOP", "fl_stop"),
+    ("FL_LOCK", "fl_lock"),
 ];
+
+/// Identifiants que l'obfuscateur laisse tels quels.
+///
+/// Ce sont des noms de l'API AS2 standard : les renommer casserait le lecteur
+/// Flash lui-meme. Leur absence de la table est donc la bonne reponse et non
+/// une erreur -- mais leur *presence* en serait une, puisqu'elle voudrait dire
+/// que la table a change de convention. D'ou la verification.
+const WANTED_PLAIN: &[(&str, &str)] = &[("DURATION", "duration")];
 
 /// Les noms de monde : obfusques eux aussi, puisqu'ils ressemblent a des
 /// identifiants. Servent a verifier qu'un `GameMechanics` est bien un monde.
@@ -66,6 +75,17 @@ fn main() {
         out.push_str(&format!(
             "/// `{clear}`\npub const {konst}: &str = {:?};\n",
             lookup(clear)
+        ));
+    }
+    for (konst, clear) in WANTED_PLAIN {
+        assert!(
+            !map.contains_key(*clear),
+            "{clear:?} est desormais renomme dans hf.map.json : le deplacer \
+             dans WANTED"
+        );
+        out.push_str(&format!(
+            "/// `{clear}`, que l'obfuscateur ne renomme pas.\n\
+             pub const {konst}: &str = {clear:?};\n"
         ));
     }
     out.push_str(

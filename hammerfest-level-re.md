@@ -24,8 +24,14 @@ manager.history = [ "F="+$version, "T="+gameChrono.get() ];
 
 | champ | type | nature |
 | --- | --- | --- |
-| `GameMode.gameChrono` | `Chrono` | millisecondes, **arrete pendant les pauses** |
-| `GameMode.duration` | `Float` | `duration += Timer.tmod` par frame, `Data.SECOND = 32` |
+| `GameMode.gameChrono` | `Chrono` | millisecondes, depuis la construction du `GameMode` |
+| `GameMode.duration` | `Float` | `duration += Timer.tmod` par frame, `Data.SECOND = 32`, depuis l'apparition du niveau 0 |
+
+Les deux s'arretent aux memes moments -- pause et transitions de niveau --
+puisque `GameMode.lock()` arrete `gameChrono` et fait sortir `main()` avant
+l'incrementation de `duration`. Ils ne different que par leur **origine**, et
+c'est justement ce qui rend `duration` utile : voir §9. **[PROUVE]** : 26,2 s
+de pause donnent `duration` +0,0 cycle et `gameChrono` +0 ms.
 
 `Chrono` (`class/hammer/Chrono.mt`) ne stocke pas une duree mais deux instants :
 
@@ -37,8 +43,14 @@ function get() {
 ```
 
 `stop()` est appele par `GameMode.lock()`, `start()` par `unlock()`. C'est donc
-un temps de jeu qui se fige a la pause : exactement ce qu'on veut comme *game
-time* pour LiveSplit. **[PROUVE]** -- voir la verification croisee en §5.
+un temps de jeu qui se fige a la pause -- ce que le jeu affiche, mais pas un
+temps reel. Le chrono de la run est construit autrement, voir §9.
+
+Un detail du constructeur compte : `suspendTimer` y est laisse a `null`, donc
+le premier `start()` ne decale pas `gameTimer`. `gameChrono` compte ainsi
+depuis la construction du `Chrono`, chargement du niveau 0 compris, et vaut
+deja 0,55 s quand le joueur voit le niveau. **[PROUVE]** -- 535, 539, 547 et
+562 ms sur quatre parties.
 
 Le niveau courant est `GameMode.world.currentId`, ou `world : GameMechanics`
 herite de `SetManager` (`levels/SetManager.mt`) :
@@ -330,9 +342,11 @@ toute partie, et la partie qui demarre ensuite se trouve en suivant un
 pointeur. Chercher un GameMode, au contraire, ne peut reussir qu'une fois la
 partie lancee -- c'est-a-dire au pire moment, celui ou le delai se voit.
 
-Ce point compte d'autant plus que **le process plugin meurt avec la partie** :
-EternalTwin en cree un par partie, donc rien d'appris ne survit d'une partie a
-la suivante. Le balayage est inevitable une fois par partie ; tout ce qu'on
+Ce point compte d'autant plus que **les objets AVM1 meurent avec la partie** :
+le SWF recree son GameManager et ses chaines internees a chaque lancement, donc
+aucune adresse du tas ne survit d'une partie a la suivante. Le process plugin,
+lui, peut en porter plusieurs -- quatre parties consecutives observees dans un
+meme process. Le balayage est inevitable une fois par partie ; tout ce qu'on
 peut choisir, c'est de le faire tot.
 
 C'est bien la forme recommandee -- ancre stable, puis resolution par le graphe
@@ -346,31 +360,104 @@ le constructeur, donc elle ne devrait pas bouger -- mais ce n'est pas garanti,
 d'ou la verification de sa vtable avant chaque usage, et le repli sur le
 balayage complet si elle ne repond plus.
 
-## 9. Savoir qu'une partie commence, sans lire la memoire
+## 9. Dater le depart de la run, sans gagner de course
 
-Le signal le plus fiable ne se trouve pas dans le tas : **le process plugin
-nait avec la partie et meurt avec elle.** EternalTwin en cree un par partie --
-les menus du site sont du HTML, il n'y a pas de Flash avant. Son apparition est
-donc binaire, tombe en un tick, et ne coute pas une lecture.
+La regle de course fixe le depart : *the timer begins when the loading text
+disappears and fades in to level 0*. Cote memoire, cet instant est celui ou
+`GameMode.fl_lock` retombe.
 
-Tout critere pris en memoire, lui, depend d'une resolution prealable, qui
-balaye le tas : de l'ordre de la seconde, et **variable**, parce que le cout
-depend de l'endroit ou les objets sont tombes. Faire dependre le depart du
-chrono de cette resolution, c'est importer cette variance dans le
-chronometrage.
+```mt
+GameMechanics.onViewReady()      la vue du niveau est attachee
+    game.onLevelReady()
+        unlock()                 fl_lock = false
+            gameChrono.start()
+```
 
-Les criteres memoire essayes avant, et pourquoi ils ne valent pas :
+La vue est attachee et le mode est deverrouille **dans la meme image**, donc
+l'ecran noir se termine a `fl_lock = false` a une image pres, soit 31 ms.
+
+### La course ne peut pas se gagner **[PROUVE]**
+
+Le premier reflexe est de poser l'ancre avant le depart, pour voir la
+transition en direct. C'est impossible, et pas par manque d'optimisation.
+
+| | run 1 | run 2 | run 3 | run 4 |
+| --- | --- | --- | --- | --- |
+| ancre posee, apres le depart | +0,374 s | +0,601 s | +0,553 s | +0,657 s |
+| `gameChrono` au deverrouillage | 535 ms | 539 ms | 562 ms | 547 ms |
+
+Mesures de `scripts/hf_trace.py`. Ce que montrent les balayages successifs :
+
+1. **Rien a trouver avant.** Jusqu'a la derniere seconde, le tas ne contient
+   aucune chaine `fVersion` -- ni celle du `GameManager`, ni celle du `Loader`.
+   Les objets AVM1 du SWF naissent tous en rafale, a la fin de
+   l'initialisation. Il n'existe donc pas de fenetre anterieure.
+2. **La fenetre utile vaut 0,55 s**, entre la construction du `GameMode` et le
+   deverrouillage.
+3. **Un balayage complet en coute 0,5 s** sur les 80 Mio du tas. C'est le prix
+   de la copie hors process, pas celui de la comparaison : le rendre
+   instantane n'est pas au programme.
+
+La course se joue donc a quelques dizaines de millisecondes, et elle se perd.
+
+### Il ne faut pas la gagner : le jeu porte l'instant du depart **[PROUVE]**
+
+`GameMode.main()` sort sur `fl_lock` **avant** d'incrementer `duration` :
+
+```mt
+gameChrono.update();          // frameTimer = Std.getTimer()
+if ( fl_pause ) { ... }
+if ( fl_lock ) return;        // <- ecran noir, transitions, pause
+...
+duration += Timer.tmod;       // <- ne court que depuis le depart officiel
+```
+
+`duration` vaut donc exactement zero pendant tout l'ecran noir, puis mesure le
+temps pendant lequel le jeu a tourne. Une seule formule couvre les deux cas :
+
+```text
+origine = frameTimer - duration          a la premiere lecture deverrouillee
+temps reel = frameTimer - origine
+```
+
+Arrive a temps, `duration` est nulle et l'origine est `frameTimer`. Arrive en
+retard -- le cas courant -- `duration` dit de combien.
+
+Les deux compteurs qui rendent cela possible :
+
+| compteur | ce qu'il mesure | mesure |
+| --- | --- | --- |
+| `frameTimer` | `Std.getTimer()`, millisecondes reelles depuis le lancement du plugin. `Chrono.update()` tourne avant le test de pause et avant le `return` sur `fl_lock`, donc il n'est jamais arrete | +13 843 ms pour 13,9 s de pause |
+| `duration` | temps pendant lequel le jeu a tourne, en cycles de `Data.SECOND` = 32 | 67,20 s pour 67,12 s reelles, soit 0,1 % |
+
+Verification de bout en bout : origine posee a la premiere lecture, puis
+comparaison avec une horloge exterieure une minute plus tard. **Ecart de
+6 ms sur 60,9 s.** **[PROUVE]**
+
+Le balayage du tas sort donc du chemin critique. Sa duree ne fait plus que
+retarder l'*affichage* du chrono, elle n'entre plus dans le chronometrage.
+
+### Ce qui reste en retard
+
+Le *real time* de LiveSplit, lui, part de l'appel a `timer_start()` et l'API
+ASR ne sait pas reculer un chrono deja demarre -- elle n'expose que `start`,
+`split`, `reset`, `set_game_time` et `pause_game_time`. Il accuse donc le
+retard du balayage, 0,4 a 0,7 s selon les mesures ci-dessus.
+
+C'est pourquoi le temps reel exact est pose dans le canal *game time*, qui
+accepte une valeur absolue. `gameChrono` passe en variable a cote du chrono :
+c'est le chiffre que le jeu affiche lui-meme en fin de partie
+(`"T="+gameChrono.get()`), mais il exclut les pauses et les transitions de
+niveau, donc il ne peut pas servir de temps reel.
+
+### Pourquoi pas les autres criteres
 
 | critere | defaut |
 | --- | --- |
-| `chrono < 5 s` | le chrono court depuis la construction du GameMode, chargement et intro compris : il n'est jamais nul quand le joueur prend la main |
-| `currentId == 0` | un joueur rapide quitte le niveau 0 en deux secondes, souvent avant la fin du balayage |
-| premiere lecture du process | correct, mais toujours suspendu au delai de resolution |
-
-Le decalage que laisse l'apparition du process -- le temps de chargement du SWF
--- ne se voit pas sur le *game time*, qui vient de `gameChrono` et que
-`set_game_time` pose en absolu : la premiere lecture le corrige. Il se verrait
-sur un chronometrage en temps reel.
+| apparition du process plugin | de 2,8 a 4,5 s avant le depart selon le temps de chargement du SWF, donc inutilisable |
+| `chrono < 5 s` | `gameChrono` court depuis la construction du `GameMode` : il vaut deja 0,55 s quand le niveau apparait |
+| `currentId == 0` | un joueur rapide quitte le niveau 0 avant la fin du balayage |
+| fin du fondu du `Loader` | le `Loader` du SWF d'origine n'existe pas dans EternalTwin : aucune table portant `fVersion` ne porte `gameInst` |
 
 ## 10. Pourquoi il n'y a pas de chemin de pointeurs statique
 

@@ -40,6 +40,38 @@ const CHUNKS_PER_TICK: usize = 8;
 
 const MAX_LEVEL: i64 = 256;
 
+/// Ce qu'un balayage a coute.
+///
+/// Il n'y a pas d'horloge dans le module : le runtime ASR n'en expose aucune,
+/// et `Instant` d'`asr` n'existe que sur la cible WASI. Ces deux compteurs en
+/// tiennent lieu. `chunks` dit les octets recopies depuis le process, `yields`
+/// les pauses rendues au runtime -- et une pause coute au mieux un tick, soit
+/// 16 ms a la cadence ordinaire. Savoir lequel des deux domine decide de
+/// l'optimisation suivante.
+#[derive(Default)]
+pub struct Cost {
+    chunks: u32,
+    yields: u32,
+}
+
+impl Cost {
+    fn read(&mut self) {
+        self.chunks += 1;
+    }
+
+    fn paused(&mut self) {
+        self.yields += 1;
+    }
+
+    pub fn mib(&self) -> u32 {
+        self.chunks * (CHUNK as u32 >> 20)
+    }
+
+    pub fn pauses(&self) -> u32 {
+        self.yields
+    }
+}
+
 /// Indices d'entrees retenus d'une lecture a l'autre, toujours re-verifies.
 #[derive(Default)]
 struct Hints {
@@ -54,6 +86,8 @@ struct Hints {
     game: u64,
     halted: u64,
     stop: u64,
+    lock: u64,
+    duration: u64,
 }
 
 pub struct Game {
@@ -68,20 +102,35 @@ pub use hammerfest_core::State;
 // -- plages memoire ---------------------------------------------------------
 
 /// Les plages ou vit le tas AVM1 : lisibles, ecrivables, sans fichier derriere.
-pub fn heap_ranges(process: &Process) -> Vec<(u64, u64)> {
+fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
     use asr::MemoryRangeFlags as F;
-    process
-        .memory_ranges()
-        .filter_map(|r| {
-            let flags = r.flags().ok()?;
-            if !flags.contains(F::READ | F::WRITE) || flags.contains(F::PATH) {
-                return None;
-            }
-            let (addr, size) = r.range().ok()?;
-            let a = addr.value();
-            (size > 0).then(|| (a, a + size))
-        })
-        .collect()
+    process.memory_ranges().filter_map(|r| {
+        let flags = r.flags().ok()?;
+        if !flags.contains(F::READ | F::WRITE) || flags.contains(F::PATH) {
+            return None;
+        }
+        let (addr, size) = r.range().ok()?;
+        let a = addr.value();
+        (size > 0).then(|| (a, a + size))
+    })
+}
+
+pub fn heap_ranges(process: &Process) -> Vec<(u64, u64)> {
+    heap_iter(process).collect()
+}
+
+/// Total des octets engages dans ce tas.
+///
+/// Sert a savoir si un nouveau balayage a une chance d'apprendre quelque
+/// chose. Les objets AVM1 du SWF ne naissent pas un par un : le tas passe de
+/// deux a quatre-vingts Mio en quelques secondes, puis se stabilise. Tant
+/// qu'il ne grandit pas, rebalayer ne peut rien trouver de plus -- et quand il
+/// grandit d'un coup, attendre une temporisation est du delai pur.
+///
+/// Mesurer coute une centaine d'appels au runtime, contre quatre-vingts Mio
+/// recopies pour un balayage.
+pub fn heap_size(process: &Process) -> u64 {
+    heap_iter(process).map(|(a, b)| b - a).sum()
 }
 
 // -- scans ------------------------------------------------------------------
@@ -93,6 +142,7 @@ async fn scan_bytes(
     pat: &[u8],
     align: usize,
     limit: usize,
+    cost: &mut Cost,
 ) -> Vec<u64> {
     let mut out = Vec::new();
     let mut buf = vec![0u8; CHUNK];
@@ -102,6 +152,7 @@ async fn scan_bytes(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
+            cost.read();
             if process
                 .read_into_slice(Address::new(base), &mut buf[..n])
                 .is_ok()
@@ -123,6 +174,7 @@ async fn scan_bytes(
             base += (n - OVERLAP) as u64;
             chunks += 1;
             if chunks % CHUNKS_PER_TICK == 0 {
+                cost.paused();
                 next_tick().await;
             }
         }
@@ -132,12 +184,20 @@ async fn scan_bytes(
 
 /// Balaye les positions alignees ou `pat` apparait et appelle `on_hit` sur
 /// chacune. Renvoyer `true` arrete le balayage.
+///
+/// `on_hit` recoit l'adresse **et les octets qui suivent**, jusqu'au bout du
+/// bloc deja lu. C'est ce qui permet de trier les candidats sans repasser la
+/// frontiere du process : un motif frequent -- la vtable des String, que tous
+/// les milliers d'objets String du tas portent -- couterait sinon une lecture
+/// distante par objet, et cette lecture-la coute bien plus cher que les octets
+/// qu'elle rapporte.
 async fn scan_bytes_until(
     process: &Process,
     ranges: &[(u64, u64)],
     pat: &[u8],
     align: usize,
-    mut on_hit: impl FnMut(u64) -> bool,
+    cost: &mut Cost,
+    mut on_hit: impl FnMut(u64, &[u8]) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
     let mut chunks = 0usize;
@@ -146,13 +206,14 @@ async fn scan_bytes_until(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
+            cost.read();
             if process
                 .read_into_slice(Address::new(base), &mut buf[..n])
                 .is_ok()
             {
                 let mut i = 0;
                 while i + pat.len() <= n {
-                    if &buf[i..i + pat.len()] == pat && on_hit(base + i as u64) {
+                    if &buf[i..i + pat.len()] == pat && on_hit(base + i as u64, &buf[i..n]) {
                         return;
                     }
                     i += align;
@@ -164,6 +225,56 @@ async fn scan_bytes_until(
             base += (n - OVERLAP) as u64;
             chunks += 1;
             if chunks % CHUNKS_PER_TICK == 0 {
+                cost.paused();
+                next_tick().await;
+            }
+        }
+    }
+}
+
+/// Balaye les qwords alignes dont la valeur est l'une de `values`.
+///
+/// Une passe pour tous les candidats, et non une par candidat : chercher qui
+/// pointe sur huit adresses coutait huit relectures du tas, soit sept cents
+/// Mio par tentative infructueuse.
+async fn scan_u64_any(
+    process: &Process,
+    ranges: &[(u64, u64)],
+    values: &[u64],
+    cost: &mut Cost,
+    mut on_hit: impl FnMut(u64) -> bool,
+) {
+    let mut buf = vec![0u8; CHUNK];
+    let mut chunks = 0usize;
+
+    for &(start, end) in ranges {
+        let mut base = start;
+        while base < end {
+            let n = core::cmp::min(CHUNK as u64, end - base) as usize;
+            cost.read();
+            if process
+                .read_into_slice(Address::new(base), &mut buf[..n])
+                .is_ok()
+            {
+                let mut i = 0;
+                while i + 8 <= n {
+                    let v = u64::from_le_bytes([
+                        buf[i], buf[i + 1], buf[i + 2], buf[i + 3], buf[i + 4],
+                        buf[i + 5], buf[i + 6], buf[i + 7],
+                    ]);
+                    if values.contains(&v) && on_hit(base + i as u64) {
+                        return;
+                    }
+                    i += 8;
+                }
+            }
+            if n <= OVERLAP {
+                break;
+            }
+            base += (n - OVERLAP) as u64;
+            chunks += 1;
+            if chunks % CHUNKS_PER_TICK == 0 {
+                cost.paused();
                 next_tick().await;
             }
         }
@@ -185,6 +296,7 @@ async fn scan_atoms(
     process: &Process,
     ranges: &[(u64, u64)],
     ptr: u64,
+    cost: &mut Cost,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
     let bytes = ptr.to_le_bytes();
@@ -196,6 +308,7 @@ async fn scan_atoms(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
+            cost.read();
             if process
                 .read_into_slice(Address::new(base), &mut buf[..n])
                 .is_ok()
@@ -214,10 +327,17 @@ async fn scan_atoms(
             base += (n - OVERLAP) as u64;
             chunks += 1;
             if chunks % CHUNKS_PER_TICK == 0 {
+                cost.paused();
                 next_tick().await;
             }
         }
     }
+}
+
+/// Un qword lu dans un tampon local, si l'offset y tient.
+fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
+    let raw = buf.get(off..off + 8)?;
+    Some(u64::from_le_bytes(<[u8; 8]>::try_from(raw).ok()?))
 }
 
 // -- resolution -------------------------------------------------------------
@@ -228,7 +348,7 @@ async fn scan_atoms(
 /// deux adresses retenues appartiennent a des objets qui vivent aussi longtemps
 /// que le SWF : la chaine internee d'une clef, et la table du `GameManager`.
 /// Elles sont revalidees avant chaque usage, et l'`Anchor` est remis a zero a
-/// chaque nouveau process plugin -- il en nait un par partie.
+/// chaque nouveau process plugin.
 #[derive(Default)]
 pub struct Anchor {
     /// Objets String des clefs d'ancrage, internes par le SWF.
@@ -261,11 +381,20 @@ pub struct Anchor {
     manager_idle: u32,
     /// Region ou le dernier GameMode a ete trouve : balayee en premier.
     last_game_mode: Option<u64>,
+    /// Regions vues au dernier balayage, bornes comprises.
+    ///
+    /// Ce qui n'y figure pas est neuf : region fraichement engagee, ou region
+    /// qui a grandi. C'est la que naissent les objets du SWF -- les balayages
+    /// qui aboutissent ne lisent que seize Mio, ceux qui echouent en relisent
+    /// deux cents. Voir `resolve`.
+    regions: Vec<(u64, u64)>,
+    /// Tentatives depuis le dernier balayage complet.
+    sweeps: u32,
 }
 
 /// Ce qu'on retient du binaire lui-meme, d'un process plugin a l'autre.
 ///
-/// Le plugin meurt avec la partie, mais c'est toujours la meme DLL : ses
+/// Le process plugin va et vient, mais c'est toujours la meme DLL : ses
 /// vtables sont au meme offset dans le module, seule la base change avec
 /// l'ASLR. Les retenir permet de trouver une chaine internee en **une** passe
 /// -- balayer les en-tetes d'objets String -- au lieu de deux : chercher le
@@ -278,14 +407,48 @@ pub struct Binary {
     layout: Option<Layout>,
 }
 
+/// Layout mesure sur `pepflashplayer.dll` win32-x64 32.0.0.465, en offsets
+/// relatifs au module.
+///
+/// Ce n'est pas une adresse en dur, c'est une **amorce**. Elle est verifiee
+/// exactement comme une valeur derivee -- la chaine est relue et comparee --
+/// et abandonnee sans bruit si le binaire differe, auquel cas la recherche
+/// complete reprend.
+///
+/// Ce qu'elle fait gagner : sans elle, la premiere resolution d'une session
+/// cherche la chaine par son contenu, puis refait une passe complete sur le
+/// tas **par candidat** pour trouver qui pointe dessus. Avec elle, une seule
+/// passe sur les en-tetes d'objets suffit, des la premiere partie. Le prix a
+/// payer sur un binaire inconnu est cette passe-la, perdue une fois.
+const MEASURED: Layout = Layout {
+    module: (0, 0),
+    str_vt: 0x1756db8,
+    str_buf: 0x08,
+    str_len: 0x30,
+    tbl_vt: 0x174a460,
+    profile: PROFILES[0],
+    so_tbl: 0x30,
+};
+
 impl Binary {
     /// Le layout, rebase sur le module de ce process-ci.
     fn layout(&self, module: (u64, u64)) -> Option<Layout> {
-        let mut l = self.layout?;
+        let mut l = self.layout.unwrap_or(MEASURED);
         l.str_vt = module.0 + l.str_vt;
         l.tbl_vt = module.0 + l.tbl_vt;
         l.module = module;
         Some(l)
+    }
+
+    /// Le layout a-t-il deja servi a lire quelque chose dans ce binaire ?
+    ///
+    /// Tant que non, il faut garder le repli : l'amorce peut ne pas valoir
+    /// pour cette version du lecteur. Une fois oui, le repli ne peut plus rien
+    /// apprendre -- il ne ferait que relire le tas pour rien, et c'est
+    /// exactement ce qui coutait sept cents Mio par tentative infructueuse
+    /// pendant le chargement du SWF.
+    fn proven(&self) -> bool {
+        self.layout.is_some()
     }
 
     fn learn(&mut self, layout: &Layout) {
@@ -297,8 +460,8 @@ impl Binary {
 }
 
 impl Anchor {
-    /// Le plugin Flash meurt avec la partie : les adresses apprises dans le
-    /// process precedent n'ont aucun sens dans le suivant.
+    /// Les adresses apprises dans un process n'ont aucun sens dans le
+    /// suivant : l'ASLR les deplace, et le tas AVM1 est reconstruit.
     pub fn reset(&mut self) {
         *self = Self::default();
     }
@@ -308,6 +471,12 @@ impl Anchor {
 /// n'a jamais rien donne. A raison d'une par seconde environ, cela laisse une
 /// bonne demi-minute avant de reprendre le balayage.
 const MANAGER_IDLE_LIMIT: u32 = 30;
+
+/// Tentatives sans region neuve avant de relire le tas en entier.
+///
+/// Le filet de securite de la regle ci-dessus : un objet peut naitre dans de
+/// la memoire deja engagee, et aucune region neuve ne le signalerait.
+const FULL_SWEEP: u32 = 8;
 
 /// Voie rapide : suit `GameManager.current`, sans rien balayer.
 ///
@@ -357,29 +526,73 @@ pub async fn resolve(
         return Some(game);
     }
 
-    let mut ranges = heap_ranges(process);
-    if ranges.is_empty() {
+    let mut cost = Cost::default();
+    let all = heap_ranges(process);
+    if all.is_empty() {
         return None;
     }
+
+    // Ne balayer que ce qui a change.
+    //
+    // Les objets du SWF naissent tous ensemble, dans de la memoire qui vient
+    // d'etre engagee : les balayages qui aboutissent ne lisent que seize Mio,
+    // ceux qui echouent en relisaient deux cents pour rien. Or c'est le prix
+    // de ces echecs-la qui decide de tout -- pendant qu'un balayage inutile
+    // dure, le niveau 0 apparait, et le chrono demarre en retard.
+    //
+    // Une region absente de la liste precedente est neuve, ou elle a grandi.
+    // Quand il n'y en a aucune, rien n'a pu naitre depuis la derniere fois :
+    // le balayage n'apprendrait rien, et on s'abstient. De loin en loin, tout
+    // de meme, une passe complete -- pour le cas ou un objet naitrait dans de
+    // la memoire deja engagee, que cette regle ne verrait jamais.
+    let mut ranges: Vec<(u64, u64)> = all
+        .iter()
+        .filter(|r| !anchor.regions.contains(r))
+        .copied()
+        .collect();
+    if ranges.is_empty() {
+        anchor.sweeps += 1;
+        if anchor.sweeps % FULL_SWEEP != 0 {
+            return None;
+        }
+        ranges = all.clone();
+    }
+    anchor.regions = all.clone();
+    // Les tables se cherchent partout, meme quand la chaine ne se cherche que
+    // dans le neuf.
+    let mut full = all;
     if let Some(addr) = anchor.last_game_mode {
         move_region_first(&mut ranges, addr);
+        move_region_first(&mut full, addr);
     }
 
     // Poser l'ancre d'abord : une fois le GameManager connu, plus aucun
     // balayage n'est necessaire, et le lancement d'une partie se voit en
     // quelques lectures au lieu d'une demi-seconde a plusieurs secondes.
     if anchor.manager.is_none() {
-        if let Some((layout, tbl)) = scan_for_manager(process, module, &ranges, anchor, binary).await
+        if let Some((layout, tbl)) =
+            scan_for_manager(process, module, &ranges, &mut full, anchor, binary, &mut cost).await
         {
             asr::print_message(&alloc::format!(
-                "Hammerfest: GameManager 0x{tbl:x}, layout {}",
+                "Hammerfest: GameManager 0x{tbl:x}, layout {}, {} Mio lus, {} pauses",
                 layout.profile.name,
+                cost.mib(),
+                cost.pauses(),
             ));
             binary.learn(&layout);
             anchor.layout = Some(layout);
             anchor.manager = Some(tbl);
             anchor.current_hint = 0;
             return resolve_via_manager(process, anchor);
+        }
+        // Les balayages qui echouent sont ceux qui consomment la fenetre : ce
+        // sont eux qu'il faut mesurer, pas seulement celui qui aboutit.
+        if cost.chunks > 0 {
+            asr::print_message(&alloc::format!(
+                "Hammerfest: rien trouve, {} Mio lus, {} pauses",
+                cost.mib(),
+                cost.pauses(),
+            ));
         }
     }
 
@@ -402,24 +615,33 @@ pub async fn resolve(
 
     // Repli : chercher le GameMode lui-meme, ancre sur `world` -- porte par une
     // poignee d'objets seulement.
-    let (layout, strobj) =
-        find_string(process, module, &ranges, keys::WORLD, &mut anchor.string_world, binary).await?;
-
+    let (layout, strobj) = find_string(
+        process,
+        module,
+        &ranges,
+        keys::WORLD,
+        &mut anchor.string_world,
+        binary,
+        &mut cost,
+    )
+    .await?;
     // La chaine internee et les tables qui la citent vivent dans le meme tas
     // AVM1 : commencer par sa region evite le plus souvent d'avoir a lire le
     // reste, et c'est ce qui rend la duree stable d'une fois sur l'autre.
-    move_region_first(&mut ranges, strobj);
+    move_region_first(&mut full, strobj);
 
-    let game = scan_tables(process, &ranges, layout, strobj, keys::WORLD, |l, t| {
+    let game = scan_tables(process, &full, layout, strobj, keys::WORLD, &mut cost, |l, t| {
         validate(process, l, t)
     })
     .await?;
 
     asr::print_message(&alloc::format!(
-        "Hammerfest: GameMode 0x{:x}, monde {}, layout {}",
+        "Hammerfest: GameMode 0x{:x}, monde {}, layout {}, {} Mio lus, {} pauses",
         game.game_mode,
         game.set,
         game.layout.profile.name,
+        cost.mib(),
+        cost.pauses(),
     ));
     binary.learn(&game.layout);
     anchor.last_game_mode = Some(game.game_mode);
@@ -448,21 +670,34 @@ pub async fn resolve(
 async fn scan_for_manager(
     process: &Process,
     module: (u64, u64),
-    ranges: &[(u64, u64)],
+    fresh: &[(u64, u64)],
+    ranges: &mut [(u64, u64)],
     anchor: &mut Anchor,
     binary: &mut Binary,
+    cost: &mut Cost,
 ) -> Option<(Layout, u64)> {
+    // La chaine ne se cherche que dans ce qui a change -- c'est la que le SWF
+    // vient de la creer. Les tables qui la citent, en revanche, se cherchent
+    // partout : une fois la chaine trouvee, on sait qu'une partie existe, et
+    // la passe suivante s'arrete a la premiere table valable.
     let (layout, strobj) = find_string(
         process,
         module,
-        ranges,
+        fresh,
         keys::F_VERSION,
         &mut anchor.string_version,
         binary,
+        cost,
     )
     .await?;
 
-    scan_tables(process, ranges, layout, strobj, keys::F_VERSION, |mut l, t| {
+    // La chaine internee et les tables qui la citent vivent dans le meme tas
+    // AVM1 : commencer par sa region evite le plus souvent d'avoir a lire le
+    // reste. C'est ce qui rendait la duree stable sur le chemin de repli, et
+    // cela manquait ici.
+    move_region_first(ranges, strobj);
+
+    scan_tables(process, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
         // La reference croisee valide le candidat *et* derive au passage
         // l'offset `ScriptObject -> table`, sans lequel rien de ce qui suit ne
         // peut etre lu : `GameManager.current` designe un mode dont le champ
@@ -494,6 +729,7 @@ async fn find_string(
     key: &str,
     cache: &mut Option<u64>,
     binary: &Binary,
+    cost: &mut Cost,
 ) -> Option<(Layout, u64)> {
     let units = key.encode_utf16().count() as u64;
     if let Some(so) = *cache {
@@ -506,9 +742,13 @@ async fn find_string(
     // Vtable connue : une seule passe suffit, sur les en-tetes d'objets.
     if let Some(seed) = binary.layout(module) {
         let mut found = None;
-        scan_bytes_until(process, ranges, &seed.str_vt.to_le_bytes(), 8, |so| {
-            if read_u64(process, so + seed.str_len) == Some(units) && seed.string_eq(process, so, key)
-            {
+        scan_bytes_until(process, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
+            // La longueur d'abord, et dans le tampon quand elle y tient : elle
+            // ecarte presque tous les objets String, et la chaine elle-meme
+            // n'est relue que pour les rares survivants.
+            let len = u64_at(rest, seed.str_len as usize)
+                .or_else(|| read_u64(process, so + seed.str_len));
+            if len == Some(units) && seed.string_eq(process, so, key) {
                 found = Some(so);
                 return true;
             }
@@ -519,23 +759,41 @@ async fn find_string(
             *cache = Some(so);
             return Some((seed, so));
         }
-    }
-
-    let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
-    for buffer in scan_bytes(process, ranges, &needle, 2, 8).await {
-        for r in scan_bytes(process, ranges, &buffer.to_le_bytes(), 8, 16).await {
-            for buf_off in STR_BUF_CANDIDATES {
-                let Some(so) = r.checked_sub(buf_off) else {
-                    continue;
-                };
-                if let Some(layout) = string_layout_at(process, module, so, key, units) {
-                    *cache = Some(so);
-                    return Some((layout, so));
-                }
-            }
+        if binary.proven() {
+            // La vtable est la bonne et la chaine n'y est pas : elle n'existe
+            // pas encore. Le SWF ne l'a pas creee, et aucune autre recherche
+            // ne la fera apparaitre.
+            return None;
         }
     }
-    None
+
+    // Repli : la vtable n'est pas connue, ou l'amorce ne vaut pas pour ce
+    // binaire. Deux passes, pas davantage -- les octets de la clef d'abord,
+    // puis une seule passe pour tous les candidats a la fois.
+    let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    let buffers = scan_bytes(process, ranges, &needle, 2, 8, cost).await;
+    if buffers.is_empty() {
+        return None;
+    }
+
+    let mut found = None;
+    scan_u64_any(process, ranges, &buffers, cost, |slot| {
+        for buf_off in STR_BUF_CANDIDATES {
+            let Some(so) = slot.checked_sub(buf_off) else {
+                continue;
+            };
+            if let Some(layout) = string_layout_at(process, module, so, key, units) {
+                found = Some((layout, so));
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    if let Some((_, so)) = found {
+        *cache = Some(so);
+    }
+    found
 }
 
 /// Balaye les tables possedant `key` et rend la premiere qu'`accept` retient.
@@ -550,11 +808,12 @@ async fn scan_tables<T>(
     layout: Layout,
     strobj: u64,
     key: &str,
+    cost: &mut Cost,
     mut accept: impl FnMut(Layout, u64) -> Option<T>,
 ) -> Option<T> {
     let mut layout = layout;
     let mut result = None;
-    scan_atoms(process, ranges, strobj, |slot| {
+    scan_atoms(process, ranges, strobj, cost, |slot| {
         for &profile in PROFILES {
             layout.profile = profile;
             layout.tbl_vt = 0;
@@ -701,6 +960,26 @@ impl Game {
             previous,
             chrono_ms,
             frame_timer,
+            // `fl_lock` est vrai pendant l'ecran noir qui precede le niveau 0 :
+            // c'est sa retombee qui donne le depart officiel de la run.
+            locked: l
+                .get_cached(process, self.game_mode, keys::FL_LOCK, &mut self.hints.lock)
+                .and_then(avm1::as_bool)
+                .unwrap_or(false),
+            // Obligatoire, comme le niveau et le chrono : c'est elle qui date
+            // le depart de la run. La lire a zero par defaut poserait
+            // l'origine a l'instant de la resolution, donc un chrono court de
+            // tout le retard du balayage -- et en silence. Mieux vaut declarer
+            // la lecture invalide et rebalayer.
+            duration_ms: hammerfest_core::duration_ms(avm1::as_number(
+                process,
+                l.get_cached(
+                    process,
+                    self.game_mode,
+                    keys::DURATION,
+                    &mut self.hints.duration,
+                )?,
+            )?),
             dim: l
                 .get_cached(process, self.game_mode, keys::CURRENT_DIM, &mut self.hints.dim)
                 .and_then(avm1::as_int)
@@ -763,6 +1042,11 @@ impl Game {
 /// Le process plugin : celui des process EternalTwin ou Pepper Flash est
 /// charge. Il n'existe que tant qu'une instance Flash vit, donc son pid ne doit
 /// jamais etre mis en cache.
+///
+/// Il ne meurt pas forcement avec la partie : quatre parties consecutives ont
+/// ete observees dans un meme process. Ce qui meurt avec la partie, ce sont les
+/// objets AVM1 -- d'ou la revalidation systematique plutot qu'une confiance au
+/// process.
 ///
 /// EternalTwin en lance une demi-douzaine sous le meme nom, et savoir lequel
 /// porte le plugin demande de s'y attacher -- il n'y a pas d'autre moyen de
