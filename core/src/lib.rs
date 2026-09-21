@@ -1,13 +1,13 @@
-//! Le coeur de l'autosplitter, sans memoire ni runtime.
+//! The core of the autosplitter, with no memory access and no runtime.
 //!
-//! Tout ce qui se decide -- demarrer, splitter, remettre a zero, abandonner une
-//! resolution -- se decide ici, a partir de valeurs. Rien dans ce crate ne lit
-//! un process, ne parle a LiveSplit, ni ne depend d'`asr`, et c'est
-//! precisement ce qui le rend testable : les symboles du runtime ASR n'existent
-//! que dans le bac a sable WebAssembly.
+//! Everything that is decided -- when to start, split, reset, or drop a
+//! resolution -- is decided here, from values alone. Nothing in this crate
+//! reads a process, talks to LiveSplit, or depends on `asr`. That is exactly
+//! what makes it testable: the ASR runtime symbols exist only inside the
+//! WebAssembly sandbox.
 //!
-//! La partie qui lit la memoire de Pepper Flash vit dans le crate parent et
-//! n'a plus qu'un role : produire un [`State`] et executer des [`Actions`].
+//! The part that reads Pepper Flash memory lives in the parent crate. It has
+//! one job left: produce a [`State`] and execute the [`Actions`].
 
 #![no_std]
 

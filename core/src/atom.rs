@@ -1,8 +1,8 @@
-//! Decodage des atomes AVM1.
+//! AVM1 atom decoding.
 //!
-//! Un atome vaut `(valeur << 3) | tag`, les trois bits bas donnant le type.
-//! Valeurs mesurees sur pepflashplayer.dll 32.0.0.465 (voir
-//! `reverse-engineering.md`).
+//! An atom is `(value << 3) | tag`. The three low bits give the type. The
+//! values below were measured on pepflashplayer.dll 32.0.0.465. See
+//! `reverse-engineering.md`.
 
 pub const TAG_INT: u64 = 0;
 pub const TAG_DOUBLE: u64 = 1;
@@ -20,16 +20,17 @@ pub fn tag(atom: u64) -> u64 {
     atom & 7
 }
 
-/// Pointeur porte par un atome, tag retire.
+/// The pointer an atom carries, with the tag removed.
 #[inline]
 pub fn ptr(atom: u64) -> u64 {
     atom & !7
 }
 
-/// Atome -> entier **signe**.
+/// Atom -> **signed** integer.
 ///
-/// Le decalage doit etre arithmetique : `portalId` vaut -1, encode
-/// `0xfffffffffffffff8`. Un decalage logique en ferait 2305843009213693951.
+/// The shift must be arithmetic. `portalId` is -1, encoded as
+/// `0xfffffffffffffff8`. A logical shift would turn it into
+/// 2305843009213693951.
 #[inline]
 pub fn as_int(atom: u64) -> Option<i64> {
     if tag(atom) != TAG_INT {
@@ -38,17 +39,17 @@ pub fn as_int(atom: u64) -> Option<i64> {
     Some((atom as i64) >> 3)
 }
 
-/// Atome flottant -> l'adresse des huit octets du double.
+/// Float atom -> the address of the eight bytes of the double.
 ///
-/// Contrairement aux entiers, un flottant ne tient pas dans l'atome : celui-ci
-/// pointe sur la valeur. Le coeur ne lit aucune memoire, donc il rend
-/// l'adresse et [`decode_double`] fait le reste.
+/// A float does not fit inside the atom, unlike an integer. The atom points to
+/// the value. The core reads no memory, so it returns the address and
+/// [`decode_double`] does the rest.
 #[inline]
 pub fn double_at(atom: u64) -> Option<u64> {
     (tag(atom) == TAG_DOUBLE).then(|| ptr(atom))
 }
 
-/// Les huit octets lus a cette adresse, en flottant.
+/// The eight bytes read at that address, as a float.
 #[inline]
 pub fn decode_double(raw: u64) -> f64 {
     f64::from_bits(raw)
@@ -68,51 +69,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decode_les_entiers_positifs() {
+    fn decodes_positive_integers() {
         assert_eq!(as_int(9 << 3), Some(9));
         assert_eq!(as_int(0), Some(0));
     }
 
     #[test]
-    fn decode_les_entiers_negatifs() {
-        // `portalId` = -1, tel qu'observe dans la table GameMode.
+    fn decodes_negative_integers() {
+        // `portalId` = -1, as observed in the GameMode table.
         assert_eq!(as_int(0xffff_ffff_ffff_fff8), Some(-1));
         assert_eq!(as_int((-42i64 as u64) << 3 & !7), Some(-42));
     }
 
     #[test]
-    fn refuse_ce_qui_n_est_pas_un_entier() {
+    fn rejects_what_is_not_an_integer() {
         for atom in [TRUE, FALSE, NULL, 0x4d6381a94dd] {
-            assert_eq!(as_int(atom), None, "atome {atom:#x}");
+            assert_eq!(as_int(atom), None, "atom {atom:#x}");
         }
     }
 
     #[test]
-    fn decode_les_booleens() {
+    fn decodes_booleans() {
         assert_eq!(as_bool(TRUE), Some(true));
         assert_eq!(as_bool(FALSE), Some(false));
-        // null n'est ni vrai ni faux : le confondre avec faux ferait passer
-        // une partie en pause pour une partie en cours.
+        // null is neither true nor false. If we read it as false, a paused
+        // game would look like a running game.
         assert_eq!(as_bool(NULL), None);
         assert_eq!(as_bool(0), None);
     }
 
     #[test]
-    fn decode_les_flottants() {
-        // `duration` relevee en fin de partie : 14815.6 cycles.
+    fn decodes_floats() {
+        // `duration` as read at the end of a game: 14815.6 cycles.
         let raw = 14815.6f64.to_bits();
         assert_eq!(decode_double(raw), 14815.6);
 
         let atom = 0x4d6381a94d8 | TAG_DOUBLE;
         assert_eq!(double_at(atom), Some(0x4d6381a94d8));
-        // Un entier n'est pas un flottant : le confondre lirait huit octets a
-        // une adresse qui n'en est pas une.
+        // An integer is not a float. If we read it as one, we would read eight
+        // bytes at an address that is not an address.
         assert_eq!(double_at(9 << 3), None);
         assert_eq!(double_at(TRUE), None);
     }
 
     #[test]
-    fn separe_les_tags_des_pointeurs() {
+    fn separates_tags_from_pointers() {
         let atom = 0x4d6381a94d8 | TAG_OBJECT;
         assert_eq!(tag(atom), TAG_OBJECT);
         assert_eq!(ptr(atom), 0x4d6381a94d8);

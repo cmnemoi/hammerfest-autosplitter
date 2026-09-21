@@ -1,48 +1,48 @@
-//! Quand demarrer, splitter, remettre a zero, ou lacher une resolution.
+//! When to start, split, reset, or drop a resolution.
 //!
-//! Une machine a etats pure : elle recoit a chaque tick ce que le jeu dit --
-//! ou rien, si on n'a pas trouve de partie -- et rend les actions a executer.
-//! Elle ne lit aucune memoire et ne connait pas LiveSplit.
+//! A pure state machine. Every tick it receives what the game says -- or
+//! nothing, when no game was found -- and returns the actions to execute. It
+//! reads no memory and knows nothing about LiveSplit.
 
-/// Ce que le jeu dit de lui-meme a un instant donne.
+/// What the game says about itself at one instant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct State {
-    /// `GameMode.world.currentId` : le niveau, tel que le jeu l'affiche.
+    /// `GameMode.world.currentId`: the level, as the game displays it.
     pub level: i64,
     /// `SetManager._previousId`.
     pub previous: i64,
-    /// `Chrono.get()`, en millisecondes.
+    /// `Chrono.get()`, in milliseconds.
     pub chrono_ms: i64,
-    /// `Chrono.frameTimer` : avance a chaque frame tant que ce GameMode tourne.
+    /// `Chrono.frameTimer`: it advances every frame while this GameMode runs.
     pub frame_timer: i64,
-    /// `GameMode.currentDim` : 0 pour le monde principal.
+    /// `GameMode.currentDim`: 0 for the main world.
     pub dim: i64,
     /// `GameMode.fl_gameOver`.
     pub game_over: bool,
-    /// `GameMode.fl_lock` : vrai pendant l'ecran noir du debut, pendant les
-    /// transitions de niveau et pendant la pause. Le jeu ne simule pas.
+    /// `GameMode.fl_lock`: true during the black screen at the start, during
+    /// level transitions, and during a pause. The game does not simulate.
     pub locked: bool,
-    /// `GameMode.duration`, convertie en millisecondes.
+    /// `GameMode.duration`, converted to milliseconds.
     ///
-    /// `main()` sort sur `fl_lock` **avant** de l'incrementer : elle vaut donc
-    /// exactement zero tant que le niveau 0 n'est pas apparu, et mesure
-    /// ensuite le temps pendant lequel le jeu a tourne.
+    /// `main()` returns on `fl_lock` **before** it increments this value. So
+    /// the value is exactly zero until level 0 appears. After that, it
+    /// measures the time during which the game ran.
     pub duration_ms: i64,
 }
 
-/// `Data.SECOND` : cycles de jeu par seconde.
+/// `Data.SECOND`: game cycles per second.
 const SECOND: f64 = 32.0;
 
-/// `GameMode.duration` en millisecondes.
+/// `GameMode.duration` in milliseconds.
 ///
-/// `duration += Timer.tmod` a chaque image, et `Timer.tmod` vaut 1 par image a
-/// la cadence de reference. La somme suit donc le temps reel : mesure sur une
-/// partie de 67 s, l'ecart est de 0,1 %.
+/// The game does `duration += Timer.tmod` every frame, and `Timer.tmod` is 1
+/// per frame at the reference frame rate. The sum therefore follows real time.
+/// Measured over a 67 s game, the difference is 0.1 %.
 pub fn duration_ms(cycles: f64) -> i64 {
     (cycles * (1000.0 / SECOND)) as i64
 }
 
-/// Les reglages, vus du coeur : de simples booleens.
+/// The settings, as the core sees them: plain booleans.
 #[derive(Copy, Clone, Debug)]
 pub struct Rules {
     pub auto_start: bool,
@@ -71,18 +71,18 @@ pub enum TimerState {
     Unknown,
 }
 
-/// Ce que l'appelant doit faire, dans cet ordre.
+/// What the caller must do, in this order.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct Actions {
     pub reset: bool,
     pub start: bool,
     pub split: bool,
-    /// La resolution courante n'est plus valable : la relacher et rechercher.
+    /// The current resolution is no longer valid. Drop it and search again.
     pub drop_resolution: bool,
-    /// Temps reel ecoule depuis le depart officiel, en millisecondes.
+    /// Real time since the official start, in milliseconds.
     ///
-    /// Absolu : un demarrage tardif se rattrape de lui-meme des la premiere
-    /// lecture. C'est ce qui sort le balayage du tas du chemin critique.
+    /// The value is absolute. A late start corrects itself on the first read.
+    /// That is what takes the heap scan off the critical path.
     pub real_time_ms: Option<i64>,
 }
 
@@ -92,34 +92,34 @@ impl Actions {
     }
 }
 
-/// Le premier niveau d'une aventure.
+/// The first level of an adventure.
 const FIRST_LEVEL: i64 = 0;
-/// Ticks sans que `frameTimer` bouge avant de declarer le GameMode mort.
-/// Genereux : Flash tourne a une trentaine d'images par seconde, et une fenetre
-/// en arriere-plan est ralentie davantage.
+/// Ticks without a change in `frameTimer` before the GameMode is declared
+/// dead. The value is generous: Flash runs at about thirty frames per second,
+/// and a background window runs slower still.
 const STALE_TICKS: u32 = 90;
-/// Ticks sans lecture valide avant de considerer une partie abandonnee.
+/// Ticks without a valid read before a game counts as abandoned.
 const LOST_BEFORE_RESET: u32 = 240;
 
 #[derive(Default)]
 pub struct Policy {
-    /// Dernier etat confirme, celui sur lequel on a agi.
+    /// The last confirmed state, the one we acted on.
     prev: Option<State>,
-    /// Lecture precedente, pas encore confirmee.
+    /// The previous read, not confirmed yet.
     seen: Option<State>,
-    /// A-t-on constate l'absence de partie depuis la derniere vue ?
+    /// Did we see the absence of a game since the last one?
     saw_no_game: bool,
-    /// A-t-on vu cette partie naitre, plutot que de la trouver en cours ?
+    /// Did we see this game start, rather than find it already running?
     launched: bool,
-    /// Origine du temps reel, dans l'horloge du lecteur Flash.
+    /// The origin of real time, in the clock of the Flash player.
     ///
-    /// `Std.getTimer()` compte les millisecondes reelles depuis le demarrage
-    /// du plugin. La poser une fois suffit : tout le reste est une
-    /// soustraction, et rien ne peut plus deriver.
+    /// `Std.getTimer()` counts real milliseconds since the plugin started. We
+    /// set the origin once. Everything after that is a subtraction, so nothing
+    /// can drift.
     origin: Option<i64>,
-    /// Derniere `duration` lue : elle ne recule qu'a la partie suivante.
+    /// The last `duration` read. It only goes down at the next game.
     duration_seen: i64,
-    /// A-t-on deja lu une partie tout court ?
+    /// Did we ever read a game at all?
     had_game: bool,
     lost: u32,
     heartbeat: i64,
@@ -131,7 +131,7 @@ impl Policy {
         Self::default()
     }
 
-    /// Un tick. `read` vaut None quand aucune partie n'a pu etre lue.
+    /// One tick. `read` is None when no game could be read.
     pub fn tick(&mut self, timer: TimerState, rules: &Rules, read: Option<State>) -> Actions {
         let Some(now) = read else {
             return self.no_game(timer, rules);
@@ -141,17 +141,17 @@ impl Policy {
         self.lost = 0;
         self.had_game = true;
 
-        // Une partie apparait la ou il n'y en avait pas : c'est un lancement.
-        // Avoir constate l'absence est ce qui distingue ce cas d'un
-        // autosplitter demarre alors qu'une partie tournait deja.
+        // A game appears where there was none: that is a launch. Having seen
+        // the absence is what separates this case from an autosplitter that
+        // starts while a game is already running.
         if self.saw_no_game {
             self.saw_no_game = false;
             self.launched = true;
         }
 
-        // `fl_gameOver` est le signal exact de fin de partie. On lache aussitot
-        // la resolution : un GameMode termine reste lisible longtemps, avec des
-        // valeurs plausibles.
+        // `fl_gameOver` is the exact end-of-game signal. We drop the
+        // resolution at once: a finished GameMode stays readable for a long
+        // time, and it holds plausible values.
         if now.game_over {
             if rules.auto_reset && timer == TimerState::Running {
                 actions.reset = true;
@@ -161,8 +161,9 @@ impl Policy {
             return actions;
         }
 
-        // `frameTimer` avance a chaque frame tant que ce GameMode est celui qui
-        // tourne. Fige, l'objet est mort -- typiquement apres un retour au menu.
+        // `frameTimer` advances every frame while this GameMode is the one
+        // that runs. If it is frozen, the object is dead -- usually after a
+        // return to the menu.
         if now.frame_timer == self.heartbeat {
             self.frozen = self.frozen.saturating_add(1);
             if self.frozen >= STALE_TICKS {
@@ -175,37 +176,40 @@ impl Policy {
             self.frozen = 0;
         }
 
-        // Le depart officiel est l'image ou `fl_lock` retombe : l'ecran noir
-        // s'acheve et le niveau 0 apparait. `GameMechanics.onViewReady` appelle
-        // `GameMode.onLevelReady`, qui deverrouille, dans la meme image que
-        // l'attachement de la vue.
+        // Only two counters can go backwards, and only from one game to the
+        // next: `duration`, which restarts at zero with the GameMode, and
+        // `Std.getTimer()`, which restarts at zero with the plugin process.
+        // When either one goes backwards, the origin belongs to the previous
+        // game.
         //
-        // Une seule formule couvre les deux cas, parce que `duration` ne court
-        // que depuis ce deverrouillage-la :
-        //
-        //   * resolus a temps, on lit le premier etat deverrouille avec
-        //     `duration` encore nulle : l'origine est `frameTimer`, a un tick ;
-        //   * resolus en retard -- le cas courant, le balayage prend une demie
-        //     seconde de trop -- `duration` dit de combien, et l'origine se
-        //     reconstruit exactement.
-        //
-        // Le balayage sort donc du chemin critique : sa duree n'entre plus dans
-        // le chronometrage, elle ne fait que retarder l'affichage.
-        // Deux compteurs seulement peuvent reculer, et seulement d'une partie
-        // a l'autre : `duration`, qui repart de zero avec le GameMode, et
-        // `Std.getTimer()`, qui repart de zero avec le process plugin. Quand
-        // l'un des deux recule, l'origine appartient a la partie precedente.
-        //
-        // Le test porte sur eux plutot que sur la perte de la resolution :
-        // celle-ci est relachee et reprise en cours de partie, et
-        // reconstruire l'origine a ce moment-la la placerait trop tard de tout
-        // le temps passe entre deux niveaux, que `duration` ne compte pas.
+        // The test looks at these two rather than at the loss of the
+        // resolution. The resolution is dropped and taken again during a game,
+        // and rebuilding the origin at that moment would place it too late, by
+        // all the time spent between levels that `duration` does not count.
         if self.origin.is_some_and(|o| now.frame_timer < o)
             || now.duration_ms < self.duration_seen
         {
             self.origin = None;
         }
         self.duration_seen = now.duration_ms;
+
+        // The official start is the frame where `fl_lock` goes false: the
+        // black screen ends and level 0 appears. `GameMechanics.onViewReady`
+        // calls `GameMode.onLevelReady`, which unlocks, in the same frame that
+        // attaches the view.
+        //
+        // One formula covers both cases, because `duration` only runs from
+        // that same unlock:
+        //
+        //   * resolved in time, we read the first unlocked state while
+        //     `duration` is still zero: the origin is `frameTimer`, within one
+        //     tick;
+        //   * resolved late -- the usual case, the scan takes half a second
+        //     too long -- `duration` says by how much, and the origin is
+        //     rebuilt exactly.
+        //
+        // The scan therefore leaves the critical path. Its duration no longer
+        // enters the timing. It only delays the display.
         if self.origin.is_none() && !now.locked {
             self.origin = Some(now.frame_timer - now.duration_ms);
             if self.launched && rules.auto_start && timer == TimerState::NotRunning {
@@ -214,12 +218,12 @@ impl Policy {
         }
         actions.real_time_ms = self.origin.map(|o| now.frame_timer - o);
 
-        // On n'agit que sur un niveau lu deux fois de suite.
+        // We act only on a level read twice in a row.
         //
-        // `Adventure.nextLevel` ecrit `currentId` trois fois dans la meme frame
-        // -- 1, puis 0, puis 10 -- et rien ne synchronise notre lecture avec la
-        // frame du jeu. Sans cette confirmation, tomber au milieu produirait
-        // deux splits au lieu d'un, de facon aleatoire.
+        // `Adventure.nextLevel` writes `currentId` three times in the same
+        // frame -- 1, then 0, then 10 -- and nothing synchronises our read
+        // with the game frame. Without this confirmation, a read that lands in
+        // the middle would produce two splits instead of one, at random.
         if self.seen.map(|s| s.level) == Some(now.level) {
             self.decide(timer, rules, &now, &mut actions);
             self.prev = Some(now);
@@ -235,10 +239,10 @@ impl Policy {
         self.prev = None;
         self.seen = None;
 
-        // Ne compter les lectures perdues qu'apres avoir vu une partie : ne pas
-        // (encore) en trouver n'est pas la meme chose que d'en avoir perdu une.
-        // Le plugin Flash existe des l'ouverture de l'application, donc bien
-        // avant qu'il y ait quoi que ce soit a resoudre.
+        // Count lost reads only after we have seen a game. Not finding one
+        // yet is not the same as having lost one. The Flash plugin exists as
+        // soon as the application opens, so long before there is anything to
+        // resolve.
         if self.had_game {
             self.lost = self.lost.saturating_add(1);
             if self.lost == LOST_BEFORE_RESET
@@ -255,8 +259,8 @@ impl Policy {
         self.prev = None;
         self.seen = None;
         self.saw_no_game = true;
-        // L'origine appartient a la partie qui vient de finir : la garder
-        // ferait courir le chrono de la suivante depuis le mauvais instant.
+        // The origin belongs to the game that just ended. If we keep it, the
+        // next game runs its timer from the wrong instant.
         self.origin = None;
         self.launched = false;
         self.duration_seen = 0;
@@ -267,8 +271,8 @@ impl Policy {
             return;
         };
 
-        // Un timer deja fini n'accepte pas `start` : il faut le remettre a zero
-        // d'abord, et seulement si on en a l'autorisation.
+        // A finished timer does not accept `start`. It must be reset first,
+        // and only if we have permission to do so.
         if rules.auto_start
             && rules.auto_reset
             && timer == TimerState::Ended
@@ -279,8 +283,8 @@ impl Policy {
             return;
         }
 
-        // Le chrono du jeu recule : une autre partie a commence sans qu'on ait
-        // vu la transition.
+        // The game clock goes backwards: another game started and we did not
+        // see the transition.
         if now.chrono_ms + 2_000 < prev.chrono_ms {
             if rules.auto_reset && timer == TimerState::Running {
                 actions.reset = true;
@@ -291,15 +295,14 @@ impl Policy {
             return;
         }
 
-        // Tout progres vers l'avant compte, pas seulement `+1`. Hammerfest
-        // saute des niveaux : le raccourci du niveau 0 mene directement au 10
-        // (`Adventure.nextLevel` sous `fl_warpStart`), et les warpzones
-        // avancent de 1 a 3 (`SpecialManager.warpZone` -> `forcedGoto`).
+        // Any forward progress counts, not only `+1`. Hammerfest skips
+        // levels: the level 0 shortcut leads straight to level 10
+        // (`Adventure.nextLevel` under `fl_warpStart`), and warp zones advance
+        // by 1 to 3 (`SpecialManager.warpZone` -> `forcedGoto`).
         //
-        // Un seul split par franchissement, quel que soit le nombre de niveaux
-        // enjambes : l'itineraire d'un run passe par ces raccourcis, donc un
-        // segment leur correspond. Un retour en arriere -- mort, restart --
-        // n'est pas un progres.
+        // One split per crossing, whatever the number of levels skipped. The
+        // route of a run goes through these shortcuts, so one segment matches
+        // them. Going backwards -- death, restart -- is not progress.
         if rules.split_on_level
             && timer == TimerState::Running
             && now.level > prev.level
@@ -314,12 +317,12 @@ impl Policy {
 mod tests {
     use super::*;
 
-    /// Un etat de partie vivant, dont chaque test ne change que ce qui compte.
+    /// A live game state. Each test changes only what matters to it.
     ///
-    /// `frameTimer` court depuis le demarrage du plugin, `gameChrono` depuis la
-    /// construction du GameMode, et `duration` depuis l'apparition du niveau 0.
-    /// Les 550 ms qui separent les deux dernieres sont mesurees : 535, 539, 547
-    /// et 562 ms sur quatre parties.
+    /// `frameTimer` runs from the start of the plugin, `gameChrono` from the
+    /// construction of the GameMode, and `duration` from the moment level 0
+    /// appears. The 550 ms between the last two are measured: 535, 539, 547
+    /// and 562 ms over four games.
     fn at(level: i64, chrono_ms: i64) -> State {
         State {
             level,
@@ -333,7 +336,7 @@ mod tests {
         }
     }
 
-    /// Le meme etat, mais verrouille : ecran noir, transition, ou pause.
+    /// The same state, but locked: black screen, transition, or pause.
     fn locked(level: i64, chrono_ms: i64) -> State {
         State {
             locked: true,
@@ -341,10 +344,10 @@ mod tests {
         }
     }
 
-    /// Joue une suite de lectures et rend les actions du dernier tick.
+    /// Plays a series of reads and returns the actions of the last tick.
     ///
-    /// Le timer est fourni par l'appelant : la politique ne le connait que par
-    /// ce qu'on lui en dit, ce qui evite d'avoir a simuler LiveSplit.
+    /// The caller supplies the timer state. The policy knows it only from what
+    /// we tell it, which saves us from simulating LiveSplit.
     struct Run {
         policy: Policy,
         rules: Rules,
@@ -376,53 +379,53 @@ mod tests {
             actions
         }
 
-        /// Deux lectures identiques : la politique n'agit que sur un niveau
-        /// confirme.
+        /// Two identical reads: the policy acts only on a confirmed level.
         fn confirm(&mut self, s: State) -> Actions {
             self.tick(Some(s));
             self.tick(Some(s))
         }
     }
 
-    // -- demarrage ---------------------------------------------------------
+    // -- start -------------------------------------------------------------
 
     #[test]
-    fn demarre_quand_une_partie_apparait_la_ou_il_n_y_en_avait_pas() {
+    fn starts_when_a_game_appears_where_there_was_none() {
         let mut r = Run::new();
         r.tick(None);
         assert!(r.tick(Some(at(0, 3_000))).start);
     }
 
     #[test]
-    fn ne_demarre_pas_si_une_partie_tournait_deja_a_l_attache() {
-        // Autosplitter charge en cours de run : la premiere lecture n'est pas
-        // un lancement.
+    fn does_not_start_if_a_game_was_already_running_when_we_attached() {
+        // Autosplitter loaded in the middle of a run: the first read is not a
+        // launch.
         let mut r = Run::new();
         assert!(!r.tick(Some(at(12, 90_000))).start);
     }
 
     #[test]
-    fn demarre_meme_si_le_chrono_n_est_pas_a_zero() {
-        // Le chrono court depuis la construction du GameMode : chargement et
-        // intro compris. L'exiger petit empechait tout demarrage.
+    fn starts_even_if_the_game_clock_is_not_zero() {
+        // The game clock runs from the construction of the GameMode, loading
+        // and intro included. Requiring a small value stopped every start.
         let mut r = Run::new();
         r.tick(None);
         assert!(r.tick(Some(at(0, 12_000))).start);
     }
 
     #[test]
-    fn demarre_meme_si_le_niveau_0_est_deja_passe() {
-        // Un runner quitte le niveau 0 en deux secondes ; la resolution peut
-        // mettre plus longtemps.
+    fn starts_even_if_level_0_is_already_behind_us() {
+        // A runner leaves level 0 in two seconds. The resolution can take
+        // longer than that.
         let mut r = Run::new();
         r.tick(None);
         assert!(r.tick(Some(at(10, 4_000))).start);
     }
 
     #[test]
-    fn ne_demarre_pas_tant_que_l_ecran_noir_dure() {
-        // Le niveau 0 n'est pas encore apparu : la run n'a pas commence, meme
-        // si le GameMode existe et que gameChrono court deja.
+    fn does_not_start_while_the_black_screen_lasts() {
+        // Level 0 has not appeared yet, so the run has not started. The
+        // GameMode exists and gameChrono already runs, but that is not the
+        // start.
         let mut r = Run::new();
         r.tick(None);
         let actions = r.tick(Some(locked(0, 300)));
@@ -430,108 +433,108 @@ mod tests {
         assert_eq!(actions.real_time_ms, None);
     }
 
-    // -- origine du temps reel ----------------------------------------------
+    // -- origin of real time -----------------------------------------------
 
     #[test]
-    fn pose_l_origine_a_l_image_du_deverrouillage() {
-        // Resolus avant l'apparition du niveau : on voit la transition, et
-        // `duration` est encore nulle.
+    fn sets_the_origin_on_the_frame_of_the_unlock() {
+        // Resolved before the level appears: we see the transition, and
+        // `duration` is still zero.
         let mut r = Run::new();
         r.tick(None);
         r.tick(Some(locked(0, 300)));
 
-        let mut depart = at(0, 550);
-        depart.duration_ms = 0;
-        let actions = r.tick(Some(depart));
+        let mut start = at(0, 550);
+        start.duration_ms = 0;
+        let actions = r.tick(Some(start));
         assert!(actions.start);
         assert_eq!(actions.real_time_ms, Some(0));
 
-        // 2 s plus tard, le temps reel les a comptees.
-        let mut suite = at(0, 2_550);
-        suite.frame_timer = depart.frame_timer + 2_000;
-        assert_eq!(r.tick(Some(suite)).real_time_ms, Some(2_000));
+        // Two seconds later, real time has counted them.
+        let mut later = at(0, 2_550);
+        later.frame_timer = start.frame_timer + 2_000;
+        assert_eq!(r.tick(Some(later)).real_time_ms, Some(2_000));
     }
 
     #[test]
-    fn reconstruit_l_origine_quand_le_balayage_arrive_en_retard() {
-        // Le cas courant : le balayage aboutit une demie seconde trop tard.
-        // `duration` ne court que depuis le deverrouillage, donc elle dit de
-        // combien -- et le temps reel affiche est juste des la premiere
-        // lecture, sans rattrapage visible.
+    fn rebuilds_the_origin_when_the_scan_arrives_late() {
+        // The usual case: the scan finishes half a second too late.
+        // `duration` runs only from the unlock, so it says by how much. The
+        // real time shown is correct on the first read, with no visible catch
+        // up.
         let mut r = Run::new();
         r.tick(None);
 
-        let mut tard = at(0, 1_150);
-        tard.duration_ms = 600;
-        let actions = r.tick(Some(tard));
+        let mut late = at(0, 1_150);
+        late.duration_ms = 600;
+        let actions = r.tick(Some(late));
         assert!(actions.start);
         assert_eq!(actions.real_time_ms, Some(600));
     }
 
     #[test]
-    fn le_temps_reel_ne_s_arrete_ni_en_pause_ni_entre_deux_niveaux() {
-        // `Chrono.update` tourne avant le test de pause et avant le `return`
-        // sur `fl_lock` : `frameTimer` suit le temps reel quoi qu'il arrive.
-        // Mesure : +13843 ms pour 13,9 s de pause.
+    fn real_time_stops_neither_on_pause_nor_between_levels() {
+        // `Chrono.update` runs before the pause test and before the `return`
+        // on `fl_lock`. So `frameTimer` follows real time whatever happens.
+        // Measured: +13843 ms for 13.9 s of pause.
         let mut r = Run::new().running();
-        let depart = at(0, 550);
-        r.tick(Some(depart));
+        let start = at(0, 550);
+        r.tick(Some(start));
 
         let mut pause = locked(3, 20_000);
-        pause.frame_timer = depart.frame_timer + 30_000;
-        pause.duration_ms = 12_000; // figee, elle
+        pause.frame_timer = start.frame_timer + 30_000;
+        pause.duration_ms = 12_000; // frozen, this one
         assert_eq!(r.tick(Some(pause)).real_time_ms, Some(30_000));
     }
 
     #[test]
-    fn garde_l_origine_quand_la_resolution_est_perdue_puis_reprise() {
-        // Relacher la resolution en cours de partie est normal : l'ancre meurt,
-        // on rebalaye. Reconstruire l'origine a ce moment-la la poserait trop
-        // tard de tout le temps passe entre les niveaux, que `duration` ne
-        // compte pas -- et le chrono reculerait sous les yeux du joueur.
+    fn keeps_the_origin_when_the_resolution_is_lost_then_taken_again() {
+        // Dropping the resolution during a game is normal: the anchor dies and
+        // we scan again. Rebuilding the origin then would place it too late,
+        // by all the time spent between levels that `duration` does not count
+        // -- and the timer would go backwards in front of the player.
         let mut r = Run::new().running();
-        let depart = at(0, 550);
-        r.tick(Some(depart));
+        let start = at(0, 550);
+        r.tick(Some(start));
 
-        let mut plus_tard = at(6, 40_000);
-        plus_tard.frame_timer = depart.frame_timer + 60_000;
-        plus_tard.duration_ms = 38_000; // 22 s de transitions, non comptees
-        assert_eq!(r.tick(Some(plus_tard)).real_time_ms, Some(60_000));
+        let mut later = at(6, 40_000);
+        later.frame_timer = start.frame_timer + 60_000;
+        later.duration_ms = 38_000; // 22 s of transitions, not counted
+        assert_eq!(r.tick(Some(later)).real_time_ms, Some(60_000));
 
-        r.tick(None); // resolution perdue, rebalayage
+        r.tick(None); // resolution lost, scan again
 
-        let mut reprise = plus_tard;
-        reprise.frame_timer += 1_000;
-        reprise.duration_ms += 1_000;
-        assert_eq!(r.tick(Some(reprise)).real_time_ms, Some(61_000));
+        let mut again = later;
+        again.frame_timer += 1_000;
+        again.duration_ms += 1_000;
+        assert_eq!(r.tick(Some(again)).real_time_ms, Some(61_000));
     }
 
     #[test]
-    fn oublie_l_origine_quand_l_horloge_recule() {
-        // Un autre process plugin, donc une autre partie : `Std.getTimer()`
-        // repart de zero. Garder l'ancienne origine donnerait un temps negatif.
+    fn forgets_the_origin_when_the_clock_goes_backwards() {
+        // Another plugin process, so another game: `Std.getTimer()` restarts
+        // at zero. Keeping the old origin would give a negative time.
         let mut r = Run::new().running();
         r.tick(Some(at(5, 60_000)));
 
-        let mut neuve = at(0, 550);
-        neuve.frame_timer = 900; // le plugin vient de naitre
-        neuve.duration_ms = 0;
-        assert_eq!(r.tick(Some(neuve)).real_time_ms, Some(0));
+        let mut fresh = at(0, 550);
+        fresh.frame_timer = 900; // the plugin has just started
+        fresh.duration_ms = 0;
+        assert_eq!(r.tick(Some(fresh)).real_time_ms, Some(0));
     }
 
     #[test]
-    fn repart_d_une_origine_neuve_a_la_partie_suivante() {
+    fn starts_from_a_fresh_origin_on_the_next_game() {
         let mut r = Run::new().running();
         r.tick(Some(at(4, 30_000)));
-        let mut fin = at(4, 31_000);
-        fin.game_over = true;
-        r.tick(Some(fin));
+        let mut end = at(4, 31_000);
+        end.game_over = true;
+        r.tick(Some(end));
 
         r.tick(None);
-        let mut neuve = at(0, 550);
-        neuve.frame_timer = 400_000;
-        neuve.duration_ms = 0;
-        let actions = r.tick(Some(neuve));
+        let mut fresh = at(0, 550);
+        fresh.frame_timer = 400_000;
+        fresh.duration_ms = 0;
+        let actions = r.tick(Some(fresh));
         assert!(actions.start);
         assert_eq!(actions.real_time_ms, Some(0));
     }
@@ -539,25 +542,25 @@ mod tests {
     // -- splits ------------------------------------------------------------
 
     #[test]
-    fn splitte_sur_un_niveau_franchi() {
+    fn splits_on_a_level_crossed() {
         let mut r = Run::new().running();
         r.confirm(at(3, 10_000));
         assert!(r.confirm(at(4, 20_000)).split);
     }
 
     #[test]
-    fn splitte_sur_le_raccourci_du_niveau_0() {
-        // `Adventure.nextLevel` sous `fl_warpStart` : 0 -> 10 d'un coup.
+    fn splits_on_the_level_0_shortcut() {
+        // `Adventure.nextLevel` under `fl_warpStart`: 0 -> 10 in one step.
         let mut r = Run::new().running();
         r.confirm(at(0, 5_000));
         assert!(r.confirm(at(10, 9_000)).split);
     }
 
     #[test]
-    fn un_seul_split_malgre_les_ecritures_intermediaires_de_la_meme_frame() {
-        // Le jeu ecrit `currentId` a 1, puis 0, puis 10 dans la meme frame. Nos
-        // lectures ne sont pas synchronisees avec elle : sans confirmation, on
-        // splitterait deux fois.
+    fn one_split_only_despite_the_writes_inside_the_same_frame() {
+        // The game writes `currentId` as 1, then 0, then 10 in the same frame.
+        // Our reads are not synchronised with it. Without confirmation, we
+        // would split twice.
         let mut r = Run::new().running();
         r.confirm(at(0, 5_000));
         let mut splits = 0;
@@ -570,14 +573,14 @@ mod tests {
     }
 
     #[test]
-    fn ne_splitte_pas_en_arriere() {
+    fn does_not_split_backwards() {
         let mut r = Run::new().running();
         r.confirm(at(7, 30_000));
         assert!(!r.confirm(at(0, 31_000)).split);
     }
 
     #[test]
-    fn ne_splitte_pas_dans_une_dimension_parallele() {
+    fn does_not_split_in_a_parallel_dimension() {
         let mut r = Run::new().running();
         r.confirm(at(3, 10_000));
         let mut s = at(4, 20_000);
@@ -586,40 +589,40 @@ mod tests {
     }
 
     #[test]
-    fn ne_splitte_pas_si_le_timer_ne_tourne_pas() {
+    fn does_not_split_when_the_timer_is_not_running() {
         let mut r = Run::new();
         r.confirm(at(3, 10_000));
         assert!(!r.confirm(at(4, 20_000)).split);
     }
 
-    // -- fin de partie et objets morts --------------------------------------
+    // -- end of game and dead objects ---------------------------------------
 
     #[test]
-    fn remet_a_zero_sur_game_over_et_lache_la_resolution() {
+    fn resets_on_game_over_and_drops_the_resolution() {
         let mut r = Run::new().running();
         r.confirm(at(9, 40_000));
-        let mut fin = at(9, 41_000);
-        fin.game_over = true;
-        let actions = r.tick(Some(fin));
+        let mut end = at(9, 41_000);
+        end.game_over = true;
+        let actions = r.tick(Some(end));
         assert!(actions.reset);
         assert!(actions.drop_resolution);
     }
 
     #[test]
-    fn lache_la_resolution_quand_le_battement_de_coeur_se_fige() {
-        // Un GameMode abandonne reste lisible, avec un niveau et un chrono
-        // plausibles ; seul `frameTimer` le trahit.
+    fn drops_the_resolution_when_the_heartbeat_freezes() {
+        // An abandoned GameMode stays readable, with a plausible level and a
+        // plausible clock. Only `frameTimer` gives it away.
         let mut r = Run::new().running();
-        let mort = at(9, 40_000);
+        let dead = at(9, 40_000);
         let mut actions = Actions::default();
         for _ in 0..STALE_TICKS + 1 {
-            actions = r.tick(Some(mort));
+            actions = r.tick(Some(dead));
         }
         assert!(actions.drop_resolution);
     }
 
     #[test]
-    fn ne_lache_rien_tant_que_le_battement_avance() {
+    fn drops_nothing_while_the_heartbeat_advances() {
         let mut r = Run::new().running();
         for i in 0..STALE_TICKS * 2 {
             let s = at(9, 40_000 + i as i64);
@@ -627,13 +630,13 @@ mod tests {
         }
     }
 
-    // -- absence de partie --------------------------------------------------
+    // -- no game ------------------------------------------------------------
 
     #[test]
-    fn ne_remet_jamais_a_zero_avant_d_avoir_vu_une_partie() {
-        // Le plugin Flash existe des l'ouverture de l'application. Compter les
-        // lectures perdues avant la premiere partie remettait le timer a zero
-        // pendant l'ecran de chargement.
+    fn never_resets_before_a_game_was_seen() {
+        // The Flash plugin exists as soon as the application opens. Counting
+        // lost reads before the first game reset the timer during the loading
+        // screen.
         let mut r = Run::new().running();
         for _ in 0..LOST_BEFORE_RESET * 2 {
             assert!(!r.tick(None).reset);
@@ -641,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn remet_a_zero_apres_avoir_perdu_une_partie_assez_longtemps() {
+    fn resets_after_a_game_was_lost_for_long_enough() {
         let mut r = Run::new().running();
         r.confirm(at(5, 20_000));
         let mut reset = false;
@@ -652,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn une_nouvelle_partie_apres_une_perte_redemarre() {
+    fn a_new_game_after_a_loss_starts_again() {
         let mut r = Run::new().running();
         r.confirm(at(5, 20_000));
         r.tick(None);
@@ -660,10 +663,10 @@ mod tests {
         assert!(r.tick(Some(at(0, 2_000))).start);
     }
 
-    // -- reglages ------------------------------------------------------------
+    // -- settings ------------------------------------------------------------
 
     #[test]
-    fn respecte_les_reglages_desactives() {
+    fn honours_the_settings_that_are_off() {
         let mut r = Run::new();
         r.rules = Rules {
             auto_start: false,
@@ -678,8 +681,8 @@ mod tests {
         r.confirm(at(3, 10_000));
         assert!(!r.confirm(at(4, 20_000)).split);
 
-        let mut fin = at(4, 21_000);
-        fin.game_over = true;
-        assert!(!r.tick(Some(fin)).reset);
+        let mut end = at(4, 21_000);
+        end.game_over = true;
+        assert!(!r.tick(Some(end)).reset);
     }
 }
