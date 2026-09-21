@@ -64,13 +64,12 @@ offset of each region inside the stream.
 
 ---
 
-## The one thing to keep in mind
+## A capture is not atomic
 
-**A capture is not atomic.** The game runs while we read, so the last region is
-younger than the first.
+The game runs while we read, so the last region is younger than the first.
 
 `state_before` and `state_after` bracket that, and they check each other. In a
-real capture of 0.59 s, the two recorded game clocks were **599 ms apart**.
+real capture of 0.59 s, the two recorded game clocks were 599 ms apart.
 
 ```text
    the object graph   survives the smear     AVM1 objects do not move in a game
@@ -78,21 +77,20 @@ real capture of 0.59 s, the two recorded game clocks were **599 ms apart**.
 ```
 
 That is also why the default compression level is 1 rather than 6. Level 6
-costs four times the time for 28 % fewer bytes, and here time is accuracy.
+costs four times the time for 28 % fewer bytes, and more time means more
+smear.
 
 ---
 
 ## Read it back
 
 A fixture carries enough to replay the whole resolution off line. A recorded
-process is the live one with three methods replaced — `read`, `regions` and
+process is the live one with three methods replaced: `read`, `regions` and
 `module`. Everything else, including the scans, is the production code
 unchanged.
 
 On the capture above, the replay derived the same layout, found the same
 `GameMode` address and read the same level, in 0.55 s, with no game running.
-
-That is the point: a fixture is a test, not a souvenir.
 
 ---
 

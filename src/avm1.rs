@@ -1,8 +1,8 @@
 //! The AVM1 object model inside a Pepper Flash process.
 //!
-//! See `reverse-engineering.md` for the measurements. In short: String and
-//! ScriptObject have the same layout on Linux and on Windows, but property
-//! tables do not.
+//! See `docs/reverse-engineering.md` for the measurements. In short: String
+//! and ScriptObject have the same layout on Linux and on Windows, but
+//! property tables do not.
 //!
 //! ```text
 //!                   Linux x86-64        Windows x86-64

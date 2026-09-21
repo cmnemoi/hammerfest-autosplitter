@@ -9,8 +9,8 @@ heap gets found, several times per second.
 
 ## The three paths
 
-Nothing points at the game, so we look for it. Three ways, from cheap to dear.
-Every tick takes the cheapest one that can still work.
+Nothing points at the game, so we look for it. There are three ways, from cheap
+to expensive. Every tick takes the cheapest one that can still work.
 
 ```text
                           every tick
@@ -99,9 +99,9 @@ found it, it hands us the running mode for a handful of reads:
    GameManager  ->  current  ->  the GameMode  ->  world  ->  currentId
 ```
 
-A few reads against a hundred megabytes. **That is what lets us look for the
-game on every tick**, and why a game that starts is seen almost at once rather
-than half a second later.
+A few reads against a hundred megabytes. That is what lets us look for the game
+on every tick, so a game that starts is seen almost at once rather than half a
+second later.
 
 The search only runs to learn the anchor, or when the anchor has died.
 
@@ -112,10 +112,10 @@ The search only runs to learn the anchor, or when the anchor has died.
 The objects of a new game are born in memory that has just been committed. So
 a region absent from the previous list is new, or it grew.
 
-Scanning only those turns a hundred megabytes into a few. Two guards keep it
-honest:
+Scanning only those turns a hundred megabytes into a few. Two guards make that
+safe:
 
-* if **no** region changed, nothing can have been born, so the scan is skipped
+* if no region changed, nothing can have been born, so the scan is skipped
   entirely;
 * every eighth skipped attempt does a full pass anyway, because an object can
   be born inside memory that was already committed.
@@ -124,7 +124,7 @@ honest:
 
 ## The check at the end
 
-Finding a table is not the same as finding *the game*. `View` objects carry a
+A table with a `world` property is not always the game. `View` objects carry a
 `world` too, and they point at the same object.
 
 So every candidate, and every later read, is checked four ways:
@@ -136,8 +136,8 @@ So every candidate, and every later read, is checked four ways:
    fl_gameOver is not already true               a finished game is not the one we want
 ```
 
-Why those checks are not optional is [About stale
-memory](stale-memory.md).
+[About stale memory](stale-memory.md) explains why these checks are
+necessary.
 
 ---
 

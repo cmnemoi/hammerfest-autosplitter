@@ -1,9 +1,10 @@
 # Hammerfest level and time, on Windows
 
-> This document proves. It assumes the vocabulary -- heap, vtable, atom,
-> property table. If that is new,
-> [docs/avm1-values.md](docs/concepts/avm1-values.md) and
-> [docs/avm1-objects.md](docs/concepts/avm1-objects.md) teach it first, with real bytes.
+> This document records the evidence. It assumes the vocabulary: heap, vtable,
+> atom, property table. If that is new,
+> [About AVM1 values](concepts/avm1-values.md) and
+> [About AVM1 objects](concepts/avm1-objects.md) teach it first, with real
+> bytes.
 
 Reverse engineering notes. Every claim is marked **[PROVED]** (checked on the
 live process, with the measurement that shows it) or **[ASSUMPTION]**.
@@ -14,8 +15,8 @@ AVM1 / ActionScript 2, read only.
 The earlier work (`cmnemoi/hammerfest-re`, done by Claude) had solved the
 *score* on Linux. These notes are about the level and the time, on Windows.
 
-This document says **what the game hides and how we find it there**. How the
-autosplitter is built around that is in [docs/index.md](docs/index.md).
+This document covers what the game hides and how we find it. How the
+autosplitter is built around that is in [the documentation hub](index.md).
 
 ---
 
@@ -34,11 +35,11 @@ manager.history = [ "F="+$version, "T="+gameChrono.get() ];
 | `GameMode.gameChrono` | `Chrono` | milliseconds, from the construction of the `GameMode` |
 | `GameMode.duration` | `Float` | `duration += Timer.tmod` per frame, `Data.SECOND = 32`, from the moment level 0 appears |
 
-Both stop at the same moments -- pause and level transitions -- because
+Both stop at the same moments, pause and level transitions, because
 `GameMode.lock()` stops `gameChrono` and makes `main()` return before the
-increment of `duration`. They differ only in their **origin**, and that is
-exactly what makes `duration` useful: see §9. **[PROVED]**: 26.2 s of pause
-give `duration` +0.0 cycle and `gameChrono` +0 ms.
+increment of `duration`. They differ only in their origin, which is what makes
+`duration` useful: see §9. **[PROVED]**: 26.2 s of pause give `duration`
++0.0 cycle and `gameChrono` +0 ms.
 
 `Chrono` (`class/hammer/Chrono.mt`) does not store a duration but two instants:
 
@@ -50,13 +51,13 @@ function get() {
 ```
 
 `stop()` is called by `GameMode.lock()`, `start()` by `unlock()`. So it is a
-game time that freezes on pause -- what the game displays, but not a real
-time. The run timer is built another way, see §9.
+game time that freezes on pause. It is what the game displays, and it is not a
+real time. The run timer is built another way, see §9.
 
 One detail of the constructor matters: `suspendTimer` is left at `null` there,
 so the first `start()` does not shift `gameTimer`. `gameChrono` therefore
 counts from the construction of the `Chrono`, level 0 loading included, and it
-is already 0.55 s when the player sees the level. **[PROVED]** -- 535, 539, 547
+is already 0.55 s when the player sees the level. **[PROVED]**: 535, 539, 547
 and 562 ms over four games.
 
 The current level is `GameMode.world.currentId`, where `world : GameMechanics`
@@ -71,15 +72,15 @@ function setCurrent(id:int) {
 
 ---
 
-## 2. The obfuscated names are not searched for, they are read
+## 2. The obfuscated names come from a published table
 
-The distributed SWF is obfuscated, but the mapping is **public**:
+The distributed SWF is obfuscated, but the mapping is public:
 `eternalfest/game-types`, file `src/lib/hf.map.json`, MIT, 2952 entries. It
 serves `eternalfest/project-phoenix`, the decompiler of the game. Copied into
 `vendor/hf.map.json`.
 
-Careful: the Eternalfest obfuscator (`eternalfest/obf`) is **not** the one that
-produced this SWF. It generates `md5(salt+name)[0:10]` names, purely
+Careful: the Eternalfest obfuscator (`eternalfest/obf`) did not produce this
+SWF. It generates `md5(salt+name)[0:10]` names, purely
 hexadecimal, while the Hammerfest SWF names look like `70dik` or `{8`. The
 table, however, really describes the Motion Twin SWF.
 
@@ -109,7 +110,7 @@ The keys used here:
 
 `duration` is not renamed: it is an identifier of the standard AS2 API
 (`Sound.duration`), so it is protected by the `as2.map.json` list. It keeps its
-clear name in the SWF. **[PROVED]** -- read as such in the GameMode table.
+clear name in the SWF. **[PROVED]**: read as such in the GameMode table.
 
 The world names are obfuscated too: `addWorld("xml_adventure")` passes a string
 that looks like an identifier, so it is renamed to `]R;5E`. Searching for
@@ -117,10 +118,10 @@ that looks like an identifier, so it is renamed to `]R;5E`. Searching for
 
 ---
 
-## 3. Memory layout: Windows is not Linux
+## 3. Memory layout: Windows differs from Linux
 
-The Linux layout was known. Only half of it holds on Windows -- measured, not
-assumed: **[PROVED]**
+The Linux layout was known. Only half of it holds on Windows, and we measured
+every offset: **[PROVED]**
 
 ```
                         Linux x86-64        Windows x86-64
@@ -135,11 +136,10 @@ table    vtable         +0x00               +0x00            same
          entry          (value, key)        (value, _, key)  DIFFERENT
 ```
 
-In other words an entry is 24 bytes and the key is the *third* qword, not the
-second. A port that copied the Linux offsets would have read, for every
-property, the value of the **next** field: perfectly plausible values, and
-wrong. That is exactly the mistake I made first, and that the semantic check
-caught.
+An entry is 24 bytes, and the key is the *third* qword, not the second. A port
+that copied the Linux offsets would have read, for every property, the value of
+the next field: plausible values, and wrong. That is the mistake I made first,
+and the semantic check caught it.
 
 Vtables observed in this session (with ASLR they are relative to the module
 base; they are stable for this binary):
@@ -167,15 +167,15 @@ The code does not hard code them: it derives them at run time
 | 6 | object | pointer to a ScriptObject |
 
 The sign matters: `portalId` was `0xfffffffffffffff8`, that is `-1`. An
-unsigned decode would have made it 2305843009213693951. **[PROVED]**
+unsigned decode would have read it as 2305843009213693951. **[PROVED]**
 
 ---
 
 ## 4. The resolution chain
 
-No hard coded address, and no static pointer path -- none exists, because the
-objects are created at run time by a downloaded SWF. The anchor is an interned
-string of the SWF:
+There is no hard coded address, and no static pointer path, because the objects
+are created at run time by a downloaded SWF. The anchor is an interned string
+of the SWF:
 
 ```
 process --type=ppapi         the Flash plugin, born when the SWF loads
@@ -198,12 +198,12 @@ GameMode["8qkdA"]            -> gameChrono
 Two traps met on the way, both real:
 
 **The vote on the value offset cannot rest on validity alone.** Every entry
-holds an unused qword that is always zero, and zero is a perfectly valid
-integer atom. So that column gets a perfect validity score while holding
-nothing. The column must also be required to show **diversity**.
+holds an unused qword that is always zero, and zero is a valid integer atom. So
+that column gets a perfect validity score while holding nothing. The column
+must also show diversity.
 
 **`world` is not enough to identify the GameMode.** `View` objects carry one
-too, and they point at the same `GameMechanics` -- I observed up to three
+too, and they point at the same `GameMechanics`. I observed up to three
 candidates at once, one of them pointing at `xml_deepnight`. The discriminator
 is structural: only the GameMode also owns a `gameChrono` that holds a
 `frameTimer`. **[PROVED]**
@@ -221,7 +221,7 @@ duration   14815.6 cycles / 32 = 463.0 s
 gameChrono                       462898 ms = 462.9 s
 ```
 
-**[PROVED]** -- they agree to 0.1 %, over two entirely separate memory paths.
+**[PROVED]**: they agree to 0.1 %, over two entirely separate memory paths.
 
 The `Chrono` model also checks itself. Game paused:
 
@@ -240,7 +240,7 @@ identity closes exactly. **[PROVED]**
 
 ## 6. The levels do not follow each other
 
-`currentId` does not advance by 1 each time. **[PROVED]** -- by the source, and
+`currentId` does not advance by 1 each time. **[PROVED]**: by the source, and
 confirmed in game by the missing split at the level 0 shortcut.
 
 `mode/Adventure.mt`:
@@ -262,7 +262,7 @@ The level 0 shortcut therefore does `0 -> 10`. It is not an isolated case:
 `forcedGoto`, stopping before a boss or an empty level.
 
 A split rule based on `currentId + 1` misses all of these. The correct test is
-**any forward progress**, `currentId` strictly increasing.
+any forward progress, that is `currentId` strictly increasing.
 
 Two less visible consequences:
 
@@ -280,17 +280,17 @@ split.
 ## 7. Knowing that a GameMode is dead
 
 An abandoned GameMode stays readable for a long time: the table is intact, the
-world is still `xml_adventure`, the level and the clock are plausible -- they
+world is still `xml_adventure`, and the level and the clock are plausible. They
 are simply the old ones. No consistency check separates them from a live
-object. That is the trap the score reverse work announced, and it shows
-directly: the timer takes a long time to start, and it does not stop at the end
+object. That is the trap the score reverse work announced, and the symptom is
+direct: the timer takes a long time to start, and it does not stop at the end
 of a game.
 
 Two signals solve it. **[PROVED]** by the source.
 
 **`fl_gameOver`**, set by `GameMode.onGameOver()`, is the exact end-of-game
-signal -- it is in the `Adventure` override that the game sends
-`"T="+gameChrono.get()`. A resolution that lands on a GameMode already in game
+signal. In the `Adventure` override, the game sends `"T="+gameChrono.get()`
+from there. A resolution that lands on a GameMode already in game
 over must be rejected, otherwise we read a finished game instead of waiting for
 the next one.
 
@@ -305,7 +305,7 @@ if ( fl_pause ) { ... }
 ```
 
 `Chrono.update()` does `frameTimer = Std.getTimer()`. So this counter advances
-every frame while that GameMode is the one the game runs -- during a pause too,
+every frame while that GameMode is the one the game runs, during a pause too,
 and with the clock stopped too. Frozen, the object is dead.
 
 The threshold must stay generous: Flash runs at about thirty frames per second,
@@ -315,9 +315,9 @@ fire useless new resolutions, each one costing a full heap scan.
 ## 8. The stable anchor: GameManager.current
 
 Scanning the heap to find the GameMode costs about a hundred MiB of reads.
-Doing it again at every game is already unpleasant; doing it in a loop between
-two games -- which is what any autosplitter waiting for the next one does --
-stirs the process for nothing.
+Doing it again at every game is already unpleasant. Doing it in a loop between
+two games, which is what any autosplitter waiting for the next one does, stirs
+the process for nothing.
 
 The game offers the right anchor, though. `GameManager` is created once when
 the SWF loads and survives across games, and it points at the current mode
@@ -335,35 +335,35 @@ function transition(prev:Mode,next:Mode) {
 
 The other way round, every `Mode` carries `manager : GameManager`. This cross
 reference is enough to identify the GameManager without knowing any name of its
-own: **it is the object whose `current` points at a mode which, through its
-`manager` field, points back at that object**. `current` alone would be
-worthless as a test -- every `SetManager` has one.
+own: it is the object whose `current` points at a mode which, through its
+`manager` field, points back at that object. `current` alone is not a test,
+because every `SetManager` has one.
 
 ```text
 scan, once              -> GameManager          (kept)
 GameManager.current     -> the running mode     (read again at will)
 ```
 
-Why look for the GameManager rather than the GameMode: **it exists as soon as
-the SWF loads**. So the scan already succeeds in the menus, before any game,
-and the game that starts next is found by following a pointer. Looking for a
-GameMode, on the other hand, can only succeed once the game has started -- that
-is, at the worst moment, the one where the delay shows.
+We look for the GameManager rather than the GameMode because it exists as soon
+as the SWF loads. So the scan already succeeds in the menus, before any game,
+and the game that starts next is found by following a pointer. A search for a
+GameMode can only succeed once the game has started, which is the worst moment,
+the one where the delay shows.
 
-This matters all the more because **the AVM1 objects die with the game**: the
-SWF builds a new GameManager and new interned strings at every launch, so no
-heap address survives from one game to the next. The plugin process, though,
-can carry several -- four games in a row were observed in one process. The scan
+The AVM1 objects die with the game: the SWF builds a new GameManager and new
+interned strings at every launch, so no heap address survives from one game to
+the next. The plugin process, though,
+can carry several: four games in a row were observed in one process. The scan
 is unavoidable once per game; all we can choose is to do it early.
 
-This is the recommended shape -- a stable anchor, then resolution through the
-object graph -- and not a cached final address: `current` is read again every
-time, and the GameMode we get goes through every check again (known world,
-plausible level, `gameChrono` present, not in game over).
+The shape to use is a stable anchor, then resolution through the object graph.
+It is not a cached final address: `current` is read again every time, and the
+GameMode we get goes through every check again (known world, plausible level,
+`gameChrono` present, not in game over).
 
 What can invalidate the anchor: the property table of an AVM1 object is
 reallocated when it grows. The `GameManager` fields are all set in the
-constructor, so it should not move -- but that is not guaranteed. Hence the
+constructor, so it should not move, but that is not guaranteed. Hence the
 check of its vtable before every use, and the fallback to a full scan if it
 stops answering.
 
@@ -380,13 +380,13 @@ GameMechanics.onViewReady()      the level view is attached
             gameChrono.start()
 ```
 
-The view is attached and the mode is unlocked **in the same frame**, so the
-black screen ends at `fl_lock = false` within one frame, that is 31 ms.
+The view is attached and the mode is unlocked in the same frame, so the black
+screen ends at `fl_lock = false` within one frame, that is 31 ms.
 
 ### The race cannot be won **[PROVED]**
 
-The first instinct is to set the anchor before the start, to see the transition
-live. That is impossible, and not for lack of optimisation.
+We tried to set the anchor before the start, to see the transition live. It
+cannot be done, and not for lack of optimisation.
 
 | | run 1 | run 2 | run 3 | run 4 |
 | --- | --- | --- | --- | --- |
@@ -396,18 +396,18 @@ live. That is impossible, and not for lack of optimisation.
 Measurements from `scripts/hf_trace.py`. What the successive scans show:
 
 1. **Nothing to find before.** Until the last second, the heap holds no
-   `fVersion` string -- neither the one of the `GameManager` nor the one of the
+   `fVersion` string, neither the one of the `GameManager` nor the one of the
    `Loader`. The AVM1 objects of the SWF are all born in one burst, at the end
    of the initialisation. So there is no earlier window.
 2. **The useful window is 0.55 s**, between the construction of the `GameMode`
    and the unlock.
-3. **A full scan costs 0.5 s** over the 80 MiB of the heap. That is the price
-   of the copy across the process boundary, not the price of the comparison:
-   making it instant is not on the table.
+3. **A full scan costs 0.5 s** over the 80 MiB of the heap. The cost is the
+   copy across the process boundary, not the comparison, so we cannot make it
+   instant.
 
-So the race is decided by a few tens of milliseconds, and it is lost.
+So the race comes down to a few tens of milliseconds, and we lose it.
 
-### It must not be won: the game carries the start instant **[PROVED]**
+### The game carries the start instant **[PROVED]**
 
 `GameMode.main()` returns on `fl_lock` **before** it increments `duration`:
 
@@ -428,7 +428,7 @@ real time = frameTimer - origin
 ```
 
 Arriving in time, `duration` is zero and the origin is `frameTimer`. Arriving
-late -- the usual case -- `duration` says by how much.
+late, which is the usual case, `duration` says by how much.
 
 The two counters that make this possible:
 
@@ -446,7 +446,7 @@ So the heap scan leaves the critical path. Its duration now only delays the
 ### What stays late
 
 The LiveSplit *real time* starts at the `timer_start()` call, and the ASR API
-cannot move a running timer backwards -- it exposes only `start`, `split`,
+cannot move a running timer backwards. It exposes only `start`, `split`,
 `reset`, `set_game_time` and `pause_game_time`. So it carries the delay of the
 scan, 0.4 to 0.7 s according to the measurements above.
 
@@ -467,8 +467,8 @@ cannot serve as a real time.
 
 ## 10. Why there is no static pointer path
 
-An ordinary autosplitter follows `module + offset -> +offset -> +offset`. Not
-here -- and not for lack of searching. The reason is structural.
+An ordinary autosplitter follows `module + offset -> +offset -> +offset`. That
+does not work here, and not for lack of searching. The reason is structural.
 
 **What was measured**, in order:
 
@@ -482,13 +482,13 @@ here -- and not for lack of searching. The reason is structural.
    keeps no fixed address pointer to the movie at that level. **[PROVED]**
    (`stable_slots.py`)
 
-3. Out of 550 pointers in the module data, **only 109 are referenced by code**;
-   the other 441 by no instruction in relative addressing -- they are arrays and
-   allocator buckets. **[PROVED]** (`xrefs.py`, disassembly of the 22 MiB of
+3. Out of 550 pointers in the module data, only 109 are referenced by code. No
+   instruction in relative addressing references the other 441; they are arrays
+   and allocator buckets. **[PROVED]** (`xrefs.py`, disassembly of the 22 MiB of
    `.text`)
 
-4. The globals that the **methods of the AVM1 objects** read -- those listed in
-   the String, ScriptObject, table and MovieClip vtables -- come down to three
+4. The globals read by the methods of the AVM1 objects, that is those listed
+   in the String, ScriptObject, table and MovieClip vtables, come down to three
    things: **[PROVED]** (`vtable_globals.py`, 141 functions)
 
    | global | role |
@@ -498,13 +498,13 @@ here -- and not for lack of searching. The reason is structural.
    | `module+0x1f2b058` | a non pointer value, disassembly noise |
 
 **Conclusion.** The AVM1 interpreter context is not a global. It is passed as a
-parameter, or reached from the object itself -- which is the clean way to write
-a VM, and which explains why no static root appears. So the chain searches
-failed for a good reason, not for lack of depth or of filters.
+parameter, or reached from the object itself. That is the usual way to write a
+VM, and it explains why no static root appears. The chain searches failed for
+that reason, not for lack of depth or of filters.
 
 What would remain to try, in another setting: identify the context as a field
 of the AVM1 object itself, then look for what holds that context on the player
-side -- most likely the PPAPI instance, registered in an indexed structure,
+side, most likely the PPAPI instance, registered in an indexed structure,
 which is exactly the kind of array that point 3 ruled out.
 
 ## 11. The end of the run: the elevator
@@ -584,7 +584,7 @@ of the cinematic dates the last one.
 **[ASSUMPTION]** The count is a play time, not a real time: `fl_lock` freezes
 this timer and `duration` together. A pause between the elevator and our
 reading would shorten it. One read cannot hold a pause, so the case does not
-arise -- and a gap above 500 ms is refused rather than applied.
+arise, and a gap above 500 ms is refused rather than applied.
 
 ### What is not proved
 
@@ -601,7 +601,7 @@ the rise, which is what that run has to show.
 
 - **[ASSUMPTION]** The relative vtables are stable for this exact binary. They
   are derived at run time, so another version would fail cleanly (`None`)
-  rather than return a wrong level -- but that has not been tested on another
+  rather than return a wrong level, but that has not been tested on another
   version.
 - **[ASSUMPTION]** The layout measured here holds for every
   `pepflashplayer.dll` win32-x64 32.0.0.465. Measured on one machine.

@@ -3,7 +3,7 @@
 **Read this when:** you need to turn eight bytes of Hammerfest memory into a
 number, a word or an object.
 
-**You need:** nothing. This page assumes no low level experience.
+**You need:** nothing. The page starts from the bits.
 
 ---
 
@@ -18,14 +18,14 @@ that slot to be one machine word: 64 bits, 8 bytes.
 A pointer already fills 64 bits. There is no room left to say *what* is
 stored.
 
-AVM1 found room anyway. The trick is worth understanding, because every single
-value we read out of the game comes back in this form.
+AVM1 found room anyway. Every value we read out of the game comes back in this
+form.
 
 ---
 
 ## The three operators you need
 
-Skip this if `&`, `>>` and `~` are familiar.
+If `&`, `>>` and `~` are familiar, go to the next section.
 
 A number is a row of bits. `7` is three bits set:
 
@@ -69,19 +69,18 @@ number, so three slides divide it by 8:
     >> 3    =   ... 0000 0010     =  2
 ```
 
-That is all. Three operators, one purpose each: read the low bits, erase the
-low bits, shift.
+Three operators, one purpose each: read the low bits, erase the low bits,
+shift.
 
 ---
 
 ## The Atom
 
-Everything AVM1 allocates sits at an address that is a multiple of 8. A
-multiple of 8 always ends in three zero bits — that is what "multiple of 8"
-means in binary.
+Everything AVM1 allocates sits at an address that is a multiple of 8. In
+binary, a multiple of 8 always ends in three zero bits.
 
-So in every pointer AVM1 holds, **three bits are guaranteed to be zero and
-therefore wasted**. AVM1 spends them on a type tag:
+So in every pointer AVM1 holds, three bits are always zero, and therefore
+wasted. AVM1 spends them on a type tag:
 
 ```text
      63                                          3   2 1 0
@@ -125,8 +124,7 @@ three places to make room for the tag. Slide it back:
     0x10 >> 3   =   2
 ```
 
-**The player is on level 2.** Sixteen meant two, and the three erased bits
-said why.
+So the player is on level 2.
 
 ---
 
@@ -159,8 +157,8 @@ Step 2, the pointer. Erase the three low bits:
     0x4793b414566  &  ~7   =   0x4793b414560
 ```
 
-An integer needed a shift. A pointer needs a mask, because the address was
-never shifted — the three bits it gave up were already zero.
+An integer needs a shift. A pointer needs a mask, because the address was
+never shifted: the three bits it gave up were already zero.
 
 ---
 
@@ -176,8 +174,8 @@ never shifted — the three bits it gave up were already zero.
 | 6 | object | the body points at a ScriptObject |
 | 4, 7 | unidentified | never needed |
 
-The code is `core/src/atom.rs`, and it is the one part of the memory layer
-with no memory access at all — which is why it carries unit tests.
+The code is `core/src/atom.rs`. It is the one part of the memory layer with no
+memory access, which is why it carries unit tests.
 
 ---
 

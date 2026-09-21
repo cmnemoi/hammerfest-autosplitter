@@ -9,8 +9,8 @@ every tick re-reads the whole chain.
 
 ## The trap
 
-When a game ends, nothing wipes its objects. The allocator frees them, which
-means it is *allowed* to reuse the memory — not that it did.
+When a game ends, nothing wipes its objects. The allocator frees them, so it
+may reuse the memory. Often it does not.
 
 So this happens:
 
@@ -23,8 +23,8 @@ So this happens:
                                              clock still plausible
 ```
 
-**Nothing in those bytes says the object is dead.** Every check you can invent
-on the content passes, because the content is genuine. It is simply old.
+Nothing in those bytes says the object is dead. Every check on the content
+passes, because the content is genuine. It is simply old.
 
 An autosplitter that trusts it shows a timer that starts late and never stops.
 
@@ -61,8 +61,6 @@ game over that arrives while we are watching drops the resolution at once.
 
 ## Defence 3: read everything, every time
 
-This is the one that costs discipline rather than cleverness.
-
 We never keep the address of the level. We keep the address of the `GameMode`,
 and on every tick we walk the whole chain again:
 
@@ -71,12 +69,11 @@ and on every tick we walk the whole chain again:
                         ->  currentId  is it below 256?
 ```
 
-The walk costs microseconds. Keeping the final address would cost correctness,
-silently, and only in the situation nobody tests: the second game of a session.
+The walk costs microseconds. Caching the final address would break the second
+game of a session, silently, and that is the case nobody tests.
 
-The slot indexes **are** remembered, as hints — "`world` was at slot 68, try
-that first". A hint is checked before use, every time. It is an optimisation,
-never a source of truth.
+We do remember the slot indexes, as hints: "`world` was at slot 68, try that
+first". We check a hint before every use, and never trust it on its own.
 
 ---
 
@@ -85,8 +82,6 @@ never a source of truth.
 > A successful read proves that memory was readable. It proves nothing about
 > what the memory means.
 
-Everything above follows from that one sentence.
-
 The proofs are in section 7 of
-[reverse-engineering.md](../../reverse-engineering.md). The code is
+[reverse-engineering.md](../reverse-engineering.md). The code is
 `src/hammerfest.rs`, `validate` and `Game::read`.

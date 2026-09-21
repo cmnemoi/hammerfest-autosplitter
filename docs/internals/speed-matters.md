@@ -30,16 +30,16 @@ were in a dead heat.
 race: the start is dated after the fact, so arriving late costs display delay,
 not accuracy.
 
-**That changes what we optimise.** A successful scan being slow is a nuisance.
-A *failed* scan being slow is the real cost, because while it runs, level 0
-appears and the timer shows nothing.
+That changes what we optimise. A slow successful scan is only a nuisance. A
+slow *failed* scan costs the runner, because while it runs, level 0 appears and
+the timer shows nothing.
 
 ---
 
 ## The price of failure
 
-A failed attempt reads about **272 MiB in four passes**, and 76.5 % of that
-goes to searching by content.
+A failed attempt reads about 272 MiB in four passes, and 76.5 % of that goes to
+searching by content.
 
 Every mechanism below exists to avoid those passes. None of them makes a
 successful scan faster.
@@ -55,12 +55,10 @@ successful scan faster.
 
 ---
 
-## The one that mattered most
+## The memory map cache
 
-This is the least obvious mechanism in the project.
-
-`livesplit-auto-splitting` **caches the memory map for one second** per
-attached process. So the differential scan was comparing stale region lists:
+`livesplit-auto-splitting` caches the memory map for one second per attached
+process. So the differential scan was comparing stale region lists:
 
 ```text
    the SWF commits new regions        <- the objects are born here
@@ -77,28 +75,26 @@ A second, temporary access to the same process identifier returns a map that
 is independent of that cache. The module takes one every hundred milliseconds
 while it is looking for a game, and scans that.
 
-Result: **twelve starts, eleven displayed at 0 ms**. The first start of a
+Result: twelve starts, eleven of them displayed at 0 ms. The first start of a
 fresh module, with every cache empty, fell to 135 ms.
 
 ---
 
-## How to challenge any of this
+## How to retire a mechanism
 
-Treat every mechanism in the table as a hypothesis, not a monument. The way to
-retire one:
+Every mechanism in the table is a hypothesis. To retire one:
 
 1. say what it claims to save;
 2. record a fixture of the situation it claims to help —
    [Capture a fixture](../how-to/capture-a-fixture.md);
-3. compare with and without, counting **reads and bytes**, not CPU time. A
-   local `Vec<u8>` and a remote memory read do not cost the same thing, and
-   only the second one is real;
+3. compare with and without, counting reads and bytes rather than CPU time. A
+   local `Vec<u8>` and a remote memory read do not cost the same;
 4. confirm on a few live starts — [Measure the startup](../how-to/measure-the-startup.md);
 5. keep it or delete it.
 
-Correctness mechanisms are not in that table and do not get this treatment.
-Checking `setName`, rejecting a finished GameMode and watching the heartbeat
-are not optimisations. See [About stale memory](stale-memory.md).
+Correctness mechanisms are not in that table. Checking `setName`, rejecting a
+finished GameMode and watching the heartbeat are not optimisations, so do not
+measure them this way. See [About stale memory](stale-memory.md).
 
 ---
 

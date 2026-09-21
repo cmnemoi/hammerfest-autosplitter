@@ -2,7 +2,7 @@
 //!
 //! An atom is `(value << 3) | tag`. The three low bits give the type. The
 //! values below were measured on pepflashplayer.dll 32.0.0.465. See
-//! `reverse-engineering.md`.
+//! `docs/reverse-engineering.md`.
 
 pub const TAG_INT: u64 = 0;
 pub const TAG_DOUBLE: u64 = 1;

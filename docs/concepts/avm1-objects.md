@@ -18,8 +18,8 @@ bytes after the start of the object*. To get an address, you add:
     so you read at         0x4793b597438
 ```
 
-That is the only arithmetic on this page. Hexadecimal, so `0x430 + 0x08` is
-`0x438`.
+That is the only arithmetic on this page. The addresses are hexadecimal, so
+`0x430 + 0x08` is `0x438`.
 
 ---
 
@@ -29,7 +29,7 @@ The first 8 bytes of every AVM1 object are a **vtable pointer**: the address
 of a table of functions that the plugin's own code uses on that object.
 
 Every object of the same shape points at the same vtable. So the first qword
-is a type label, and a free one:
+works as a type label:
 
 ```text
     MODULE+0x1756db8     String
@@ -40,8 +40,8 @@ is a type label, and a free one:
 `MODULE+` because the plugin is loaded at a random address every run. We
 measure the base once, then add.
 
-These three numbers are **measured at run time, never assumed**. They differ
-between builds and between platforms.
+We measure these three numbers at run time. They differ between builds and
+between platforms.
 
 ---
 
@@ -59,19 +59,19 @@ A String does not hold its characters. It holds a pointer to them.
   +---------------------------+
 ```
 
-**The characters are somewhere else entirely.** `0x5ff20321250` is not near
+The characters live somewhere else. `0x5ff20321250` is not near
 `0x4793b597430`; it is in a different region of the heap. That is why the
-address in the left column jumps when you follow the buffer. Nothing is wrong
-— a pointer is an address, and an address can be anywhere.
+address in the left column jumps when you follow the buffer. A pointer is an
+address, and an address can be anywhere.
 
 The characters are UTF-16: two bytes each, and for plain ASCII the second byte
 is zero. Five characters, ten bytes, which matches the length field.
 
 So this String reads `]=[]8`.
 
-That is not a word, and it is not corruption. It is an obfuscated property
-name. [About the obfuscation](obfuscation.md) says where the real name comes
-from: `]=[]8` means `world`.
+That is an obfuscated property name, not corruption. [About the
+obfuscation](obfuscation.md) says where the real name comes from: `]=[]8` means
+`world`.
 
 ---
 
@@ -98,12 +98,12 @@ The slots start at `+0x58` and each one is 24 bytes long. Inside a slot:
     the value  16 bytes BEFORE it
 ```
 
-The value sitting before the key looks wrong, and it is not. The slot is a
-larger structure and we only measure the two fields we use; where they land
-inside it is the allocator's business, not ours.
+The value sits before the key, which looks wrong. The slot is a larger
+structure, and we measure only the two fields we use. Where they land inside it
+is the allocator's business.
 
-**These numbers are measured too.** On Linux the same table uses 16 bytes per
-slot. Nothing here is hard coded.
+We measure these numbers too. On Linux the same table uses 16 bytes per slot.
+Nothing here is hard coded.
 
 ---
 
@@ -145,7 +145,7 @@ Putting the three shapes together, on the game we captured:
                    value -> Atom 0x10, tag 0  -> 2
 ```
 
-Level 2. The capture's `metadata.json` recorded `"level": 2`.
+The level is 2, and the capture's `metadata.json` recorded `"level": 2`.
 
 ---
 

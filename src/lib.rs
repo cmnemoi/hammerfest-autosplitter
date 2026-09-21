@@ -11,7 +11,7 @@
 //! and no runtime, under tests. That is the only way to test those rules: the
 //! ASR runtime symbols exist only inside the WebAssembly sandbox.
 //!
-//! The memory measurements are in `reverse-engineering.md`.
+//! The memory measurements are in `docs/reverse-engineering.md`.
 //!
 //! **What measures does not live here.** The normal build holds the
 //! autosplitter and nothing else: no trace, no counter, no timestamp. All of

@@ -2,15 +2,15 @@
 
 Find out how long after the real start of a run the timer appears.
 
-This is the number the runner actually feels, and the only one that settles an
+This is the number the runner feels. It is also the one that settles an
 argument about the search. See [About speed](../internals/speed-matters.md).
 
 ---
 
 ## The measuring build
 
-**The normal module measures nothing.** No trace, no counter, no timestamp,
-and the `.wasm` does not even hold the matching strings:
+The normal module measures nothing. It holds no trace, no counter and no
+timestamp, and the `.wasm` does not even hold the matching strings:
 
 ```sh
 grep -c HF_ target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm   # 0
@@ -38,8 +38,7 @@ measurement: the WASI clock, because the runtime API exposes none, and
 mise run capture-startup
 ```
 
-Records up to 25 starts over 15 minutes, with no manual log export. You play;
-it watches.
+It records up to 25 starts over 15 minutes, with no manual log export.
 
 ```sh
 mise run summarize-startup
@@ -55,8 +54,8 @@ Reads an exported log and prints the distribution:
    max
 ```
 
-The last measured run: **twelve starts, eleven at 0 ms**, and the first start
-of a fresh module at 135 ms.
+The last measured run gave twelve starts, eleven of them at 0 ms. The first
+start of a fresh module took 135 ms.
 
 ---
 

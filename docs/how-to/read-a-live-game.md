@@ -25,9 +25,9 @@ endModeTimer   0 cycles
 fl_elevatorOpen False
 ```
 
-It prints the resolution first — which process, which module, how many
-regions, and the AVM1 layout it measured. That part is the fastest way to see
-whether the memory layer still works at all.
+It prints the resolution first: which process, which module, how many
+regions, and the AVM1 layout it measured. That part is the fastest way to check
+that the memory layer still works.
 
 ---
 
@@ -56,16 +56,16 @@ memory](../internals/stale-memory.md).
 mise run dump
 ```
 
-Prints four tables in full — `GameMode`, `world`, `gameChrono` and
-`scriptEngine` — with every key translated from its obfuscated form:
+Prints four tables in full (`GameMode`, `world`, `gameChrono` and
+`scriptEngine`), with every key translated from its obfuscated form:
 
 ```text
   0x4793b4136e8  ]=[]8 -> world              tag=6  object 0x4793b414560
   0x4793b413708  -BBEO -> currentId           tag=0  int 2
 ```
 
-This is the tool to reach for when a name from the game source has to be found
-in memory for the first time.
+Use this tool to find a name from the game source in memory for the first
+time.
 
 ---
 
@@ -82,8 +82,8 @@ the run, and writes a CSV.
 
 ## What is underneath
 
-Three modules, each usable on its own. They have no dependency beyond the
-standard library, on purpose.
+Three modules, each usable on its own. They depend only on the standard
+library, on purpose.
 
 | file | what it gives |
 | --- | --- |

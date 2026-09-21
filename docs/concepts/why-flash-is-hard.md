@@ -33,8 +33,8 @@ whole autosplitter is a few dozen lines.
 Hammerfest ships as a `.swf` file. The file is downloaded and **interpreted**
 by the Flash plugin, which contains a virtual machine called AVM1.
 
-So the level is not a variable in a program. It is a **property of an object
-that the virtual machine creates while you play**:
+So the level is a property of an object that the virtual machine creates while
+you play:
 
 ```text
    pepflashplayer.dll        the interpreter, a normal Windows module
@@ -57,14 +57,13 @@ Those objects land wherever the allocator had room. Between two games:
 
 ---
 
-## And there is no chain either
+## No fixed chain either
 
-A moving object is not fatal if something fixed points at it. So the obvious
-question is whether a chain exists from the plugin module down to the current
-game.
+A moving object is still usable if something fixed points at it. So we looked
+for a chain from the plugin module down to the current game.
 
-That search was done, and the answer was **no**. Four separate attempts, in
-section 10 of [reverse-engineering.md](../../reverse-engineering.md):
+There is none. Four separate attempts are in section 10 of
+[reverse-engineering.md](../reverse-engineering.md):
 
 | question asked | answer |
 | --- | --- |
@@ -79,20 +78,20 @@ out.
 
 ---
 
-## And the names are gibberish
+## The names are obfuscated
 
-One more layer. The `.swf` was shipped obfuscated, so the property is not
-called `currentId` in memory. It is called `-BBEO`.
+The `.swf` was shipped obfuscated, so the property is not called `currentId` in
+memory. It is called `-BBEO`.
 
-That one is not a problem: the translation table is published. See
+The translation table is published, so this part is easy. See
 [About the obfuscation](obfuscation.md).
 
 ---
 
 ## What follows from all this
 
-Every time a game starts, we have to **find the objects again**, by looking at
-what is in the heap rather than by following a map.
+Every time a game starts, we have to find the objects again, by looking at what
+is in the heap rather than by following a map.
 
 That search costs about a hundred megabytes of reading, and it has to finish
 fast enough to be useful. Two pages carry the consequences:

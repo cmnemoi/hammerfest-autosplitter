@@ -2,8 +2,8 @@
 
 A LiveSplit autosplitter for [Hammerfest](https://eternalfest.net/). It starts
 the timer when level 0 appears, splits on every level crossed, splits once more
-at the elevator that ends the run, and resets when the game is over. Nothing to
-configure. The game is never modified: memory is read, never written.
+at the elevator that ends the run, and resets when the game is over. There is
+nothing to configure. It only reads the game's memory, and never writes to it.
 
 ## How to use it
 
@@ -12,11 +12,11 @@ Get `hammerfest_autosplitter.wasm`, or build it. Then, in LiveSplit:
 1. **Edit Splits -> Activate**, and pick the file;
 2. right click -> **Compare Against -> Game Time**.
 
-Step 2 is not optional. The big timer shows *real time*, which starts a few
-hundred milliseconds late -- when the autosplitter finds the game. The correct
-time is in the *game time* channel.
+Do not skip step 2. The big timer shows *real time*, which starts a few
+hundred milliseconds late, when the autosplitter finds the game. The *game
+time* channel carries the correct time.
 
-Start a game. That is all.
+Then start a game.
 
 Tested on EternalTwin for Windows, `pepflashplayer.dll` win32-x64 32.0.0.465.
 
@@ -67,8 +67,8 @@ tools/asr-debugger.exe \
   target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
 ```
 
-Start at **[docs/index.md](docs/index.md)**. One page: what the autosplitter
-does, the four jobs it is made of, where each one lives, and what is open.
+Start at [docs/index.md](docs/index.md). It covers what the autosplitter does,
+the four jobs it is made of, where each one lives, and what is still open.
 
 ## Credits
 

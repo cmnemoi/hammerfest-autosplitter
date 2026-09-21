@@ -2,9 +2,8 @@
 
 What it does, how it is built, and where everything lives.
 
-**Read this page first.** It tells the whole story at low resolution. Every
-other page zooms in on one part of it, and none of them is required to follow
-this one.
+Read this page first. It covers the whole project in outline. Each other page
+goes deeper on one part, and you do not need any of them to follow this one.
 
 ---
 
@@ -13,8 +12,7 @@ this one.
 A speedrunner races Hammerfest. LiveSplit is the stopwatch: it cuts the run
 into slices, and the runner presses a key at the end of each one.
 
-The autosplitter presses the key instead. To do that it answers three
-questions, and nothing else:
+The autosplitter presses the key instead. It answers three questions:
 
 | question | what it sends LiveSplit |
 | --- | --- |
@@ -22,12 +20,10 @@ questions, and nothing else:
 | has the player crossed a level? | `split` |
 | is the run over, or abandoned? | `split`, then `reset` |
 
-All three come from one number, the current level, plus a clock. So the whole
-job is: **read the level and the clock out of a game that does not know we
-exist**, and decide.
+All three answers come from one number, the current level, plus a clock. So the
+job is to read the level and the clock out of a running game, then decide.
 
-We only read memory. We never write, never patch. The game runs exactly as it
-would without us.
+We only read memory. The game runs exactly as it would without us.
 
 ---
 
@@ -56,9 +52,8 @@ would without us.
         LiveSplit
 ```
 
-Four jobs. Steps 1 to 3 know nothing about speedrunning. Step 4 knows nothing
-about memory. That separation is the whole architecture, and the next section
-says why it is not decorative.
+Steps 1 to 3 know nothing about speedrunning. Step 4 knows nothing about
+memory. The next section explains why that split is necessary.
 
 ---
 
@@ -75,11 +70,11 @@ cached. → `src/hammerfest.rs`, `attach_plugin`
 
 ### 2. Find the game in the heap
 
-The hard one. Hammerfest is ActionScript, interpreted by a virtual machine, so
-the level is a property of an object created while you play. **There is no
-fixed address and no fixed chain of pointers to one.**
+This is the hard part. Hammerfest is ActionScript, interpreted by a virtual
+machine, so the level is a property of an object created while you play. There
+is no fixed address, and no fixed chain of pointers to one.
 
-Every time, we find the objects again: by scanning for a known string, then
+So we find the objects again every time, by scanning for a known string, then
 for the tables that cite it. → [About finding the game](internals/finding-the-game.md),
 [About why Flash is hard](concepts/why-flash-is-hard.md)
 
@@ -106,27 +101,25 @@ core/    the decisions. No dependency, no memory, no runtime.  -> the tests
 src/     the infrastructure. It decides nothing.
 ```
 
-This is not taste. The LiveSplit runtime symbols exist **only inside the
-WebAssembly sandbox**, so anything that touches them cannot run on a
-development machine. Everything that must be tested has to be free of them.
+The LiveSplit runtime symbols exist only inside the WebAssembly sandbox, so
+anything that touches them cannot run on a development machine. Everything
+that must be tested has to stay free of them.
 
-Hence `core`, which receives a `State` and returns `Actions`, and carries all
-46 tests.
+So `core` receives a `State`, returns `Actions`, and carries all 46 tests.
 
 ---
 
-## The two ideas worth knowing
+## Two design choices
 
 **The search is off the critical path.** A heap scan takes half a second, and
 the window between the birth of the game objects and the appearance of level 0
-is 0.55 s. We stopped trying to win that race. The game itself counts how long
-it has been playing, so the start is dated *after the fact*, exactly. Measured:
-6 ms of difference over 60.9 s.
+is 0.55 s. We do not try to win that race. The game counts how long it has been
+playing, so the start is dated after the fact. Measured: 6 ms of difference
+over 60.9 s.
 
-**A successful read proves nothing.** When a game ends, its objects stay
-readable, with a plausible level and a plausible clock. They are simply the old
-ones. Three separate checks exist for that, and they are the most important
-correctness code in the project.
+**A successful read does not prove the object is alive.** When a game ends, its
+objects stay readable, with a plausible level and a plausible clock. They are
+simply the old ones. Three separate checks guard against that.
 
 ---
 
@@ -162,15 +155,15 @@ correctness code in the project.
 | to read a live game yourself | [Read a live game](how-to/read-a-live-game.md) |
 | to record memory for tests | [Capture a fixture](how-to/capture-a-fixture.md) |
 | to measure the start delay | [Measure the startup](how-to/measure-the-startup.md) |
-| the proof of any claim above | [reverse-engineering.md](../reverse-engineering.md) |
+| the proof of any claim above | [reverse-engineering.md](reverse-engineering.md) |
 
 ---
 
 ## What is still open
 
-**The LiveSplit *real time* stays late** by the search delay. The runtime API
-cannot move a running timer backwards, so the correct time travels in the
-*game time* channel. In LiveSplit: **Compare Against → Game Time**.
+**The LiveSplit *real time* stays late.** It carries the search delay. The
+runtime API cannot move a running timer backwards, so the correct time travels
+in the *game time* channel. In LiveSplit: **Compare Against → Game Time**.
 
 **The final split has never been seen.** The rule that ends a run at the
 elevator is proved by the game source and covered by tests, but no finished run
@@ -182,6 +175,6 @@ level crossed in the main world, split at the elevator, reset.
 **Parallel dimensions are out of scope.** They are read and reported, and they
 produce no split.
 
-**One version, one machine.** The layout is derived at run time and a different
-Flash build should fail cleanly rather than report a wrong level — but that has
+**One version, one machine.** The layout is derived at run time. A different
+Flash build should fail cleanly rather than report a wrong level, but that has
 not been tested.

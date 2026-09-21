@@ -23,16 +23,14 @@ meaningless, unique string:
    endModeTimer       ->    ;iaa}
 ```
 
-They are not meant to be read. They are meant to be short and unique.
+They are short and unique, and not meant to be read.
 
 ---
 
-## We do not have to break it
-
-The translation table is public.
+## The table is public
 
 `eternalfest/project-phoenix`, the decompiler of the game, depends on
-`game-types/src/lib/hf.map.json`: **2952 `clear → obfuscated` pairs**, under
+`game-types/src/lib/hf.map.json`: 2952 `clear → obfuscated` pairs, under
 the MIT licence. It is vendored here as `vendor/hf.map.json`, with its notice
 in `vendor/NOTICE.md`.
 
@@ -70,9 +68,9 @@ there.
 the Flash player itself, so the obfuscator left it alone, and it is absent from
 `hf.map.json`.
 
-`build.rs` **checks that it stays absent**. Its appearance would mean the table
-changed its convention, which would silently change what we read. The check
-turns that into a build failure rather than a wrong level.
+`build.rs` checks that it stays absent. If it appeared, the table would have
+changed its convention, and we would silently read the wrong field. The check
+turns that into a build failure.
 
 ---
 
