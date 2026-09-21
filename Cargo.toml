@@ -8,21 +8,21 @@ edition = "2021"
 
 [features]
 default = ["scan-budget"]
-# Traces detaillees et comparaison A/B. Le module normal rafraichit la carte.
+# Detailed traces and A/B comparison. The normal module refreshes the map.
 diagnostics = []
-# Experience : reconnaitre le lecteur mesure avant la premiere partie.
+# Experiment: recognise the measured player before the first game.
 known-flash = []
-# Limiter les pauses dues aux petites regions, actif dans le module normal.
+# Limits the pauses caused by small regions; on in the normal module.
 scan-budget = []
 
 [dependencies]
 asr = { git = "https://github.com/LiveSplit/asr", features = [
-    "alloc",         # Vec pour les scans de tas
-    "flags",         # filtrer les plages memoire lisibles / ecrivables
-    "integer-vars",  # afficher le niveau comme variable
+    "alloc",         # Vec for the heap scans
+    "flags",         # filter the readable / writable memory ranges
+    "integer-vars",  # show the level as a variable
 ] }
 dlmalloc = { version = "0.2.4", features = ["global"] }
-# Le coeur, sans runtime ni memoire : c'est lui qui porte les tests.
+# The core, with no runtime and no memory access: it carries the tests.
 hammerfest-core = { path = "core" }
 
 [lib]

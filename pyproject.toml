@@ -1,13 +1,13 @@
 [project]
 name = "hammerfest-autosplitter-tools"
 version = "0.1.0"
-description = "Outils de reverse et d'exploration memoire pour l'autosplitter Hammerfest"
+description = "Reverse engineering and memory exploration tools for the Hammerfest autosplitter"
 requires-python = ">=3.12"
 
 # Les scripts de lecture (winmem, avm1, hfmap, hf_state, anchors) n'ont
-# deliberement aucune dependance : ctypes suffit, et ca les rend utilisables
-# n'importe ou. numpy ne sert qu'a l'analyse hors ligne des chaines de
-# pointeurs, qui compare des millions d'entiers 64 bits.
+# No dependency on purpose: ctypes is enough, and that makes them usable
+# anywhere. numpy serves only the offline analysis of pointer chains, which
+# compares millions of 64 bit integers.
 dependencies = []
 
 [dependency-groups]

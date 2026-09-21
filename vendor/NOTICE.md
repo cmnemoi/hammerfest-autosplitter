@@ -1,24 +1,24 @@
 # vendor/hf.map.json
 
-Table de correspondance entre les identifiants du source Hammerfest et les noms
-obfusques presents dans le SWF distribue.
+A mapping table between the identifiers of the Hammerfest source and the
+obfuscated names present in the distributed SWF.
 
-- Origine : <https://gitlab.com/eternalfest/game-types>, `src/lib/hf.map.json`
+- Origin  : <https://gitlab.com/eternalfest/game-types>, `src/lib/hf.map.json`
 - Commit  : `1991f15a2df6ed36a097304ca04a76db38f35fc6`
 - Licence : MIT, Copyright (c) 2019 Eternalfest
 
-Utilisee par `scripts/hfmap.py`. Le sens du fichier est `clair -> obfusque` :
+Used by `scripts/hfmap.py`. The file reads `clear -> obfuscated`:
 
 ```json
 { "realScores": "70dik", "world": "]=[]8", "currentId": "-BBEO" }
 ```
 
-Trois de ces entrees sont verifiables independamment : le reverse engineering
-precedent (`cmnemoi/hammerfest-re`, realise par Claude) avait observe en memoire
-`realScores` = `70dik`, `fakeScores` = `[t}LJ(` et une propriete `{8` menant a
-GameInterface depuis le GameMode. La table donne exactement ces trois valeurs,
-dont `gi` = `{8`, ce qui confirme l'hypothese laissee ouverte a l'epoque.
+Three of these entries can be checked independently. The earlier reverse
+engineering (`cmnemoi/hammerfest-re`, done by Claude) observed in memory
+`realScores` = `70dik`, `fakeScores` = `[t}LJ(` and a property `{8` leading to
+GameInterface from the GameMode. The table gives exactly those three values,
+including `gi` = `{8`, which confirms the assumption left open at the time.
 
-Les identifiants de l'API AS2 standard (`duration`, `length`, `x`...) ne sont
-pas renommes par l'obfuscateur et sont donc absents de la table : ils gardent
-leur nom en clair dans le SWF.
+The identifiers of the standard AS2 API (`duration`, `length`, `x`...) are
+not renamed by the obfuscator and are therefore missing from the table: they
+keep their clear name in the SWF.
