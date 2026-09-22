@@ -470,6 +470,18 @@ const MEASURED: Layout = Layout {
 };
 
 impl Binary {
+    /// A binary whose layout is already proven, as it is after one successful
+    /// reading. The search then trusts that layout and never questions it.
+    ///
+    /// `reader.find::nothing-on-another-flash-build` needs this state: a
+    /// reader that has proven one build, and a heap written by another.
+    #[cfg(test)]
+    pub fn proven_with(layout: Layout) -> Self {
+        Self {
+            layout: Some(layout),
+        }
+    }
+
     /// A profile already measured, recognised by the PE headers and four
     /// methods. The usual fallback stays active if a single check fails.
     #[cfg(feature = "known-flash")]
@@ -1216,29 +1228,12 @@ pub fn attach_plugin(
 
 #[cfg(test)]
 mod tests {
-    use core::{
-        future::Future,
-        pin::pin,
-        task::{Context, Poll, Waker},
-    };
-
     use super::{resolve, Anchor, Binary};
-    // The heap is held to the contract of `Memory` in `memory_contract`.
+    // The heap is held to the contract of `Memory` in `memory_contract`, and
+    // every other test of this layer is written against the heap builder in
+    // `test_heap`.
     use crate::memory_contract::Heap;
-
-    /// Drives a future to its end, with no executor.
-    ///
-    /// The reader awaits `next_tick` and nothing else. Outside the runtime
-    /// there is nothing for it to wait on, so a bare poll loop finishes.
-    fn block_on<F: Future>(f: F) -> F::Output {
-        let mut f = pin!(f);
-        let mut cx = Context::from_waker(Waker::noop());
-        loop {
-            if let Poll::Ready(value) = f.as_mut().poll(&mut cx) {
-                return value;
-            }
-        }
-    }
+    use crate::test_heap::block_on;
 
     /** @spec reader.find::nothing-in-the-menus */
     #[test]

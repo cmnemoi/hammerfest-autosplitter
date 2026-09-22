@@ -37,6 +37,9 @@ mod asr_stubs;
 /// The contract of `avm1::Memory`, and the implementations held to it.
 #[cfg(test)]
 mod memory_contract;
+/// The synthetic heap the reader's tests are served.
+#[cfg(test)]
+mod test_heap;
 
 /// Obfuscated property names, taken from `vendor/hf.map.json` by build.rs.
 mod keys {
