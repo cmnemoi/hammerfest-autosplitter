@@ -10,12 +10,15 @@ at the elevator that ends the run, and resets when the game is over.
 
 ## How to use it
 
-Get [`hammerfest_autosplitter.wasm`](https://github.com/cmnemoi/hammerfest-autosplitter/releases/latest) (WIP : publish it in Livesplit registry). Then, in LiveSplit:
+The autosplitter is available directly in LiveSplit. You do not need to download a file.
 
-1. **Edit Splits -> Activate**, and pick the file;
-2. right click -> **Compare Against -> Game Time**.
+1. **Edit Splits**, and set **Game Name** to `Hammerfest`;
+2. click **Activate**;
+3. right click -> **Compare Against -> Game Time**.
 
-Do not skip step 2. The big timer shows *real time*, which starts a few
+![LiveSplit Splits Editor with the Hammerfest autosplitter](docs/splits-editor.png)
+
+Do not skip step 3. The big timer shows *real time*, which starts a few
 hundred milliseconds late. The *gametime* channel carries the correct time.
 
 Then start a game.
