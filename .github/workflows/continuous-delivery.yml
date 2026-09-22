@@ -15,9 +15,14 @@
 # So a new release reaches every user with no change to the registry.
 name: Continuous Delivery
 
+# It waits for the integration to pass. Building an artefact from a commit
+# whose tests are red would publish exactly what the net exists to catch.
 on:
-  push:
+  workflow_run:
+    workflows: ["Continuous Integration"]
+    types: [completed]
     branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,6 +30,7 @@ permissions:
 
 jobs:
   release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
