@@ -1,5 +1,8 @@
 # hammerfest-autosplitter
 
+[![Continuous Integration](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-integration.yml/badge.svg)](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-integration.yml)
+[![Continuous Delivery](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-delivery.yml/badge.svg)](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-delivery.yml)
+
 A LiveSplit autosplitter for [Hammerfest / Eternalfest](https://eternalfest.net/). It starts
 the timer when level 0 appears, splits on every level crossed, splits once more
 at the elevator that ends the run, and resets when the game is over.
