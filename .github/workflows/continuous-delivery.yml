@@ -32,7 +32,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag_name }}
     steps:
       # `rust` bumps both crates of the workspace and `Cargo.lock` in one pass.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         id: release
         with:
           release-type: rust
@@ -45,9 +45,9 @@ jobs:
     env:
       MISE_EXPERIMENTAL: true
     steps:
-      - uses: actions/checkout@v6
-      - uses: jdx/mise-action@v3
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: mise run build
       - name: Attach the module to the release
         env:
