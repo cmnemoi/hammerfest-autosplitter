@@ -95,7 +95,9 @@ impl Scan {
                 || self.calls - self.last_yield_calls >= READS_PER_TICK
         }
         #[cfg(not(feature = "scan-budget"))]
-        { _chunks % CHUNKS_PER_TICK == 0 }
+        {
+            _chunks % CHUNKS_PER_TICK == 0
+        }
     }
 
     /// Marks the current stage. Without the `diagnostics` feature, it does
@@ -295,8 +297,14 @@ async fn scan_u64_any(
                 let mut i = 0;
                 while i + 8 <= n {
                     let v = u64::from_le_bytes([
-                        buf[i], buf[i + 1], buf[i + 2], buf[i + 3], buf[i + 4],
-                        buf[i + 5], buf[i + 6], buf[i + 7],
+                        buf[i],
+                        buf[i + 1],
+                        buf[i + 2],
+                        buf[i + 3],
+                        buf[i + 4],
+                        buf[i + 5],
+                        buf[i + 6],
+                        buf[i + 7],
                     ]);
                     if values.contains(&v) && on_hit(base + i as u64) {
                         return;
@@ -468,11 +476,13 @@ impl Binary {
     pub fn recognize(&mut self, mem: &dyn Memory, module: (u64, u64)) -> bool {
         let u32_at = |off| {
             let mut b = [0u8; 4];
-            mem.read_into(module.0 + off, &mut b).map(|()| u32::from_le_bytes(b))
+            mem.read_into(module.0 + off, &mut b)
+                .map(|()| u32::from_le_bytes(b))
         };
         let u16_at = |off| {
             let mut b = [0u8; 2];
-            mem.read_into(module.0 + off, &mut b).map(|()| u16::from_le_bytes(b))
+            mem.read_into(module.0 + off, &mut b)
+                .map(|()| u16::from_le_bytes(b))
         };
         if u16_at(0) != Some(0x5a4d)
             || u32_at(0x3c) != Some(0x158)
@@ -561,8 +571,7 @@ pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game
     }
     // No more `current`: this is not the GameManager any more, the table must
     // have moved. Dropping the anchor starts a scan instead of staying blind.
-    let Some(current) =
-        layout.get_cached(mem, manager, keys::CURRENT, &mut anchor.current_hint)
+    let Some(current) = layout.get_cached(mem, manager, keys::CURRENT, &mut anchor.current_hint)
     else {
         anchor.manager = None;
         return None;
@@ -653,10 +662,13 @@ pub async fn resolve(
             anchor.manager = Some(tbl);
             anchor.current_hint = 0;
             let game = resolve_via_manager(mem, anchor);
-            cost.outcome(if game.is_some() { "game_via_manager" } else { "manager_only" });
+            cost.outcome(if game.is_some() {
+                "game_via_manager"
+            } else {
+                "manager_only"
+            });
             return game;
         }
-
     }
 
     // The anchor is set but `current` points at no game: there simply is
@@ -695,9 +707,15 @@ pub async fn resolve(
     move_region_first(&mut full, strobj);
 
     cost.stage("world_tables");
-    let game = scan_tables(mem, &full, layout, strobj, keys::WORLD, &mut cost, |l, t| {
-        validate(mem, l, t)
-    })
+    let game = scan_tables(
+        mem,
+        &full,
+        layout,
+        strobj,
+        keys::WORLD,
+        &mut cost,
+        |l, t| validate(mem, l, t),
+    )
     .await?;
 
     asr::print_message(&alloc::format!(
@@ -763,16 +781,24 @@ async fn scan_for_manager(
     move_region_first(ranges, strobj);
 
     cost.stage("manager_tables");
-    scan_tables(mem, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
-        // The cross reference proves the candidate *and* derives the
-        // `ScriptObject -> table` offset on the way. Without that offset,
-        // nothing below can be read: `GameManager.current` points at a mode
-        // whose `manager` field points back at that same GameManager.
-        let current = l.get(mem, t, keys::CURRENT)?;
-        let mode = l.derive_so_tbl(mem, current, keys::MANAGER)?;
-        let back = l.child(mem, mode, keys::MANAGER)?;
-        (back == t).then_some((l, t))
-    })
+    scan_tables(
+        mem,
+        ranges,
+        layout,
+        strobj,
+        keys::F_VERSION,
+        cost,
+        |mut l, t| {
+            // The cross reference proves the candidate *and* derives the
+            // `ScriptObject -> table` offset on the way. Without that offset,
+            // nothing below can be read: `GameManager.current` points at a mode
+            // whose `manager` field points back at that same GameManager.
+            let current = l.get(mem, t, keys::CURRENT)?;
+            let mode = l.derive_so_tbl(mem, current, keys::MANAGER)?;
+            let back = l.child(mem, mode, keys::MANAGER)?;
+            (back == t).then_some((l, t))
+        },
+    )
     .await
 }
 
@@ -801,7 +827,9 @@ async fn find_string(
     #[cfg(feature = "diagnostics")]
     asr::print_message(&alloc::format!(
         "HF_DIAG event=find_string t_us={} key={key} proven={} cached={}",
-        crate::diagnostics::now_us(), binary.proven(), cache.is_some()
+        crate::diagnostics::now_us(),
+        binary.proven(),
+        cache.is_some()
     ));
     if let Some(so) = *cache {
         if let Some(layout) = string_layout_at(mem, module, so, key, units) {
@@ -814,18 +842,25 @@ async fn find_string(
     if let Some(seed) = binary.layout(module) {
         cost.stage("string_seed");
         let mut found = None;
-        scan_bytes_until(mem, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
-            // The length first, and from the buffer when it fits there. It
-            // rejects almost every String object, and the string itself is
-            // only read back for the rare survivors.
-            let len = u64_at(rest, seed.str_len as usize)
-                .or_else(|| read_u64(mem, so + seed.str_len));
-            if len == Some(units) && seed.string_eq(mem, so, key) {
-                found = Some(so);
-                return true;
-            }
-            false
-        })
+        scan_bytes_until(
+            mem,
+            ranges,
+            &seed.str_vt.to_le_bytes(),
+            8,
+            cost,
+            |so, rest| {
+                // The length first, and from the buffer when it fits there. It
+                // rejects almost every String object, and the string itself is
+                // only read back for the rare survivors.
+                let len = u64_at(rest, seed.str_len as usize)
+                    .or_else(|| read_u64(mem, so + seed.str_len));
+                if len == Some(units) && seed.string_eq(mem, so, key) {
+                    found = Some(so);
+                    return true;
+                }
+                false
+            },
+        )
         .await;
         if let Some(so) = found {
             *cache = Some(so);
@@ -1097,15 +1132,15 @@ impl Game {
     /// ```
     fn chrono(&mut self, mem: &dyn Memory) -> Option<(i64, i64)> {
         let l = &self.layout;
-        let chrono =
-            l.child_cached(mem, self.game_mode, keys::GAME_CHRONO, &mut self.hints.chrono)?;
-
-        let frame = avm1::as_int(l.get_cached(
+        let chrono = l.child_cached(
             mem,
-            chrono,
-            keys::FRAME_TIMER,
-            &mut self.hints.frame,
-        )?)?;
+            self.game_mode,
+            keys::GAME_CHRONO,
+            &mut self.hints.chrono,
+        )?;
+
+        let frame =
+            avm1::as_int(l.get_cached(mem, chrono, keys::FRAME_TIMER, &mut self.hints.frame)?)?;
 
         let stopped = l
             .get_cached(mem, chrono, keys::FL_STOP, &mut self.hints.stop)
@@ -1120,12 +1155,8 @@ impl Game {
             }
         }
 
-        let game = avm1::as_int(l.get_cached(
-            mem,
-            chrono,
-            keys::GAME_TIMER,
-            &mut self.hints.game,
-        )?)?;
+        let game =
+            avm1::as_int(l.get_cached(mem, chrono, keys::GAME_TIMER, &mut self.hints.game)?)?;
         Some((frame - game, frame))
     }
 }

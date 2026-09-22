@@ -119,15 +119,7 @@ async fn main() {
                         diagnostics::now_us()
                     ));
                 }
-                run(
-                    &process,
-                    pid,
-                    module,
-                    &mut anchor,
-                    &mut binary,
-                    &mut policy,
-                )
-                .await;
+                run(&process, pid, module, &mut anchor, &mut binary, &mut policy).await;
                 asr::print_message("Hammerfest: Flash plugin closed");
             }
             None => {
@@ -165,7 +157,10 @@ async fn run(
         {
             let now = diagnostics::now_us();
             if now - last_loop > 50_000 {
-                asr::print_message(&alloc::format!("HF_DIAG event=loop_gap t_us={now} elapsed_us={}", now - last_loop));
+                asr::print_message(&alloc::format!(
+                    "HF_DIAG event=loop_gap t_us={now} elapsed_us={}",
+                    now - last_loop
+                ));
             }
             last_loop = now;
         }
@@ -183,7 +178,10 @@ async fn run(
                 // later -- and a fixed wait added up to one second of delay
                 // there, at the mercy of the previous attempt.
                 let ranges = fresh_map.poll(pid);
-                let now = ranges.map_or_else(|| hammerfest::heap_size(process), |rs| rs.iter().map(|(a,b)| b-a).sum());
+                let now = ranges.map_or_else(
+                    || hammerfest::heap_size(process),
+                    |rs| rs.iter().map(|(a, b)| b - a).sum(),
+                );
                 let grown = now > heap + HEAP_GROWTH;
                 if cooldown > 0 && !grown {
                     cooldown -= 1;
@@ -196,14 +194,15 @@ async fn run(
                     heap = now;
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
-                    let all = ranges
-                        .map_or_else(|| hammerfest::heap_ranges(process), |rs| rs.to_vec());
+                    let all =
+                        ranges.map_or_else(|| hammerfest::heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(process, module, anchor, binary, &all).await;
                     if game.is_none() {
                         cooldown = backoff;
                         #[cfg(feature = "diagnostics")]
                         asr::print_message(&alloc::format!(
-                            "HF_DIAG event=retry_wait t_us={} ticks={cooldown}", diagnostics::now_us()
+                            "HF_DIAG event=retry_wait t_us={} ticks={cooldown}",
+                            diagnostics::now_us()
                         ));
                         backoff = (backoff * 2).min(RESOLVE_MAX_COOLDOWN);
                     }
@@ -217,9 +216,14 @@ async fn run(
         let read = game.as_mut().and_then(|g| g.read(process));
         #[cfg(feature = "diagnostics")]
         {
-            let signature = read.as_ref().map(|s| (game.as_ref().unwrap().game_mode, s.locked));
+            let signature = read
+                .as_ref()
+                .map(|s| (game.as_ref().unwrap().game_mode, s.locked));
             if signature != last_read {
-                asr::print_message(&alloc::format!("HF_DIAG event=read t_us={} state={signature:?}", diagnostics::now_us()));
+                asr::print_message(&alloc::format!(
+                    "HF_DIAG event=read t_us={} state={signature:?}",
+                    diagnostics::now_us()
+                ));
                 last_read = signature;
             }
         }
@@ -238,7 +242,12 @@ async fn run(
                     "Hammerfest: start dated, {ms} ms already elapsed"
                 ));
                 #[cfg(feature = "diagnostics")]
-                asr::print_message(&alloc::format!("HF_DIAG event=origin t_us={} elapsed_ms={ms} start={} fresh={}", diagnostics::now_us(), actions.start, true));
+                asr::print_message(&alloc::format!(
+                    "HF_DIAG event=origin t_us={} elapsed_ms={ms} start={} fresh={}",
+                    diagnostics::now_us(),
+                    actions.start,
+                    true
+                ));
             }
             None => announced = false,
             _ => {}

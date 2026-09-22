@@ -21,8 +21,8 @@
 use asr::{Address, Process};
 
 // Atom decoding lives in the core, where it is tested.
-pub use hammerfest_core::atom::{as_bool, as_int};
 use hammerfest_core::atom;
+pub use hammerfest_core::atom::{as_bool, as_int};
 
 /// Everything the reader needs from a process.
 ///
@@ -78,15 +78,24 @@ pub struct Profile {
 }
 
 pub const PROFILES: &[Profile] = &[
-    Profile { name: "windows-x64", keys: 0x58, stride: 24, value: -0x10 },
-    Profile { name: "linux-x64", keys: 0x20, stride: 16, value: -0x08 },
+    Profile {
+        name: "windows-x64",
+        keys: 0x58,
+        stride: 24,
+        value: -0x10,
+    },
+    Profile {
+        name: "linux-x64",
+        keys: 0x20,
+        stride: 16,
+        value: -0x08,
+    },
 ];
 
 /// Candidate offsets for `ScriptObject -> table`. The value is 0x30 on both
 /// known platforms, but we still derive it.
 const SO_TBL_CANDIDATES: [u64; 15] = [
-    0x30, 0x08, 0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60,
-    0x68, 0x70, 0x78,
+    0x30, 0x08, 0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78,
 ];
 /// Candidate offsets for the buffer pointer of a String object.
 pub const STR_BUF_CANDIDATES: [u64; 5] = [0x08, 0x10, 0x18, 0x20, 0x00];
@@ -207,13 +216,7 @@ impl Layout {
     /// memory accesses per tick. So we keep the index -- but we check it again
     /// before use: if the key is no longer there, we search again. The thing
     /// we must never keep is the *final* address, not the path.
-    pub fn get_cached(
-        &self,
-        mem: &dyn Memory,
-        tbl: u64,
-        key: &str,
-        hint: &mut u64,
-    ) -> Option<u64> {
+    pub fn get_cached(&self, mem: &dyn Memory, tbl: u64, key: &str, hint: &mut u64) -> Option<u64> {
         let cap = self.capacity(mem, tbl)?;
         let value_at = |k: u64| read_u64(mem, (k as i64 + self.profile.value) as u64);
 

@@ -37,8 +37,11 @@ pub fn validation_read(_bytes: usize, _ok: bool) {
     #[cfg(feature = "diagnostics")]
     {
         CALLS.fetch_add(1, Ordering::Relaxed);
-        if _ok { BYTES.fetch_add(_bytes as u64, Ordering::Relaxed); }
-        else { FAILURES.fetch_add(1, Ordering::Relaxed); }
+        if _ok {
+            BYTES.fetch_add(_bytes as u64, Ordering::Relaxed);
+        } else {
+            FAILURES.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -101,8 +104,11 @@ impl FreshMap {
                 #[cfg(feature = "diagnostics")]
                 asr::print_message(&alloc::format!(
                     "HF_DIAG event=map_refresh t_us={} elapsed_us={} changed={} ranges={} bytes={}",
-                    now, now_us() - now, self.ranges.as_ref() != Some(&ranges), ranges.len(),
-                    ranges.iter().map(|(a,b)| b-a).sum::<u64>()
+                    now,
+                    now_us() - now,
+                    self.ranges.as_ref() != Some(&ranges),
+                    ranges.len(),
+                    ranges.iter().map(|(a, b)| b - a).sum::<u64>()
                 ));
                 self.ranges = Some(ranges);
             } else {
@@ -113,7 +119,6 @@ impl FreshMap {
         self.ranges.as_deref()
     }
 }
-
 
 /// What one resolution attempt cost, and where it had got to.
 ///

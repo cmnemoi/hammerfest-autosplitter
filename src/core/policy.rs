@@ -227,8 +227,7 @@ impl Policy {
         // resolution. The resolution is dropped and taken again during a game,
         // and rebuilding the origin at that moment would place it too late, by
         // all the time spent between levels that `duration` does not count.
-        if self.origin.is_some_and(|o| now.frame_timer < o)
-            || now.duration_ms < self.duration_seen
+        if self.origin.is_some_and(|o| now.frame_timer < o) || now.duration_ms < self.duration_seen
         {
             self.origin = None;
         }
@@ -334,10 +333,7 @@ impl Policy {
             // would send LiveSplit a reset per tick for as long as no game
             // comes back. The only way to miss it is an `Unknown` timer state
             // on that exact tick, which the runtime does not produce.
-            if self.lost == LOST_BEFORE_RESET
-                && timer == TimerState::Running
-                && !self.finished
-            {
+            if self.lost == LOST_BEFORE_RESET && timer == TimerState::Running && !self.finished {
                 actions.reset = true;
             }
         }
@@ -1252,18 +1248,21 @@ mod tests {
         let final_time = play(
             &mut r,
             &[
-                None,                                  // no game yet
-                Some(black_screen),                    // loading, level 0 hidden
-                Some(read(0, 100_550, 0)),             // the start
+                None,                      // no game yet
+                Some(black_screen),        // loading, level 0 hidden
+                Some(read(0, 100_550, 0)), // the start
                 Some(read(0, 102_550, 2_000)),
-                Some(read(10, 109_000, 8_450)),        // the level 0 shortcut
-                Some(State { locked: true, ..read(10, 123_000, 8_450) }), // paused
+                Some(read(10, 109_000, 8_450)), // the level 0 shortcut
+                Some(State {
+                    locked: true,
+                    ..read(10, 123_000, 8_450)
+                }), // paused
                 Some(read(10, 124_000, 9_450)),
-                None,                                  // resolution lost
+                None, // resolution lost
                 None,
-                Some(read(12, 130_000, 12_000)),       // taken again
+                Some(read(12, 130_000, 12_000)), // taken again
                 Some(elevator_frame),
-                Some(after_the_end),                   // the cinematic runs on
+                Some(after_the_end), // the cinematic runs on
             ],
         );
 
@@ -1305,5 +1304,4 @@ mod tests {
         r.timer = TimerState::NotRunning;
         assert!(r.tick(Some(at(0, 2_000))).start);
     }
-
 }

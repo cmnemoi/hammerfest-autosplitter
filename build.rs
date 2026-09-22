@@ -144,7 +144,10 @@ fn parse_flat_object(src: &str) -> BTreeMap<String, String> {
             c => panic!("unexpected character {c:?} at offset {i}"),
         }
     }
-    assert!(pending.is_none(), "key with no value at the end of the file");
+    assert!(
+        pending.is_none(),
+        "key with no value at the end of the file"
+    );
     assert!(!map.is_empty(), "vendor/hf.map.json is empty");
     map
 }
