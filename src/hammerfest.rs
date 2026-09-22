@@ -958,6 +958,8 @@ async fn scan_tables<T>(
 
 /// Derives the String layout from the address of one String object.
 ///
+/// @spec reader::the-right-layout
+///
 /// Three independent constraints: the leading qword points into the module (it
 /// is the vtable), one qword holds the expected length, and the string decoded
 /// that way is the one we look for.
@@ -999,6 +1001,12 @@ fn string_layout_at(
 ///
 /// `world` alone is not enough: `View` objects carry one too, and they point
 /// at the same `GameMechanics`. Only the GameMode also owns a `gameChrono`.
+///
+/// The three rules a candidate must pass before it is a game.
+///
+/// @spec reader::it-is-a-game-mode
+/// @spec reader::a-known-world
+/// @spec reader::a-level-in-range
 fn validate(mem: &dyn Memory, mut layout: Layout, tbl: u64) -> Option<Game> {
     let world_atom = layout.get(mem, tbl, keys::WORLD)?;
     let wtbl = layout.derive_so_tbl(mem, world_atom, keys::SET_NAME)?;
@@ -1044,6 +1052,13 @@ impl Game {
     /// address would be dangerous: the game rebuilds its objects between two
     /// games, and the abandoned slot stays readable, holding a plausible
     /// value.
+    ///
+    /// The world and the level are checked again here, and not only when the
+    /// game is found, because memory is recycled.
+    ///
+    /// @spec reader::a-true-state-or-none
+    /// @spec reader::a-known-world
+    /// @spec reader::a-level-in-range
     pub fn read(&mut self, mem: &dyn Memory) -> Option<State> {
         // Read before we borrow `self.layout`: `chrono_ms` needs all of
         // `self`.

@@ -37,6 +37,8 @@ pub use hammerfest_core::atom::{as_bool, as_int};
 /// `crate::memory_contract` states that in four tests and runs them against
 /// every implementation, so the test heap and the adapter below cannot drift
 /// apart.
+///
+/// @spec reader::refuses-rather-than-defaults
 pub trait Memory {
     fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()>;
 }
