@@ -150,26 +150,31 @@ pub use hammerfest_core::{EndSequence, State};
 
 // -- memory ranges ----------------------------------------------------------
 
-/// The ranges where the AVM1 heap lives: readable and writable.
+/// Does the runtime run on macOS?
 ///
-/// A file behind the range used to disqualify it. The AVM1 heap is ordinary
-/// allocated memory on Windows and on Linux, so the rule cost nothing there
-/// and removed the mapped images from the scan.
+/// The plugin there is an x86-64 binary, and Rosetta 2 translates it. Two
+/// rules below hold on every other platform and not on that one.
+fn on_macos() -> bool {
+    asr::get_os().is_ok_and(|os| os.as_str() == "macos")
+}
+
+/// The ranges where the AVM1 heap lives: readable, writable, and -- except on
+/// macOS -- with no file behind them.
 ///
-/// It is wrong under Rosetta. The macOS build of the plugin is x86-64, and
-/// Rosetta 2 translates it. Every page the guest allocates is then attributed
-/// to `/usr/libexec/rosetta/runtime`, and the whole game heap carries a file
-/// name. The rule removed the one thing worth reading: measured, the five
-/// property names of the game live in Rosetta ranges, and none of them is in
-/// the anonymous ones.
+/// The AVM1 heap is ordinary allocated memory on Windows and on Linux, so the
+/// file rule costs nothing there and removes the mapped images from the scan.
 ///
-/// Dropping the rule adds the writable data of the mapped images. That is a
-/// few MiB on Windows, and it is what makes the reader work on macOS.
+/// Under Rosetta, every page the guest allocates is attributed to
+/// `/usr/libexec/rosetta/runtime`. The rule then removes the one thing worth
+/// reading: measured on a running game, the six property names of the game
+/// and the seventy-three tables that cite them all live in ranges that carry
+/// that name, and none of them in an anonymous one.
 fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
     use asr::MemoryRangeFlags as F;
-    process.memory_ranges().filter_map(|r| {
+    let mapped_too = on_macos();
+    process.memory_ranges().filter_map(move |r| {
         let flags = r.flags().ok()?;
-        if !flags.contains(F::READ | F::WRITE) {
+        if !flags.contains(F::READ | F::WRITE) || (!mapped_too && flags.contains(F::PATH)) {
             return None;
         }
         let (addr, size) = r.range().ok()?;
@@ -179,7 +184,22 @@ fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
 }
 
 pub fn heap_ranges(process: &Process) -> Vec<(u64, u64)> {
-    heap_iter(process).collect()
+    let mut ranges: Vec<(u64, u64)> = heap_iter(process).collect();
+    if on_macos() {
+        // The smallest ranges first. Every scan stops at its first answer, so
+        // the order decides how much is read before it stops.
+        //
+        // Measured on a running game: the game objects sat in ranges of
+        // 0.12 to 0.75 MiB, and the ranges of 4 MiB or less hold 115 MiB of
+        // the 1119 MiB the plugin maps. Reading them first is the difference
+        // between 3.4 s and a fraction of a second.
+        //
+        // ponytail: an order, not a filter. A game object born in a large
+        // range makes a scan slow again, never wrong. If that ever shows up,
+        // remember the ranges that held the answer last time instead.
+        ranges.sort_unstable_by_key(|&(a, b)| b - a);
+    }
+    ranges
 }
 
 /// Total committed bytes in this heap.
