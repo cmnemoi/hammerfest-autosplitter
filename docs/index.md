@@ -157,6 +157,7 @@ simply the old ones. Three separate checks guard against that.
 | you want | read |
 | --- | --- |
 | to install and use it | [README](../README.md) |
+| to run it on macOS | [Run it on macOS](how-to/run-on-macos.md) |
 | where the test net stands, and what is next | [TODO](../TODO.md) |
 | why there is no fixed address | [About why Flash is hard](concepts/why-flash-is-hard.md) |
 | how a value is packed in 8 bytes | [About AVM1 values](concepts/avm1-values.md) |

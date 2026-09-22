@@ -23,7 +23,7 @@ Then start a game.
 The autosplitter has been tested on:
 
 - Windows, Eternaltwin 1.0.0
-- macOS ARM, Eternaltwin 0.6.6
+- macOS ARM, Eternaltwin 0.6.6 (see [Run it on macOS](docs/how-to/run-on-macos.md): it needs another LiveSplit, and root)
 
 ## How to contribute
 
