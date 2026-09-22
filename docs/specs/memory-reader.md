@@ -157,5 +157,11 @@ that attaching during a game over screen is rare and the time lost is
 acceptable. It is listed here so that the redesign does not mistake it for an
 accident.
 
+**Whether the constants match what ships.** A test writes its heap with a
+layout table of its own, and with the obfuscated names from `keys::`. It
+therefore cannot see a `MEASURED` seed or an obfuscation table that is wrong
+for the binary and the SWF in use. Only running the autosplitter on a real game
+sees that.
+
 **The number of situations above.** Seventeen is where the search stopped, not
 where the defects end. The list grows with the bugs we find.

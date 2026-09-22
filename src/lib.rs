@@ -31,6 +31,13 @@ mod avm1;
 mod diagnostics;
 mod hammerfest;
 
+/// The runtime symbols, defined so that `cargo test` can link.
+#[cfg(test)]
+mod asr_stubs;
+/// The contract of `avm1::Memory`, and the implementations held to it.
+#[cfg(test)]
+mod memory_contract;
+
 /// Obfuscated property names, taken from `vendor/hf.map.json` by build.rs.
 mod keys {
     include!(concat!(env!("OUT_DIR"), "/keys.rs"));
@@ -187,7 +194,11 @@ async fn run(
                         diagnostics::now_us()
                     ));
                     heap = now;
-                    game = hammerfest::resolve(process, module, anchor, binary, ranges).await;
+                    // The ranges are gathered here, and not inside `resolve`.
+                    // That is what keeps the reader off the runtime API.
+                    let all = ranges
+                        .map_or_else(|| hammerfest::heap_ranges(process), |rs| rs.to_vec());
+                    game = hammerfest::resolve(process, module, anchor, binary, &all).await;
                     if game.is_none() {
                         cooldown = backoff;
                         #[cfg(feature = "diagnostics")]

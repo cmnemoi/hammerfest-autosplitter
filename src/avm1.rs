@@ -24,14 +24,37 @@ use asr::{Address, Process};
 pub use hammerfest_core::atom::{as_bool, as_int};
 use hammerfest_core::atom;
 
+/// Everything the reader needs from a process.
+///
+/// One method, because the reader makes exactly four kinds of raw read and
+/// all four are "give me these bytes". The contract is ours, so a test double
+/// implements it without borrowing a word of the runtime ABI.
+///
+/// `read_into` fills `buf` whole, or returns `None`. It never fills a part of
+/// it. The caller then has no partially true buffer to mistake for a value,
+/// which is what `reader::refuses-rather-than-defaults` asks for.
+///
+/// `crate::memory_contract` states that in four tests and runs them against
+/// every implementation, so the test heap and the adapter below cannot drift
+/// apart.
+pub trait Memory {
+    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()>;
+}
+
+impl Memory for Process {
+    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
+        self.read_into_slice(Address::new(address), buf).ok()
+    }
+}
+
 /// Atom -> number, integer or float.
 ///
 /// `duration` is the integer 0 when the GameMode is built, then becomes a
 /// float on the first frame played. Both forms are normal. Reading only one of
 /// them would mean reading nothing during the black screen.
-pub fn as_number(process: &Process, atom: u64) -> Option<f64> {
+pub fn as_number(mem: &dyn Memory, atom: u64) -> Option<f64> {
     match atom::double_at(atom) {
-        Some(addr) => read_u64(process, addr).map(atom::decode_double),
+        Some(addr) => read_u64(mem, addr).map(atom::decode_double),
         None => as_int(atom).map(|v| v as f64),
     }
 }
@@ -79,14 +102,18 @@ pub struct Layout {
     pub so_tbl: u64,
 }
 
+/// Both the Flash player and the host are x86-64, so the bytes are little
+/// endian on each side of this call.
 #[inline]
-pub fn read_u64(process: &Process, addr: u64) -> Option<u64> {
+pub fn read_u64(mem: &dyn Memory, addr: u64) -> Option<u64> {
     if addr == 0 || addr >= 1 << 47 {
         return None;
     }
-    let result = process.read::<u64>(Address::new(addr));
-    crate::diagnostics::validation_read(8, result.is_ok());
-    result.ok()
+    let mut bytes = [0u8; 8];
+    let result = mem.read_into(addr, &mut bytes);
+    crate::diagnostics::validation_read(8, result.is_some());
+    result?;
+    Some(u64::from_le_bytes(bytes))
 }
 
 impl Layout {
@@ -98,21 +125,26 @@ impl Layout {
     /// Reads a String object into `out`, and returns the number of UTF-16 units.
     pub fn read_string(
         &self,
-        process: &Process,
+        mem: &dyn Memory,
         addr: u64,
         out: &mut [u16; MAX_KEY],
     ) -> Option<usize> {
-        if read_u64(process, addr)? != self.str_vt {
+        if read_u64(mem, addr)? != self.str_vt {
             return None;
         }
-        let buf = read_u64(process, addr + self.str_buf)?;
-        let n = read_u64(process, addr + self.str_len)? as usize;
+        let buf = read_u64(mem, addr + self.str_buf)?;
+        let n = read_u64(mem, addr + self.str_len)? as usize;
         if n == 0 || n > MAX_KEY {
             return None;
         }
-        let result = process.read_into_slice(Address::new(buf), &mut out[..n]);
-        crate::diagnostics::validation_read(n * 2, result.is_ok());
-        result.ok()?;
+        let mut bytes = [0u8; MAX_KEY * 2];
+        let bytes = &mut bytes[..n * 2];
+        let result = mem.read_into(buf, bytes);
+        crate::diagnostics::validation_read(n * 2, result.is_some());
+        result?;
+        for (unit, pair) in out[..n].iter_mut().zip(bytes.chunks_exact(2)) {
+            *unit = u16::from_le_bytes([pair[0], pair[1]]);
+        }
         Some(n)
     }
 
@@ -120,9 +152,9 @@ impl Layout {
     ///
     /// The comparison allocates nothing. The keys are known at compile time,
     /// so we encode `want` to UTF-16 as we go.
-    pub fn string_eq(&self, process: &Process, addr: u64, want: &str) -> bool {
+    pub fn string_eq(&self, mem: &dyn Memory, addr: u64, want: &str) -> bool {
         let mut buf = [0u16; MAX_KEY];
-        let Some(n) = self.read_string(process, addr, &mut buf) else {
+        let Some(n) = self.read_string(mem, addr, &mut buf) else {
             return false;
         };
         let mut it = want.encode_utf16();
@@ -135,8 +167,8 @@ impl Layout {
     }
 
     // -- tables ------------------------------------------------------------
-    pub fn capacity(&self, process: &Process, tbl: u64) -> Option<u64> {
-        let cap = read_u64(process, tbl + TBL_CAPACITY)?;
+    pub fn capacity(&self, mem: &dyn Memory, tbl: u64) -> Option<u64> {
+        let cap = read_u64(mem, tbl + TBL_CAPACITY)?;
         (cap > 0 && cap <= MAX_CAPACITY).then_some(cap)
     }
 
@@ -149,23 +181,23 @@ impl Layout {
     /// The name of the key stored at `addr`. It masks the tag, because a key
     /// can be stored as a raw pointer or as an atom, depending on the
     /// platform.
-    pub fn key_is(&self, process: &Process, addr: u64, want: &str) -> bool {
-        match read_u64(process, addr) {
-            Some(raw) => self.string_eq(process, raw & !7, want),
+    pub fn key_is(&self, mem: &dyn Memory, addr: u64, want: &str) -> bool {
+        match read_u64(mem, addr) {
+            Some(raw) => self.string_eq(mem, raw & !7, want),
             None => false,
         }
     }
 
-    pub fn key_len(&self, process: &Process, addr: u64) -> Option<usize> {
-        let raw = read_u64(process, addr)?;
+    pub fn key_len(&self, mem: &dyn Memory, addr: u64) -> Option<usize> {
+        let raw = read_u64(mem, addr)?;
         let mut buf = [0u16; MAX_KEY];
-        self.read_string(process, raw & !7, &mut buf)
+        self.read_string(mem, raw & !7, &mut buf)
     }
 
     /// The atom of property `key`, or None.
-    pub fn get(&self, process: &Process, tbl: u64, key: &str) -> Option<u64> {
+    pub fn get(&self, mem: &dyn Memory, tbl: u64, key: &str) -> Option<u64> {
         let mut ignored = 0;
-        self.get_cached(process, tbl, key, &mut ignored)
+        self.get_cached(mem, tbl, key, &mut ignored)
     }
 
     /// Like `get`, but it remembers the index of the entry.
@@ -176,23 +208,23 @@ impl Layout {
     /// we must never keep is the *final* address, not the path.
     pub fn get_cached(
         &self,
-        process: &Process,
+        mem: &dyn Memory,
         tbl: u64,
         key: &str,
         hint: &mut u64,
     ) -> Option<u64> {
-        let cap = self.capacity(process, tbl)?;
-        let value_at = |k: u64| read_u64(process, (k as i64 + self.profile.value) as u64);
+        let cap = self.capacity(mem, tbl)?;
+        let value_at = |k: u64| read_u64(mem, (k as i64 + self.profile.value) as u64);
 
         if *hint < cap {
             let k = self.key_addr(tbl, *hint);
-            if self.key_is(process, k, key) {
+            if self.key_is(mem, k, key) {
                 return value_at(k);
             }
         }
         for i in 0..cap {
             let k = self.key_addr(tbl, i);
-            if self.key_is(process, k, key) {
+            if self.key_is(mem, k, key) {
                 *hint = i;
                 return value_at(k);
             }
@@ -200,33 +232,33 @@ impl Layout {
         None
     }
 
-    pub fn get_int(&self, process: &Process, tbl: u64, key: &str) -> Option<i64> {
-        as_int(self.get(process, tbl, key)?)
+    pub fn get_int(&self, mem: &dyn Memory, tbl: u64, key: &str) -> Option<i64> {
+        as_int(self.get(mem, tbl, key)?)
     }
 
     /// The property table of the object that `atom` points to.
-    pub fn table_of(&self, process: &Process, atom: u64) -> Option<u64> {
+    pub fn table_of(&self, mem: &dyn Memory, atom: u64) -> Option<u64> {
         let so = atom & !7;
-        if !self.in_module(read_u64(process, so)?) {
+        if !self.in_module(read_u64(mem, so)?) {
             return None;
         }
-        let t = read_u64(process, so + self.so_tbl)?;
-        (read_u64(process, t)? == self.tbl_vt).then_some(t)
+        let t = read_u64(mem, so + self.so_tbl)?;
+        (read_u64(mem, t)? == self.tbl_vt).then_some(t)
     }
 
     /// The table of the object stored under `key`.
-    pub fn child(&self, process: &Process, tbl: u64, key: &str) -> Option<u64> {
-        self.table_of(process, self.get(process, tbl, key)?)
+    pub fn child(&self, mem: &dyn Memory, tbl: u64, key: &str) -> Option<u64> {
+        self.table_of(mem, self.get(mem, tbl, key)?)
     }
 
     pub fn child_cached(
         &self,
-        process: &Process,
+        mem: &dyn Memory,
         tbl: u64,
         key: &str,
         hint: &mut u64,
     ) -> Option<u64> {
-        self.table_of(process, self.get_cached(process, tbl, key, hint)?)
+        self.table_of(mem, self.get_cached(mem, tbl, key, hint)?)
     }
 
     /// Finds `so_tbl` from an object whose property we know.
@@ -234,23 +266,23 @@ impl Layout {
     /// Without the `expect_key` constraint, several offsets lead to a
     /// plausible table, and the wrong one would be cached for every read that
     /// follows.
-    pub fn derive_so_tbl(&mut self, process: &Process, atom: u64, expect_key: &str) -> Option<u64> {
+    pub fn derive_so_tbl(&mut self, mem: &dyn Memory, atom: u64, expect_key: &str) -> Option<u64> {
         let so = atom & !7;
-        if !self.in_module(read_u64(process, so)?) {
+        if !self.in_module(read_u64(mem, so)?) {
             return None;
         }
         for off in SO_TBL_CANDIDATES {
-            let Some(t) = read_u64(process, so + off) else {
+            let Some(t) = read_u64(mem, so + off) else {
                 continue;
             };
-            if read_u64(process, t) != Some(self.tbl_vt) {
+            if read_u64(mem, t) != Some(self.tbl_vt) {
                 continue;
             }
-            if self.capacity(process, t).is_none() {
+            if self.capacity(mem, t).is_none() {
                 continue;
             }
             self.so_tbl = off;
-            if self.get(process, t, expect_key).is_some() {
+            if self.get(mem, t, expect_key).is_some() {
                 return Some(t);
             }
         }
@@ -266,17 +298,17 @@ impl Layout {
     /// If `tbl_vt` is unknown (zero), any pointer into the module will do and
     /// becomes the reference vtable. That is how it is derived instead of hard
     /// coded.
-    pub fn table_base(&mut self, process: &Process, keyslot: u64) -> Option<u64> {
+    pub fn table_base(&mut self, mem: &dyn Memory, keyslot: u64) -> Option<u64> {
         let mut first = keyslot;
         while first > self.profile.stride {
             let prev = first - self.profile.stride;
-            if self.key_len(process, prev).is_none() {
+            if self.key_len(mem, prev).is_none() {
                 break;
             }
             first = prev;
         }
         let tbl = first.checked_sub(self.profile.keys)?;
-        let vt = read_u64(process, tbl)?;
+        let vt = read_u64(mem, tbl)?;
         if self.tbl_vt == 0 {
             if !self.in_module(vt) {
                 return None;
@@ -285,7 +317,7 @@ impl Layout {
         } else if vt != self.tbl_vt {
             return None;
         }
-        self.capacity(process, tbl)?;
+        self.capacity(mem, tbl)?;
         Some(tbl)
     }
 }

@@ -18,9 +18,9 @@
 //! ```
 
 use alloc::{vec, vec::Vec};
-use asr::{future::next_tick, Address, Process, ProcessId};
+use asr::{future::next_tick, Process, ProcessId};
 
-use crate::avm1::{self, read_u64, Layout, PROFILES, STR_BUF_CANDIDATES};
+use crate::avm1::{self, read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
 use crate::keys;
 
 /// The plugin, by platform.
@@ -66,10 +66,10 @@ struct Scan {
 }
 
 impl Scan {
-    fn read_block(&mut self, process: &Process, base: u64, buf: &mut [u8]) -> bool {
+    fn read_block(&mut self, mem: &dyn Memory, base: u64, buf: &mut [u8]) -> bool {
         self.calls += 1;
         self.requested += buf.len() as u64;
-        let ok = process.read_into_slice(Address::new(base), buf).is_ok();
+        let ok = mem.read_into(base, buf).is_some();
         self.trace.read(buf.len(), ok);
         ok
     }
@@ -185,7 +185,7 @@ pub fn heap_size(process: &Process) -> u64 {
 
 /// Every aligned address where `pat` appears.
 async fn scan_bytes(
-    process: &Process,
+    mem: &dyn Memory,
     ranges: &[(u64, u64)],
     pat: &[u8],
     align: usize,
@@ -200,7 +200,7 @@ async fn scan_bytes(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            if cost.read_block(process, base, &mut buf[..n]) {
+            if cost.read_block(mem, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + pat.len() <= n {
                     if &buf[i..i + pat.len()] == pat {
@@ -236,7 +236,7 @@ async fn scan_bytes(
 /// would otherwise cost one remote read per object, and such a read costs far
 /// more than the bytes it brings back.
 async fn scan_bytes_until(
-    process: &Process,
+    mem: &dyn Memory,
     ranges: &[(u64, u64)],
     pat: &[u8],
     align: usize,
@@ -250,7 +250,7 @@ async fn scan_bytes_until(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            if cost.read_block(process, base, &mut buf[..n]) {
+            if cost.read_block(mem, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + pat.len() <= n {
                     if &buf[i..i + pat.len()] == pat && on_hit(base + i as u64, &buf[i..n]) {
@@ -278,7 +278,7 @@ async fn scan_bytes_until(
 /// what points at eight addresses cost eight re-reads of the heap, that is
 /// seven hundred MiB per failed attempt.
 async fn scan_u64_any(
-    process: &Process,
+    mem: &dyn Memory,
     ranges: &[(u64, u64)],
     values: &[u64],
     cost: &mut Scan,
@@ -291,7 +291,7 @@ async fn scan_u64_any(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            if cost.read_block(process, base, &mut buf[..n]) {
+            if cost.read_block(mem, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + 8 <= n {
                     let v = u64::from_le_bytes([
@@ -329,7 +329,7 @@ async fn scan_u64_any(
 /// to examine them would mean always reading the hundred MiB, even when the
 /// right table is the first one we meet.
 async fn scan_atoms(
-    process: &Process,
+    mem: &dyn Memory,
     ranges: &[(u64, u64)],
     ptr: u64,
     cost: &mut Scan,
@@ -344,7 +344,7 @@ async fn scan_atoms(
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
-            if cost.read_block(process, base, &mut buf[..n]) {
+            if cost.read_block(mem, base, &mut buf[..n]) {
                 let mut i = 0;
                 while i + 8 <= n {
                     if buf[i] & !7 == lo && &buf[i + 1..i + 8] == tail && on_hit(base + i as u64) {
@@ -465,9 +465,15 @@ impl Binary {
     /// A profile already measured, recognised by the PE headers and four
     /// methods. The usual fallback stays active if a single check fails.
     #[cfg(feature = "known-flash")]
-    pub fn recognize(&mut self, process: &Process, module: (u64, u64)) -> bool {
-        let u32_at = |off| process.read::<u32>(Address::new(module.0 + off)).ok();
-        let u16_at = |off| process.read::<u16>(Address::new(module.0 + off)).ok();
+    pub fn recognize(&mut self, mem: &dyn Memory, module: (u64, u64)) -> bool {
+        let u32_at = |off| {
+            let mut b = [0u8; 4];
+            mem.read_into(module.0 + off, &mut b).map(|()| u32::from_le_bytes(b))
+        };
+        let u16_at = |off| {
+            let mut b = [0u8; 2];
+            mem.read_into(module.0 + off, &mut b).map(|()| u16::from_le_bytes(b))
+        };
         if u16_at(0) != Some(0x5a4d)
             || u32_at(0x3c) != Some(0x158)
             || u32_at(0x158) != Some(0x4550)
@@ -485,7 +491,7 @@ impl Binary {
             (MEASURED.tbl_vt, 0x39ec60),
             (MEASURED.tbl_vt + 8, 0x3c2e10),
         ] {
-            if read_u64(process, module.0 + slot) != Some(module.0 + method) {
+            if read_u64(mem, module.0 + slot) != Some(module.0 + method) {
                 return false;
             }
         }
@@ -546,23 +552,23 @@ const FULL_SWEEP: u32 = 8;
 /// on every tick. It returns None if the anchor is not learned yet, if the
 /// GameManager table moved, or if the current mode is not a playable game -- a
 /// menu, for example.
-pub fn resolve_via_manager(process: &Process, anchor: &mut Anchor) -> Option<Game> {
+pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game> {
     let layout = anchor.layout?;
     let manager = anchor.manager?;
-    if read_u64(process, manager)? != layout.tbl_vt {
+    if read_u64(mem, manager)? != layout.tbl_vt {
         anchor.manager = None;
         return None;
     }
     // No more `current`: this is not the GameManager any more, the table must
     // have moved. Dropping the anchor starts a scan instead of staying blind.
     let Some(current) =
-        layout.get_cached(process, manager, keys::CURRENT, &mut anchor.current_hint)
+        layout.get_cached(mem, manager, keys::CURRENT, &mut anchor.current_hint)
     else {
         anchor.manager = None;
         return None;
     };
-    let tbl = layout.table_of(process, current)?;
-    let game = validate(process, layout, tbl)?;
+    let tbl = layout.table_of(mem, current)?;
+    let game = validate(mem, layout, tbl)?;
     anchor.last_game_mode = Some(tbl);
     anchor.manager_proven = true;
     anchor.manager_idle = 0;
@@ -579,18 +585,18 @@ pub fn resolve_via_manager(process: &Process, anchor: &mut Anchor) -> Option<Gam
 /// 3. as a last resort, look for a `GameMode` directly by its `world` key.
 ///    This only serves when stage 2 fails.
 pub async fn resolve(
-    process: &Process,
+    mem: &dyn Memory,
     module: (u64, u64),
     anchor: &mut Anchor,
     binary: &mut Binary,
-    supplied_ranges: Option<&[(u64, u64)]>,
+    ranges: &[(u64, u64)],
 ) -> Option<Game> {
-    if let Some(game) = resolve_via_manager(process, anchor) {
+    if let Some(game) = resolve_via_manager(mem, anchor) {
         return Some(game);
     }
 
     let mut cost = Scan::default();
-    let all = supplied_ranges.map_or_else(|| heap_ranges(process), |rs| rs.to_vec());
+    let all = ranges.to_vec();
     if all.is_empty() {
         return None;
     }
@@ -636,7 +642,7 @@ pub async fn resolve(
     if anchor.manager.is_none() {
         cost.stage("manager");
         if let Some((layout, tbl)) =
-            scan_for_manager(process, module, &ranges, &mut full, anchor, binary, &mut cost).await
+            scan_for_manager(mem, module, &ranges, &mut full, anchor, binary, &mut cost).await
         {
             asr::print_message(&alloc::format!(
                 "Hammerfest: GameManager 0x{tbl:x}, layout {}",
@@ -646,7 +652,7 @@ pub async fn resolve(
             anchor.layout = Some(layout);
             anchor.manager = Some(tbl);
             anchor.current_hint = 0;
-            let game = resolve_via_manager(process, anchor);
+            let game = resolve_via_manager(mem, anchor);
             cost.outcome(if game.is_some() { "game_via_manager" } else { "manager_only" });
             return game;
         }
@@ -674,7 +680,7 @@ pub async fn resolve(
     // only a handful of objects carry.
     cost.stage("world_string");
     let (layout, strobj) = find_string(
-        process,
+        mem,
         module,
         &ranges,
         keys::WORLD,
@@ -689,8 +695,8 @@ pub async fn resolve(
     move_region_first(&mut full, strobj);
 
     cost.stage("world_tables");
-    let game = scan_tables(process, &full, layout, strobj, keys::WORLD, &mut cost, |l, t| {
-        validate(process, l, t)
+    let game = scan_tables(mem, &full, layout, strobj, keys::WORLD, &mut cost, |l, t| {
+        validate(mem, l, t)
     })
     .await?;
 
@@ -707,7 +713,7 @@ pub async fn resolve(
     // the start of a game -- the objects die with the game, so the anchor does
     // not survive to the next one -- but it makes any new resolution inside
     // the same game free.
-    anchor.manager = game.layout.child(process, game.game_mode, keys::MANAGER);
+    anchor.manager = game.layout.child(mem, game.game_mode, keys::MANAGER);
     anchor.current_hint = 0;
     cost.outcome("game_via_world");
     Some(game)
@@ -726,7 +732,7 @@ pub async fn resolve(
 /// while the player is still on the loading screens, and the game that starts
 /// next is seen in a few reads.
 async fn scan_for_manager(
-    process: &Process,
+    mem: &dyn Memory,
     module: (u64, u64),
     fresh: &[(u64, u64)],
     ranges: &mut [(u64, u64)],
@@ -740,7 +746,7 @@ async fn scan_for_manager(
     // and the next pass stops at the first valid table.
     cost.stage("manager_string");
     let (layout, strobj) = find_string(
-        process,
+        mem,
         module,
         fresh,
         keys::F_VERSION,
@@ -757,14 +763,14 @@ async fn scan_for_manager(
     move_region_first(ranges, strobj);
 
     cost.stage("manager_tables");
-    scan_tables(process, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
+    scan_tables(mem, ranges, layout, strobj, keys::F_VERSION, cost, |mut l, t| {
         // The cross reference proves the candidate *and* derives the
         // `ScriptObject -> table` offset on the way. Without that offset,
         // nothing below can be read: `GameManager.current` points at a mode
         // whose `manager` field points back at that same GameManager.
-        let current = l.get(process, t, keys::CURRENT)?;
-        let mode = l.derive_so_tbl(process, current, keys::MANAGER)?;
-        let back = l.child(process, mode, keys::MANAGER)?;
+        let current = l.get(mem, t, keys::CURRENT)?;
+        let mode = l.derive_so_tbl(mem, current, keys::MANAGER)?;
+        let back = l.child(mem, mode, keys::MANAGER)?;
         (back == t).then_some((l, t))
     })
     .await
@@ -783,7 +789,7 @@ fn move_region_first(ranges: &mut [(u64, u64)], addr: u64) {
 /// constant pool of the SWF, so they live as long as the plugin. It is checked
 /// again by decoding the string, never assumed valid.
 async fn find_string(
-    process: &Process,
+    mem: &dyn Memory,
     module: (u64, u64),
     ranges: &[(u64, u64)],
     key: &str,
@@ -798,7 +804,7 @@ async fn find_string(
         crate::diagnostics::now_us(), binary.proven(), cache.is_some()
     ));
     if let Some(so) = *cache {
-        if let Some(layout) = string_layout_at(process, module, so, key, units) {
+        if let Some(layout) = string_layout_at(mem, module, so, key, units) {
             return Some((layout, so));
         }
         *cache = None;
@@ -808,13 +814,13 @@ async fn find_string(
     if let Some(seed) = binary.layout(module) {
         cost.stage("string_seed");
         let mut found = None;
-        scan_bytes_until(process, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
+        scan_bytes_until(mem, ranges, &seed.str_vt.to_le_bytes(), 8, cost, |so, rest| {
             // The length first, and from the buffer when it fits there. It
             // rejects almost every String object, and the string itself is
             // only read back for the rare survivors.
             let len = u64_at(rest, seed.str_len as usize)
-                .or_else(|| read_u64(process, so + seed.str_len));
-            if len == Some(units) && seed.string_eq(process, so, key) {
+                .or_else(|| read_u64(mem, so + seed.str_len));
+            if len == Some(units) && seed.string_eq(mem, so, key) {
                 found = Some(so);
                 return true;
             }
@@ -838,19 +844,19 @@ async fn find_string(
     // single pass for all the candidates at once.
     let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
     cost.stage("string_bytes");
-    let buffers = scan_bytes(process, ranges, &needle, 2, 8, cost).await;
+    let buffers = scan_bytes(mem, ranges, &needle, 2, 8, cost).await;
     if buffers.is_empty() {
         return None;
     }
 
     let mut found = None;
     cost.stage("string_references");
-    scan_u64_any(process, ranges, &buffers, cost, |slot| {
+    scan_u64_any(mem, ranges, &buffers, cost, |slot| {
         for buf_off in STR_BUF_CANDIDATES {
             let Some(so) = slot.checked_sub(buf_off) else {
                 continue;
             };
-            if let Some(layout) = string_layout_at(process, module, so, key, units) {
+            if let Some(layout) = string_layout_at(mem, module, so, key, units) {
                 found = Some((layout, so));
                 return true;
             }
@@ -871,7 +877,7 @@ async fn find_string(
 /// always read the hundred MiB, even when the right table is the first one we
 /// meet.
 async fn scan_tables<T>(
-    process: &Process,
+    mem: &dyn Memory,
     ranges: &[(u64, u64)],
     layout: Layout,
     strobj: u64,
@@ -881,15 +887,15 @@ async fn scan_tables<T>(
 ) -> Option<T> {
     let mut layout = layout;
     let mut result = None;
-    scan_atoms(process, ranges, strobj, cost, |slot| {
+    scan_atoms(mem, ranges, strobj, cost, |slot| {
         for &profile in PROFILES {
             layout.profile = profile;
             layout.tbl_vt = 0;
             layout.so_tbl = 0;
-            if !layout.key_is(process, slot, key) {
+            if !layout.key_is(mem, slot, key) {
                 continue;
             }
-            let Some(tbl) = layout.table_base(process, slot) else {
+            let Some(tbl) = layout.table_base(mem, slot) else {
                 continue;
             };
             if let Some(found) = accept(layout, tbl) {
@@ -909,20 +915,20 @@ async fn scan_tables<T>(
 /// is the vtable), one qword holds the expected length, and the string decoded
 /// that way is the one we look for.
 fn string_layout_at(
-    process: &Process,
+    mem: &dyn Memory,
     module: (u64, u64),
     so: u64,
     key: &str,
     units: u64,
 ) -> Option<Layout> {
-    let vt = read_u64(process, so)?;
+    let vt = read_u64(mem, so)?;
     if vt < module.0 || vt >= module.1 {
         return None;
     }
     for buf_off in STR_BUF_CANDIDATES {
         let mut len_off = 0x08;
         while len_off < 0x80 {
-            if read_u64(process, so + len_off) == Some(units) {
+            if read_u64(mem, so + len_off) == Some(units) {
                 let layout = Layout {
                     module,
                     str_vt: vt,
@@ -932,7 +938,7 @@ fn string_layout_at(
                     profile: PROFILES[0],
                     so_tbl: 0,
                 };
-                if layout.string_eq(process, so, key) {
+                if layout.string_eq(mem, so, key) {
                     return Some(layout);
                 }
             }
@@ -946,28 +952,28 @@ fn string_layout_at(
 ///
 /// `world` alone is not enough: `View` objects carry one too, and they point
 /// at the same `GameMechanics`. Only the GameMode also owns a `gameChrono`.
-fn validate(process: &Process, mut layout: Layout, tbl: u64) -> Option<Game> {
-    let world_atom = layout.get(process, tbl, keys::WORLD)?;
-    let wtbl = layout.derive_so_tbl(process, world_atom, keys::SET_NAME)?;
+fn validate(mem: &dyn Memory, mut layout: Layout, tbl: u64) -> Option<Game> {
+    let world_atom = layout.get(mem, tbl, keys::WORLD)?;
+    let wtbl = layout.derive_so_tbl(mem, world_atom, keys::SET_NAME)?;
 
-    let set_atom = layout.get(process, wtbl, keys::SET_NAME)?;
+    let set_atom = layout.get(mem, wtbl, keys::SET_NAME)?;
     let set = keys::WORLDS
         .iter()
-        .find(|(obf, _)| layout.string_eq(process, set_atom & !7, obf))
+        .find(|(obf, _)| layout.string_eq(mem, set_atom & !7, obf))
         .map(|&(_, clear)| clear)?;
 
-    let level = layout.get_int(process, wtbl, keys::CURRENT_ID)?;
+    let level = layout.get_int(mem, wtbl, keys::CURRENT_ID)?;
     if !(0..MAX_LEVEL).contains(&level) {
         return None;
     }
 
-    let chrono = layout.child(process, tbl, keys::GAME_CHRONO)?;
-    layout.get_int(process, chrono, keys::FRAME_TIMER)?;
+    let chrono = layout.child(mem, tbl, keys::GAME_CHRONO)?;
+    layout.get_int(mem, chrono, keys::FRAME_TIMER)?;
 
     // A GameMode already in game over is a finished GameMode. Holding on to
     // it would read a game that is over instead of waiting for the next one.
     if layout
-        .get(process, tbl, keys::FL_GAME_OVER)
+        .get(mem, tbl, keys::FL_GAME_OVER)
         .and_then(avm1::as_bool)
         == Some(true)
     {
@@ -991,26 +997,26 @@ impl Game {
     /// address would be dangerous: the game rebuilds its objects between two
     /// games, and the abandoned slot stays readable, holding a plausible
     /// value.
-    pub fn read(&mut self, process: &Process) -> Option<State> {
+    pub fn read(&mut self, mem: &dyn Memory) -> Option<State> {
         // Read before we borrow `self.layout`: `chrono_ms` needs all of
         // `self`.
-        let (chrono_ms, frame_timer) = self.chrono(process)?;
+        let (chrono_ms, frame_timer) = self.chrono(mem)?;
         let l = &self.layout;
-        let world_atom = l.get_cached(process, self.game_mode, keys::WORLD, &mut self.hints.world)?;
-        let world = l.table_of(process, world_atom)?;
+        let world_atom = l.get_cached(mem, self.game_mode, keys::WORLD, &mut self.hints.world)?;
+        let world = l.table_of(mem, world_atom)?;
 
         // The world must always be a known world. That is what detects that
         // we now read recycled memory.
-        let set_atom = l.get_cached(process, world, keys::SET_NAME, &mut self.hints.set_name)?;
+        let set_atom = l.get_cached(mem, world, keys::SET_NAME, &mut self.hints.set_name)?;
         if !keys::WORLDS
             .iter()
-            .any(|(obf, _)| l.string_eq(process, set_atom & !7, obf))
+            .any(|(obf, _)| l.string_eq(mem, set_atom & !7, obf))
         {
             return None;
         }
 
         let level = avm1::as_int(l.get_cached(
-            process,
+            mem,
             world,
             keys::CURRENT_ID,
             &mut self.hints.current_id,
@@ -1019,7 +1025,7 @@ impl Game {
             return None;
         }
         let previous = l
-            .get_cached(process, world, keys::PREVIOUS_ID, &mut self.hints.previous_id)
+            .get_cached(mem, world, keys::PREVIOUS_ID, &mut self.hints.previous_id)
             .and_then(avm1::as_int)
             .unwrap_or(-1);
 
@@ -1031,7 +1037,7 @@ impl Game {
             // `fl_lock` is true during the black screen before level 0. Its
             // fall is the official start of the run.
             locked: l
-                .get_cached(process, self.game_mode, keys::FL_LOCK, &mut self.hints.lock)
+                .get_cached(mem, self.game_mode, keys::FL_LOCK, &mut self.hints.lock)
                 .and_then(avm1::as_bool)
                 .unwrap_or(false),
             // Required, like the level and the clock: this is what dates the
@@ -1040,21 +1046,21 @@ impl Game {
             // the delay of the scan -- and silently so. Better to declare the
             // read invalid and scan again.
             duration_ms: hammerfest_core::duration_ms(avm1::as_number(
-                process,
+                mem,
                 l.get_cached(
-                    process,
+                    mem,
                     self.game_mode,
                     keys::DURATION,
                     &mut self.hints.duration,
                 )?,
             )?),
             dim: l
-                .get_cached(process, self.game_mode, keys::CURRENT_DIM, &mut self.hints.dim)
+                .get_cached(mem, self.game_mode, keys::CURRENT_DIM, &mut self.hints.dim)
                 .and_then(avm1::as_int)
                 .unwrap_or(0),
             game_over: l
                 .get_cached(
-                    process,
+                    mem,
                     self.game_mode,
                     keys::FL_GAME_OVER,
                     &mut self.hints.game_over,
@@ -1071,12 +1077,12 @@ impl Game {
             // accident is a lost run.
             end_sequence: l
                 .get_cached(
-                    process,
+                    mem,
                     self.game_mode,
                     keys::END_MODE_TIMER,
                     &mut self.hints.end_mode,
                 )
-                .and_then(|atom| avm1::as_number(process, atom))
+                .and_then(|atom| avm1::as_number(mem, atom))
                 .map_or(EndSequence::NONE, EndSequence::from_cycles),
         })
     }
@@ -1089,25 +1095,25 @@ impl Game {
     ///     else            return Math.floor( frameTimer-gameTimer );
     /// }
     /// ```
-    fn chrono(&mut self, process: &Process) -> Option<(i64, i64)> {
+    fn chrono(&mut self, mem: &dyn Memory) -> Option<(i64, i64)> {
         let l = &self.layout;
         let chrono =
-            l.child_cached(process, self.game_mode, keys::GAME_CHRONO, &mut self.hints.chrono)?;
+            l.child_cached(mem, self.game_mode, keys::GAME_CHRONO, &mut self.hints.chrono)?;
 
         let frame = avm1::as_int(l.get_cached(
-            process,
+            mem,
             chrono,
             keys::FRAME_TIMER,
             &mut self.hints.frame,
         )?)?;
 
         let stopped = l
-            .get_cached(process, chrono, keys::FL_STOP, &mut self.hints.stop)
+            .get_cached(mem, chrono, keys::FL_STOP, &mut self.hints.stop)
             .and_then(avm1::as_bool)
             .unwrap_or(false);
         if stopped {
             if let Some(halted) = l
-                .get_cached(process, chrono, keys::HALTED_TIMER, &mut self.hints.halted)
+                .get_cached(mem, chrono, keys::HALTED_TIMER, &mut self.hints.halted)
                 .and_then(avm1::as_int)
             {
                 return Some((halted, frame));
@@ -1115,7 +1121,7 @@ impl Game {
         }
 
         let game = avm1::as_int(l.get_cached(
-            process,
+            mem,
             chrono,
             keys::GAME_TIMER,
             &mut self.hints.game,
@@ -1159,15 +1165,15 @@ pub fn attach_plugin(
             if found.is_some() || rejected.contains(&pid) {
                 continue;
             }
-            let Some(process) = Process::attach_by_pid(pid) else {
+            let Some(mem) = Process::attach_by_pid(pid) else {
                 continue;
             };
             let range = PLUGINS.iter().find_map(|plugin| {
-                let (addr, size) = process.get_module_range(plugin).ok()?;
+                let (addr, size) = mem.get_module_range(plugin).ok()?;
                 Some((addr.value(), addr.value() + size))
             });
             match range {
-                Some(range) => found = Some((process, range, pid)),
+                Some(range) => found = Some((mem, range, pid)),
                 None => rejected.push(pid),
             }
         }
@@ -1175,4 +1181,45 @@ pub fn attach_plugin(
 
     rejected.retain(|pid| alive.contains(pid));
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use core::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    use super::{resolve, Anchor, Binary};
+    // The heap is held to the contract of `Memory` in `memory_contract`.
+    use crate::memory_contract::Heap;
+
+    /// Drives a future to its end, with no executor.
+    ///
+    /// The reader awaits `next_tick` and nothing else. Outside the runtime
+    /// there is nothing for it to wait on, so a bare poll loop finishes.
+    fn block_on<F: Future>(f: F) -> F::Output {
+        let mut f = pin!(f);
+        let mut cx = Context::from_waker(Waker::noop());
+        loop {
+            if let Poll::Ready(value) = f.as_mut().poll(&mut cx) {
+                return value;
+            }
+        }
+    }
+
+    /** @spec reader.find::nothing-in-the-menus */
+    #[test]
+    fn finds_nothing_in_an_empty_heap() {
+        let found = block_on(resolve(
+            &Heap::default(),
+            (0x1000, 0x1000),
+            &mut Anchor::default(),
+            &mut Binary::default(),
+            &[],
+        ));
+
+        assert!(found.is_none());
+    }
 }

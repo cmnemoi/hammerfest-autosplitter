@@ -104,11 +104,15 @@ src/core/      the decisions. No dependency, no memory, no runtime.
 Every Rust file lives under `src/`. `src/core/` is its own crate, and its
 sources sit beside its `Cargo.toml` rather than under a second `src/`.
 
-The LiveSplit runtime symbols exist only inside the WebAssembly sandbox, so
-anything that touches them cannot run on a development machine. Everything
-that must be tested has to stay free of them.
+The LiveSplit runtime symbols exist only inside the WebAssembly sandbox.
+`core` receives a `State`, returns `Actions`, touches none of them, and carries
+63 tests. It cannot depend on `asr`, and that is what proves the claim: the
+compiler enforces it, not a convention.
 
-So `core` receives a `State`, returns `Actions`, and carries all 63 tests.
+`src/` can be tested too. The reader reads through one trait of our own,
+`avm1::Memory`, so a test serves it a heap of its own making. Only the
+three-line adapter below that trait touches the runtime.
+See [About testing the memory reader](internals/testing-the-memory-reader.md).
 
 ---
 
@@ -138,6 +142,8 @@ simply the old ones. Three separate checks guard against that.
 | `src/avm1.rs` | the AVM1 object model, measured at run time |
 | `src/diagnostics.rs` | everything that measures. Absent from the normal build. |
 | `build.rs` | turns the obfuscated names into Rust constants |
+| `src/asr_stubs.rs` | 28 runtime symbols, so `cargo test` can link. Tests only. |
+| `src/memory_contract.rs` | the contract of `avm1::Memory`, run against both implementations |
 | `scripts/` | reading and capturing memory, in Python |
 
 ---
