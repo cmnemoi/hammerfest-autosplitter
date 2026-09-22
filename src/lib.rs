@@ -47,7 +47,7 @@ mod keys {
 }
 
 use asr::{future::next_tick, time::Duration, timer, Process};
-use hammerfest_core::{Policy, State, TimerState};
+use hammerfest_core::{Pacing, Policy, State, TimerState};
 
 use hammerfest::Game;
 
@@ -57,20 +57,6 @@ asr::panic_handler!();
 /// EternalTwin starts several processes with the same name. Only the one that
 /// loaded Pepper Flash matters to us.
 const PROCESS_NAMES: &[&str] = &["Eternaltwin.exe", "Eternaltwin", "etwin"];
-
-/// Wait before a failed resolution is tried again, in ticks. A resolution
-/// scans the whole heap, so repeating it 60 times per second would be absurd.
-/// But one more second of wait at the start of a game is visible. Hence a
-/// short first wait that grows while nothing is found.
-const RESOLVE_MIN_COOLDOWN: u32 = 20;
-const RESOLVE_MAX_COOLDOWN: u32 = 60;
-
-/// Heap growth that allows an immediate new scan, in bytes.
-///
-/// Loading the SWF takes the heap from two to eighty MiB, in jumps of several
-/// MiB. Once the game runs, the heap only moves by a few hundred KiB. The
-/// threshold separates the two, and stops a scan loop on allocator noise.
-const HEAP_GROWTH: u64 = 4 << 20;
 
 fn timer_state() -> TimerState {
     match timer::state() {
@@ -142,10 +128,9 @@ async fn run(
     policy: &mut Policy,
 ) {
     let mut game: Option<Game> = None;
-    let mut cooldown = 0u32;
-    let mut backoff = RESOLVE_MIN_COOLDOWN;
-    // Heap size at the last scan: see HEAP_GROWTH.
-    let mut heap = 0u64;
+    // When a full scan is allowed. The rules are in `core::pacing`, with their
+    // spec and their tests.
+    let mut pacing = Pacing::new();
     // The origin is announced once per game. It is the only line that says how
     // late the scan arrived.
     let mut announced = false;
@@ -185,34 +170,30 @@ async fn run(
                     || hammerfest::heap_size(process),
                     |rs| rs.iter().map(|(a, b)| b - a).sum(),
                 );
-                let grown = now > heap + HEAP_GROWTH;
-                if cooldown > 0 && !grown {
-                    cooldown -= 1;
-                } else {
+                if pacing.may_scan(now) {
                     #[cfg(feature = "diagnostics")]
                     asr::print_message(&alloc::format!(
-                        "HF_DIAG event=resolve_trigger t_us={} grown={grown} cooldown={cooldown} heap={now}",
+                        "HF_DIAG event=resolve_trigger t_us={} heap={now}",
                         diagnostics::now_us()
                     ));
-                    heap = now;
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
                     let all =
                         ranges.map_or_else(|| hammerfest::heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(process, module, anchor, binary, &all).await;
                     if game.is_none() {
-                        cooldown = backoff;
+                        pacing.scan_failed();
                         #[cfg(feature = "diagnostics")]
                         asr::print_message(&alloc::format!(
-                            "HF_DIAG event=retry_wait t_us={} ticks={cooldown}",
-                            diagnostics::now_us()
+                            "HF_DIAG event=retry_wait t_us={} ticks={}",
+                            diagnostics::now_us(),
+                            pacing.wait()
                         ));
-                        backoff = (backoff * 2).min(RESOLVE_MAX_COOLDOWN);
                     }
                 }
             }
             if game.is_some() {
-                backoff = RESOLVE_MIN_COOLDOWN;
+                pacing.game_found();
             }
         }
 
@@ -273,8 +254,7 @@ async fn run(
             // with the game and we must scan again. Waiting on top of that
             // would be pure delay, so we restart with no wait.
             game = None;
-            cooldown = 0;
-            backoff = RESOLVE_MIN_COOLDOWN;
+            pacing.game_lost();
         }
 
         next_tick().await;
