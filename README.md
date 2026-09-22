@@ -26,7 +26,7 @@ Then start a game.
 The autosplitter has been tested on:
 
 - Windows, Eternaltwin 1.0.0
-- macOS ARM, Eternaltwin 0.6.6 (see [Run it on macOS](docs/how-to/run-on-macos.md): it needs another LiveSplit, and root)
+- macOS ARM, Eternaltwin 0.6.6 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute
 
