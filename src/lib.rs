@@ -50,7 +50,7 @@ mod keys {
 }
 
 use asr::{future::next_tick, time::Duration, timer, Process};
-use hammerfest_core::{Pacing, Policy, State, TimerState};
+use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest::Game;
 
@@ -240,16 +240,7 @@ async fn run(
             _ => {}
         }
 
-        // The time is set **after** `start()`, never before: starting a run
-        // resets game time to zero, so a value set earlier would be lost and
-        // the timer would show zero for one frame.
         let drop_resolution = apply(actions);
-        if let Some(ms) = actions.real_time_ms {
-            // An absolute value: the detection delay does not shift the time.
-            // LiveSplit must not add its own advance between reads.
-            timer::pause_game_time();
-            timer::set_game_time(Duration::milliseconds(ms));
-        }
 
         if drop_resolution {
             // Losing a game almost always announces the next one. The game
@@ -267,27 +258,40 @@ async fn run(
 /// Executes what the policy decided. Returns `true` if the current resolution
 /// must be dropped.
 ///
+/// The order is not decided here. It is a value, built in `core` and held by
+/// the spec of [timer commands](../docs/specs/timer-commands.md).
+fn apply(actions: hammerfest_core::Actions) -> bool {
+    for command in actions.commands().iter() {
+        send(command);
+    }
+    actions.drop_resolution
+}
+
+/// Sends one command to LiveSplit.
+///
+/// This is the whole of what the autosplitter asks of a timer. Driving another
+/// one means writing another one of these.
+///
 /// @spec crossing::one-split-per-crossing
 /// @spec crossing::warp-skips-the-levels-never-played
-fn apply(actions: hammerfest_core::Actions) -> bool {
-    if actions.reset {
-        timer::reset();
-    }
-    if actions.start {
-        asr::print_message("Hammerfest: game started");
-        timer::start();
-        diagnostics::event("start_called");
-    }
-    if actions.split {
-        timer::split();
+fn send(command: Command) {
+    match command {
+        Command::Reset => timer::reset(),
+        Command::Start => {
+            asr::print_message("Hammerfest: game started");
+            timer::start();
+            diagnostics::event("start_called");
+        }
+        Command::Split => timer::split(),
         // The levels a warp zone carried the player over. A skipped segment
         // records no time, so it takes no gold and stays out of the sum of
         // best segments.
-        for _ in 0..actions.skips {
-            timer::skip_split();
-        }
+        Command::SkipSplit => timer::skip_split(),
+        // An absolute value: the detection delay does not shift the time, and
+        // LiveSplit must not add its own advance between two readings.
+        Command::PauseGameTime => timer::pause_game_time(),
+        Command::SetGameTime(ms) => timer::set_game_time(Duration::milliseconds(ms)),
     }
-    actions.drop_resolution
 }
 
 /// What LiveSplit shows next to the timer.
