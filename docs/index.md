@@ -193,3 +193,7 @@ that number actually is has not been observed. The split rule never reads it.
 **One version, one machine.** The layout is derived at run time. A different
 Flash build should fail cleanly rather than report a wrong level, but that has
 not been tested.
+
+A new build of the game is a separate problem. It renames every identifier, and
+the cure is to regenerate the obfuscation table.
+See [About the obfuscation](concepts/obfuscation.md).

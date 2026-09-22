@@ -92,3 +92,33 @@ uv run python -c "import sys; sys.path.insert(0,'scripts'); import hfmap; print(
 ```
 
 `hfmap.clear` goes the other way.
+
+---
+
+## When the game updates
+
+The table describes one build of the SWF. A new build renames everything
+again, so the table becomes wrong as a whole rather than in part.
+
+A game update is therefore handled in two steps. Regenerate
+`vendor/hf.map.json` from the new SWF with `scripts/hfmap.py`. Then rebuild.
+
+If an identifier disappeared, `build.rs` fails. That is the answer we want: a
+build error, and not an autosplitter that finds nothing at run time.
+
+Nothing under `src/` carries a name taken from the game. The five world names
+are written once, in `build.rs`, and they come out of the table too.
+
+## If two versions must ever live in one build
+
+The game already carries the discriminator. `fVersion` is a property the
+`GameMode` constructor sets, and no other object holds it.
+
+Today the code uses only the *name* of that property, as a search anchor. See
+`src/hammerfest.rs:746`. It never reads the value.
+
+Two versions in one `.wasm` would need two tables emitted by `build.rs`, and
+one read of the `fVersion` value to choose between them. About thirty lines.
+
+It is not written, because one version ships. This section records the route,
+so that nobody designs a larger one.
