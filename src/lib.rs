@@ -88,8 +88,12 @@ async fn main() {
 
     // One line at load time, which says what build is running. It is the first
     // thing we look for in a log someone sends us.
+    // LiveSplit shows no version of an auto splitter anywhere, and the
+    // registry has no field for one. This line is the only place a version
+    // can be read, so it carries it.
     asr::print_message(&alloc::format!(
-        "Hammerfest: autosplitter started (budget={}, diagnostics={})",
+        "Hammerfest: autosplitter {} started (budget={}, diagnostics={})",
+        env!("CARGO_PKG_VERSION"),
         cfg!(feature = "scan-budget"),
         cfg!(feature = "diagnostics"),
     ));
