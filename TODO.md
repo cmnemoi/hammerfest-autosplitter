@@ -47,10 +47,10 @@ and the twenty-eight tests on the synthetic heap stayed green. The list is on
 The net is posed, and something other than memory runs it. `mise run ci` is
 the one name the git hook and the CI both call, so they cannot drift apart.
 
-Install the hook once per clone:
+Install the hooks once per clone:
 
 ```sh
-git config core.hooksPath .githooks
+mise run hooks
 ```
 
 What the net holds: the reader, the decisions, the pacing of the scans and the

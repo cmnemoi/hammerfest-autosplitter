@@ -1,0 +1,31 @@
+# Two speeds, on purpose.
+#
+# What is fast runs on every commit: text hygiene, and nothing that compiles.
+# What is slow runs once per push: `mise run ci`, which is the format, the lint
+# on both targets and every test.
+#
+# Install both, once per clone:  mise run hooks
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # The trimmed capture the replay test reads is 2.5 MiB, and it is the
+        # only big file this repository is meant to carry.
+        args: [--maxkb=3000]
+
+  - repo: local
+    hooks:
+      - id: ci
+        name: mise run ci
+        entry: mise run ci
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -13,11 +13,11 @@ mise run ci       # 20 s. The format, the lint, every test.
 mise run build    # the .wasm LiveSplit loads
 ```
 
-`mise run ci` is what the git hook and the CI run too, so the three can never
-drift apart. Install the hook once per clone:
+`mise run ci` is what the pre-push hook and the CI run too, so the three can
+never drift apart. Install the hooks once per clone:
 
 ```sh
-git config core.hooksPath .githooks
+mise run hooks
 ```
 
 Then, with the game and LiveSplit open:
