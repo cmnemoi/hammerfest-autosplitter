@@ -39,7 +39,7 @@ Useful flags:
 | `--level 6` | smaller, and four times slower to take |
 | `--raw` | no compression, to see what it saves |
 
-Fixtures stay out of git.
+Fixtures stay out of git, except one. See below.
 
 ---
 
@@ -106,3 +106,28 @@ On the capture above, the replay derived the same layout, found the same
 
 The last one is the hardest to get and the most valuable. See [About stale
 memory](../internals/stale-memory.md).
+
+---
+
+## Make one a test
+
+A capture can be replayed by `src/replay.rs`, which is the only test served
+bytes a Flash player wrote. That needs two files, and neither JSON nor gzip in
+the crate:
+
+```sh
+mise run replay-fixture -- my-capture
+cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+mise run replay-fixture -- my-capture --keep <the addresses it printed>
+```
+
+The first run writes every region, 85 MiB, for the tool to work on. The tool
+then empties the biggest region, looks for the game again, and keeps it emptied
+while the game is still found. The last run writes only what is left.
+
+For `main-world`, what is left is 5 regions of 124, 33.3 MiB raw and 2.5 MiB
+gzipped. That one lives in git, under `fixtures/replay/`. The captures
+themselves stay out.
+
+Why it is worth the 2.5 MiB is on
+[the reader test page](../internals/testing-the-memory-reader.md).

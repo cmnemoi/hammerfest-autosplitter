@@ -213,24 +213,90 @@ one. Every other offset is the test's own, and they differ from `MEASURED`.
 
 ---
 
-## No test reads bytes a Flash player wrote
+## One test reads bytes a Flash player wrote
 
-A characterization test on a real capture was planned, and dropped.
+Every other test of this layer is served a heap this project wrote. They prove
+the reader follows its own rules. They cannot prove that `MEASURED`,
+`vendor/hf.map.json` and the layout derivation still match the player and the
+SWF that ship, because nothing in them comes from Flash.
 
-A capture holds 19 MiB of heap. Committing one means trimming it, porting the
-Python fixture reader to Rust, and carrying three to six megabytes in git for
-ever. It would cover three of the seventeen criteria.
+One test does. `src/replay.rs` replays a capture taken from a running game.
 
-The gap it leaves is narrower than it looks. The synthetic heap already covers
-"the layout does not match, so nothing is found": that is
-`reader.find::nothing-on-another-flash-build`.
+### What it costs, measured and not guessed
 
-What no test covers is whether the `MEASURED` seed and `vendor/hf.map.json`
-match the binary and the SWF that ship. Running the autosplitter on a real
-game covers that, and you do it anyway.
+A whole capture is 85 MiB of heap over 124 regions, and git keeps a file for
+ever. So the capture is trimmed, and the trimming is not guessed either.
 
-Add the trimmed fixture the day you change the derivation code itself. Not
-before.
+`smallest_set_of_regions`, in the same file, empties the biggest region, looks
+for the game again, and keeps it emptied while the game is still found. What is
+left is what the object graph needs.
+
+```text
+   5 regions of 124 kept      33.3 MiB raw      2.5 MiB gzipped
+```
+
+An emptied region stays in the map, at its address and its size. The search
+walks the same heap and finds nothing in it, which is the safe direction: a
+region we should have kept turns the test red, never green.
+
+It is a tool and not a test, so it is `#[ignore]`d:
+
+```sh
+cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+```
+
+### What it buys, and the mutation that shows it
+
+Change one obfuscated name in `vendor/hf.map.json`, and see who notices.
+
+| what reddened | what stayed green |
+| --- | --- |
+| the 2 replay tests | the 28 tests on the synthetic heap |
+
+That is the whole point. A test heap writes the name the reader searches for,
+so the two move together and the test cannot see the error. The bytes of a real
+game do not move.
+
+### Where the truth comes from
+
+`metadata.json` carries the state the capture tool read from the game:
+`level`, `set` and `dim`. The replay asserts those three.
+
+That oracle is the Python reader, in `scripts/hf_state.py`. It is not the same
+code: it was written separately and shares no constant with the Rust, which
+derives every offset at run time. So their agreement is not free, and it is
+what the test checks.
+
+The clocks are excluded. A capture takes half a second and the game runs during
+it, so no clock in the file is exact. The fixture says so itself, in its own
+`note`.
+
+### The last step, from bytes to a command
+
+`a_real_game_that_crosses_a_level_splits` takes the state out of the real heap,
+hands it to `Policy`, and invents one thing: the level that follows. The whole
+program is then covered in one line, from the bytes to the split, with only the
+runtime left out.
+
+The two halves meet nowhere else. The reader is proven on a heap we wrote, and
+the policy on states we wrote.
+
+### What it needs
+
+`flate2`, as a dev-dependency. It never reaches the `.wasm`, because
+`cargo build --target wasm32-unknown-unknown` does not build dev-dependencies.
+
+`index.txt` is read with `split_whitespace` and nothing else, which is why the
+fixture carries no JSON.
+
+### Taking a new one
+
+```sh
+mise run capture-heap -- --name my-capture
+mise run replay-fixture -- my-capture
+cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+mise run replay-fixture -- my-capture --keep <the addresses it printed>
+```
 
 ---
 
@@ -346,8 +412,9 @@ and the reader found nothing in a heap that looked right.
 
 ### The red was checked, a second time
 
-Fourteen mutations of the production code, each one reddening only what it
-should.
+Fifteen mutations of the production code, each one reddening only what it
+should. The last one is on the capture, and it is the reason the capture
+exists.
 
 | mutation | what reddened |
 | --- | --- |
@@ -365,6 +432,7 @@ should.
 | the kept entry index is trusted without checking | every test of the layer |
 | any owner will do for the back-pointer | the-mode-the-manager-owns |
 | a manager becomes mandatory | an-orphan-game, and the two heaps with no manager |
+| one obfuscated name changes in `vendor/hf.map.json` | the 2 replay tests, and them alone |
 
 The last one is coarse on purpose. Every reading goes through
 `get_cached`, so a mutation there cannot redden one test alone.
