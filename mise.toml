@@ -110,6 +110,10 @@ run = "uv run python scripts/hf_state.py --watch"
 description = "Show the GameMode, world and Chrono tables"
 run = "uv run python scripts/hf_state.py --dump"
 
+[tasks.ruffle-probe]
+description = "Look for the Hammerfest property names in a browser running Ruffle"
+run = "uv run python scripts/ruffle_probe.py"
+
 [tasks.trace]
 description = "Time the start of a game, from the process to the official start"
 run = "uv run python scripts/hf_trace.py"
