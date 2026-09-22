@@ -97,9 +97,12 @@ memory, talks to no runtime, and knows nothing about Flash.
 ## Why the code is split in two crates
 
 ```text
-core/    the decisions. No dependency, no memory, no runtime.  -> the tests
-src/     the infrastructure. It decides nothing.
+src/           the infrastructure. It decides nothing.
+src/core/      the decisions. No dependency, no memory, no runtime.
 ```
+
+Every Rust file lives under `src/`. `src/core/` is its own crate, and its
+sources sit beside its `Cargo.toml` rather than under a second `src/`.
 
 The LiveSplit runtime symbols exist only inside the WebAssembly sandbox, so
 anything that touches them cannot run on a development machine. Everything
@@ -127,9 +130,9 @@ simply the old ones. Three separate checks guard against that.
 
 | file | job |
 | --- | --- |
-| `core/src/policy.rs` | when to start, split, reset. The state machine. |
-| `core/src/end_sequence.rs` | the end of the run, at the elevator |
-| `core/src/atom.rs` | decoding one AVM1 value |
+| `src/core/policy.rs` | when to start, split, reset. The state machine. |
+| `src/core/end_sequence.rs` | the end of the run, at the elevator |
+| `src/core/atom.rs` | decoding one AVM1 value |
 | `src/lib.rs` | the main loop, and talking to LiveSplit |
 | `src/hammerfest.rs` | finding the process, scanning, reading the game |
 | `src/avm1.rs` | the AVM1 object model, measured at run time |

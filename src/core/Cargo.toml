@@ -7,3 +7,8 @@ edition = "2021"
 # testable. The ASR runtime symbols exist only inside the WebAssembly sandbox,
 # so anything that touches the runtime cannot run here.
 [dependencies]
+
+# The sources sit beside this file, and not under a second `src/`. Every Rust
+# file of the project then lives under the one `src/` at the root.
+[lib]
+path = "lib.rs"

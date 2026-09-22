@@ -121,7 +121,7 @@ page navigates away.
 
 The proof is section 11 of
 [reverse-engineering.md](../reverse-engineering.md). The code is
-`core/src/end_sequence.rs`.
+`src/core/end_sequence.rs`.
 
 ---
 

@@ -1,5 +1,5 @@
 [workspace]
-members = ["core"]
+members = ["src/core"]
 
 [package]
 name = "hammerfest-autosplitter"
@@ -23,7 +23,7 @@ asr = { git = "https://github.com/LiveSplit/asr", features = [
 ] }
 dlmalloc = { version = "0.2.4", features = ["global"] }
 # The core, with no runtime and no memory access: it carries the tests.
-hammerfest-core = { path = "core" }
+hammerfest-core = { path = "src/core" }
 
 [lib]
 crate-type = ["cdylib"]

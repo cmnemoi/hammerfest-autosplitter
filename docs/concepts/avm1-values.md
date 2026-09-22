@@ -174,7 +174,7 @@ never shifted: the three bits it gave up were already zero.
 | 6 | object | the body points at a ScriptObject |
 | 4, 7 | unidentified | never needed |
 
-The code is `core/src/atom.rs`. It is the one part of the memory layer with no
+The code is `src/core/atom.rs`. It is the one part of the memory layer with no
 memory access, which is why it carries unit tests.
 
 ---
