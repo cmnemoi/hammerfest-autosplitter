@@ -150,13 +150,26 @@ pub use hammerfest_core::{EndSequence, Level, State, World};
 
 // -- memory ranges ----------------------------------------------------------
 
-/// The ranges where the AVM1 heap lives: readable, writable, with no file
-/// behind them.
+/// The ranges where the AVM1 heap lives: readable and writable.
+///
+/// A file behind the range used to disqualify it. The AVM1 heap is ordinary
+/// allocated memory on Windows and on Linux, so the rule cost nothing there
+/// and removed the mapped images from the scan.
+///
+/// It is wrong under Rosetta. The macOS build of the plugin is x86-64, and
+/// Rosetta 2 translates it. Every page the guest allocates is then attributed
+/// to `/usr/libexec/rosetta/runtime`, and the whole game heap carries a file
+/// name. The rule removed the one thing worth reading: measured, the five
+/// property names of the game live in Rosetta ranges, and none of them is in
+/// the anonymous ones.
+///
+/// Dropping the rule adds the writable data of the mapped images. That is a
+/// few MiB on Windows, and it is what makes the reader work on macOS.
 fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
     use asr::MemoryRangeFlags as F;
     process.memory_ranges().filter_map(|r| {
         let flags = r.flags().ok()?;
-        if !flags.contains(F::READ | F::WRITE) || flags.contains(F::PATH) {
+        if !flags.contains(F::READ | F::WRITE) {
             return None;
         }
         let (addr, size) = r.range().ok()?;
