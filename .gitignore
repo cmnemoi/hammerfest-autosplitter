@@ -23,4 +23,9 @@ trace.csv
 # Memory captures. One is a hundred MiB of heap before compression, so they
 # stay out of git until a measurement says otherwise.
 # See scripts/capture_heap.py.
-fixtures/
+# The captures. `fixtures/*` and not `fixtures/`, because git never looks
+# inside a directory it excluded, so the exception below would never be seen.
+fixtures/*
+# The exception: the trimmed capture the replay test reads. It is 2.5 MiB, it
+# never changes, and it is the only test served bytes a Flash player wrote.
+!fixtures/replay/

@@ -85,6 +85,10 @@ run = "uv run python scripts/hf_state.py --dump"
 description = "Time the start of a game, from the process to the official start"
 run = "uv run python scripts/hf_trace.py"
 
+[tasks.replay-fixture]
+description = "Turn a capture into a fixture a Rust test can replay"
+run = "uv run python scripts/replay_fixture.py"
+
 [tasks.capture-heap]
 description = "Record the plugin memory as a replayable fixture"
 run = "uv run python scripts/capture_heap.py"

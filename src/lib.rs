@@ -37,6 +37,9 @@ mod asr_stubs;
 /// The contract of `avm1::Memory`, and the implementations held to it.
 #[cfg(test)]
 mod memory_contract;
+/// The bytes of a real game, replayed.
+#[cfg(test)]
+mod replay;
 /// The synthetic heap the reader's tests are served.
 #[cfg(test)]
 mod test_heap;
