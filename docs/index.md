@@ -153,6 +153,7 @@ simply the old ones. Three separate checks guard against that.
 | you want | read |
 | --- | --- |
 | to install and use it | [README](../README.md) |
+| where the test net stands, and what is next | [TODO](../TODO.md) |
 | why there is no fixed address | [About why Flash is hard](concepts/why-flash-is-hard.md) |
 | how a value is packed in 8 bytes | [About AVM1 values](concepts/avm1-values.md) |
 | how to follow a pointer to a property | [About AVM1 objects](concepts/avm1-objects.md) |
@@ -168,6 +169,20 @@ simply the old ones. Three separate checks guard against that.
 | to record memory for tests | [Capture a fixture](how-to/capture-a-fixture.md) |
 | to measure the start delay | [Measure the startup](how-to/measure-the-startup.md) |
 | the proof of any claim above | [reverse-engineering.md](reverse-engineering.md) |
+
+---
+
+## What the tests cover
+
+`core` is under test and can be refactored. The reader has one test out of the
+seventeen its spec asks for. The loop has none.
+
+The state of the net, and what comes next, live in one place:
+[TODO](../TODO.md). It is computed by `mise run spec-coverage`, so read that
+rather than trust a number on a page.
+
+How the net is built, and in what order:
+[About testing the memory reader](internals/testing-the-memory-reader.md).
 
 ---
 
