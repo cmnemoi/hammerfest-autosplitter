@@ -17,7 +17,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 [[package]]
 name = "asr"
 version = "0.1.0"
-source = "git+https://github.com/LiveSplit/asr#89d55ab07198da6fd75cab1ea1a6825b4240b343"
+source = "git+https://github.com/LiveSplit/asr?rev=89d55ab07198da6fd75cab1ea1a6825b4240b343#89d55ab07198da6fd75cab1ea1a6825b4240b343"
 dependencies = [
  "arrayvec",
  "bitflags",

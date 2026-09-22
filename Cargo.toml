@@ -21,7 +21,7 @@ known-flash = []
 scan-budget = []
 
 [dependencies]
-asr = { git = "https://github.com/LiveSplit/asr", features = [
+asr = { git = "https://github.com/LiveSplit/asr", rev = "89d55ab07198da6fd75cab1ea1a6825b4240b343", features = [
     "alloc",         # Vec for the heap scans
     "flags",         # filter the readable / writable memory ranges
     "integer-vars",  # show the level as a variable
