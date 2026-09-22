@@ -1,4 +1,5 @@
 [toolchain]
 channel = "1.98"
-components = ["clippy", "rustfmt"]
+# `llvm-tools-preview` is what `cargo llvm-cov` instruments with.
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
 targets = ["wasm32-unknown-unknown"]

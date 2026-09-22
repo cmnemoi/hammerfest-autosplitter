@@ -2,6 +2,8 @@
 uv = "latest"
 # Pinned, because a hook that changes under you is a hook you stop trusting.
 pre-commit = "4.6.2"
+# The prebuilt binary, not the `cargo:` backend, which compiles it from source.
+"ubi:taiki-e/cargo-llvm-cov" = "0.9.1"
 
 [settings]
 idiomatic_version_file_enable_tools = ["rust", "python"]
@@ -41,6 +43,16 @@ run = [
 [tasks.hooks]
 description = "Install the git hooks, once per clone"
 run = "pre-commit install --install-hooks"
+
+[tasks.coverage]
+description = "Measure the line coverage of the code that ships"
+# The test-only modules are left out. Counting a synthetic heap as covered
+# code would say the net is wider than it is: `test_heap.rs` alone is 511
+# lines that only ever test themselves.
+#
+# `src/lib.rs` stays in, at zero percent. The loop is deliberately outside the
+# net, and a number that hides that decision is worth nothing.
+run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(test_heap|memory_contract|replay|asr_stubs)[.]rs$"'
 
 [tasks.ci]
 description = "Everything that must pass before a change leaves the machine"
