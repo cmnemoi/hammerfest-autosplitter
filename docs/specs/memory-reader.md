@@ -57,6 +57,14 @@ points back. A game can be read without it, more slowly and on weaker evidence.
 Other objects carry a `world` property and point at the same `GameMechanics`.
 A `View` is one. The layer returns the `GameMode` and never one of them.
 
+The proof is the `manager` back-pointer. The mode names its `GameManager`, and
+that manager's `current` names the mode. A mode whose manager points at another
+mode is refused: it is a game that is over, and the manager has moved on.
+
+A mode that names no manager at all is kept, on weaker evidence: it owns a
+`gameChrono`, and a `View` does not. That is what keeps an orphan game
+readable.
+
 ### Its world is a known world
 
 `{#reader::a-known-world}`
@@ -108,6 +116,7 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::an-orphan-game` | a game and no `GameManager` | the game is found |
 | `reader.find::rejects-a-game-already-over` | a game whose `fl_gameOver` is true | nothing is found |
 | `reader.find::the-game-not-one-of-its-views` | a game and three `View` objects of it | the game is found, not a view |
+| `reader.find::the-mode-the-manager-owns` | two modes, and a manager that owns the second, which the search cannot find by itself | the second is found |
 | `reader.find::the-first-of-two-candidates` | two games that both pass every rule | the first is found |
 | `reader.find::a-parallel-world` | a game in `xml_deepnight`, dimension 1 | the game is found, with dimension 1 |
 | `reader.find::nothing-on-another-flash-build` | a game written by another Flash build, and a reader that has already proven the layout of the first build | nothing is found, and never a wrong level |

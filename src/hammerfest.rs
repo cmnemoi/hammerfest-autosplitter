@@ -1000,9 +1000,13 @@ fn string_layout_at(
 /// Is a table that owns `world` really the GameMode?
 ///
 /// `world` alone is not enough: `View` objects carry one too, and they point
-/// at the same `GameMechanics`. Only the GameMode also owns a `gameChrono`.
+/// at the same `GameMechanics`.
 ///
-/// The three rules a candidate must pass before it is a game.
+/// The proof is the `manager` back-pointer, the same one the `GameManager`
+/// path uses in the other direction. A mode that names no manager is kept on
+/// weaker evidence: it owns a `gameChrono`, and a `View` does not.
+///
+/// The rules a candidate must pass before it is a game.
 ///
 /// @spec reader::it-is-a-game-mode
 /// @spec reader::a-known-world
@@ -1020,6 +1024,19 @@ fn validate(mem: &dyn Memory, mut layout: Layout, tbl: u64) -> Option<Game> {
     let level = layout.get_int(mem, wtbl, keys::CURRENT_ID)?;
     if !(0..MAX_LEVEL).contains(&level) {
         return None;
+    }
+
+    // The manager names one mode, the one that runs. A mode it does not name
+    // is a game that is over, and the manager has already moved on to the
+    // next. That is the positive half of the identification.
+    //
+    // A mode that names no manager at all is not refused here. An orphan game
+    // has no manager to ask, and the `gameChrono` below is then the only
+    // evidence left.
+    if let Some(manager) = layout.child(mem, tbl, keys::MANAGER) {
+        if layout.child(mem, manager, keys::CURRENT) != Some(tbl) {
+            return None;
+        }
     }
 
     let chrono = layout.child(mem, tbl, keys::GAME_CHRONO)?;

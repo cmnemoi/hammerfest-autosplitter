@@ -237,6 +237,7 @@ pub struct World {
     game_over: bool,
     views: usize,
     second_game: bool,
+    corpse: bool,
     another_build: bool,
     set_name: &'static str,
     dim: i64,
@@ -257,6 +258,7 @@ impl Default for World {
             game_over: false,
             views: 0,
             second_game: false,
+            corpse: false,
             another_build: false,
             set_name: "xml_adventure",
             dim: 0,
@@ -304,6 +306,17 @@ impl World {
     /// A second game, which passes every rule the first one passes.
     pub fn and_a_second_game(mut self) -> Self {
         self.second_game = true;
+        self
+    }
+
+    /// A game that is over, still in memory, and the manager that has moved
+    /// on to the game which replaced it.
+    ///
+    /// The corpse comes first in memory, so the search meets it first. The
+    /// manager carries no `fVersion`, so the search cannot find it by itself
+    /// and has to fall back on the `world` key.
+    pub fn and_a_corpse_the_manager_has_left(mut self) -> Self {
+        self.corpse = true;
         self
     }
 
@@ -388,6 +401,7 @@ impl World {
         // so that the search meets a view first.
         let mut manager = b.object(4);
         let mut views: Vec<Obj> = (0..self.views).map(|_| b.object(4)).collect();
+        let mut corpse = self.corpse.then(|| b.object(12));
         let mut game_mode = b.object(12);
         let mut second = self.second_game.then(|| b.object(12));
         let mut mechanics = b.object(4);
@@ -415,7 +429,7 @@ impl World {
             b.set(view, keys::WORLD, mechanics.atom());
         }
 
-        for mode in [Some(&mut game_mode), second.as_mut()]
+        for mode in [corpse.as_mut(), Some(&mut game_mode), second.as_mut()]
             .into_iter()
             .flatten()
         {
@@ -432,13 +446,20 @@ impl World {
             }
         }
 
-        if self.manager {
-            // `fVersion` is what the search looks for: the GameManager is the
-            // only class that carries it.
-            let version = b.string("1.0");
-            b.set(&mut manager, keys::F_VERSION, version);
+        if self.manager || self.corpse {
+            if self.manager {
+                // `fVersion` is what the search looks for: the GameManager is
+                // the only class that carries it.
+                let version = b.string("1.0");
+                b.set(&mut manager, keys::F_VERSION, version);
+            }
             b.set(&mut manager, keys::CURRENT, game_mode.atom());
             b.set(&mut game_mode, keys::MANAGER, manager.atom());
+            // The corpse still names the manager. The manager no longer names
+            // it, and that is what tells the two apart.
+            if let Some(dead) = corpse.as_mut() {
+                b.set(dead, keys::MANAGER, manager.atom());
+            }
         }
 
         Fixture {
@@ -847,6 +868,19 @@ fn reads_a_property_that_moved_slot() {
     let state = when_we_read_it(&heap, &mut game);
 
     then_the_state(state).level(2);
+}
+
+/** @spec reader.find::the-mode-the-manager-owns */
+#[test]
+fn finds_the_mode_the_manager_owns() {
+    let mut heap = given_a_heap()
+        .with_a_game()
+        .and_a_corpse_the_manager_has_left()
+        .build();
+
+    let found = when_we_look_for_the_game(&mut heap);
+
+    then_the_game_is_found(&heap, found);
 }
 
 /** @spec reader.find::the-first-of-two-candidates */
