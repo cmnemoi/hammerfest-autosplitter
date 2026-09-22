@@ -2,9 +2,8 @@
 name = "hammerfest-autosplitter-tools"
 version = "0.1.0"
 description = "Reverse engineering and memory exploration tools for the Hammerfest autosplitter"
-requires-python = ">=3.12"
+requires-python = ">=3.14,<3.15"
 
-# Les scripts de lecture (winmem, avm1, hfmap, hf_state, anchors) n'ont
 # No dependency on purpose: ctypes is enough, and that makes them usable
 # anywhere. numpy serves only the offline analysis of pointer chains, which
 # compares millions of 64 bit integers.

@@ -1,17 +1,14 @@
 [tools]
-python = "3.14"
-rust = "1.98"
 uv = "latest"
+
+[settings]
+idiomatic_version_file_enable_tools = ["rust", "python"]
 
 [tasks.build]
 description = "Build the autosplitter as a .wasm"
-# `rustup target add` is idempotent, so putting it here saves installing the
-# target by hand after a clone. The build does need a system linker, however.
-# See README.md.
-run = [
-    "rustup target add wasm32-unknown-unknown",
-    "cargo build --release --target wasm32-unknown-unknown",
-]
+# The target comes from `rust-toolchain.toml`, and mise installs it before the
+# task runs. The build does need a system linker, however. See README.md.
+run = "cargo build --release --target wasm32-unknown-unknown"
 
 [tasks.test]
 description = "Run every test of the workspace"
@@ -27,10 +24,9 @@ description = "Run clippy over both targets, and fail on any warning"
 # wasm32, and the test code -- which the harness compiles against std -- on the
 # host.
 #
-# `rustup component add` is idempotent, so a clone needs no extra step.
+# clippy comes from `rust-toolchain.toml`, and mise installs it before the
+# task runs, so a clone needs no extra step.
 run = [
-    "rustup component add clippy",
-    "rustup target add wasm32-unknown-unknown",
     "cargo clippy --workspace --target wasm32-unknown-unknown -- -D warnings",
     "cargo clippy --workspace --tests -- -D warnings",
 ]
@@ -51,14 +47,11 @@ run = "uv run python scripts/spec_coverage.py"
 
 [tasks.build-diagnostics]
 description = "Build the measurement module in its own directory"
-run = [
-    "rustup target add wasm32-unknown-unknown",
-    "cargo build --release --target wasm32-unknown-unknown --features diagnostics --target-dir target/diagnostics",
-]
+run = "cargo build --release --target wasm32-unknown-unknown --features diagnostics --target-dir target/diagnostics"
 
 [tasks.probe-runtime]
 description = "Measure the cache of the ASR DLL that LiveSplit loads"
-run = "python scripts/runtime_probe.py"
+run = "uv run python scripts/runtime_probe.py"
 
 [tasks.build-cold-start]
 description = "Build the variant that measures the first start"
@@ -70,11 +63,11 @@ run = "cargo build --release --target wasm32-unknown-unknown --features diagnost
 
 [tasks.summarize-startup]
 description = "Summarise the starts from an exported log"
-run = "python scripts/summarize_startup.py"
+run = "uv run python scripts/summarize_startup.py"
 
 [tasks.capture-startup]
 description = "Capture up to 25 starts over 15 minutes, with no manual export"
-run = "python scripts/capture_startup.py"
+run = "uv run python scripts/capture_startup.py"
 
 [tasks.state]
 description = "Show the level and the clock of the game in progress"
