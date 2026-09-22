@@ -17,7 +17,7 @@ The autosplitter presses the key instead. It answers three questions:
 | question | what it sends LiveSplit |
 | --- | --- |
 | has the run started? | `start` |
-| has the player crossed a level? | `split` |
+| has the player crossed a level? | `split`, then one `skip split` per level a warp zone carried them over |
 | is the run over, or abandoned? | `split`, then `reset` |
 
 All three answers come from one number, the current level, plus a clock. So the
@@ -105,7 +105,7 @@ The LiveSplit runtime symbols exist only inside the WebAssembly sandbox, so
 anything that touches them cannot run on a development machine. Everything
 that must be tested has to stay free of them.
 
-So `core` receives a `State`, returns `Actions`, and carries all 46 tests.
+So `core` receives a `State`, returns `Actions`, and carries all 56 tests.
 
 ---
 
@@ -153,6 +153,7 @@ simply the old ones. Three separate checks guard against that.
 | how the run is timed to the frame | [About the clocks](internals/the-clocks.md) |
 | why the search must stay cheap | [About speed](internals/speed-matters.md) |
 | what the memory reader must do | [Memory reader](specs/memory-reader.md) |
+| what a level crossing sends LiveSplit | [Level crossings](specs/level-crossings.md) |
 | how that is proved, and in what order | [About testing the memory reader](internals/testing-the-memory-reader.md) |
 | to read a live game yourself | [Read a live game](how-to/read-a-live-game.md) |
 | to record memory for tests | [Capture a fixture](how-to/capture-a-fixture.md) |

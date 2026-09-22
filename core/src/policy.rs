@@ -71,6 +71,13 @@ pub struct Actions {
     pub reset: bool,
     pub start: bool,
     pub split: bool,
+    /// How many `skip_split` follow the `split`, for the levels a warp zone
+    /// carried the player over and that they never played.
+    ///
+    /// A skipped segment records no time, so it produces no gold and stays out
+    /// of the sum of best segments. The run then consumes the same number of
+    /// segments whether the umbrella appeared or not.
+    pub skips: u8,
     /// The current resolution is no longer valid. Drop it and search again.
     pub drop_resolution: bool,
     /// Real time since the official start, in milliseconds.
@@ -88,6 +95,9 @@ impl Actions {
 
 /// The first level of an adventure.
 const FIRST_LEVEL: i64 = 0;
+/// The widest move `SpecialManager.warpZone` can make. It advances by 1 to 3
+/// through `forcedGoto`, stopping before a boss or an empty level.
+const WARP_REACH: i64 = 3;
 /// Ticks without a change in `frameTimer` before the GameMode is declared
 /// dead. The value is generous: Flash runs at about thirty frames per second,
 /// and a background window runs slower still.
@@ -129,6 +139,29 @@ pub struct Policy {
     /// Once it is set, it is the only value we publish. `frameTimer` keeps
     /// advancing during the end sequence, and the final time must not.
     finish_time_ms: Option<i64>,
+}
+
+/// @spec crossing::warp-skips-the-levels-never-played
+/// @spec crossing::a-large-jump-skips-nothing
+///
+/// How many segments a crossing of `jump` levels leaves behind.
+///
+/// A warp zone -- the umbrella -- carries the player over up to two levels
+/// they never play. Those segments must record no time, so that a run consumes
+/// the same number of segments whether the umbrella appeared or not: it spawns
+/// at random, and a runner cannot plan a splits file around it.
+///
+/// Above `WARP_REACH` the move is not a warp zone. It is the level 0 shortcut,
+/// which every attempt goes through and the runner plans as one segment; or
+/// the three writes `Adventure.nextLevel` makes inside one frame, read in the
+/// middle; or a misread. The bound is what keeps that last case cheap: without
+/// it, one wrong read would skip its way through the rest of the splits file.
+fn skips_after(jump: i64) -> u8 {
+    if jump <= WARP_REACH {
+        (jump - 1) as u8
+    } else {
+        0
+    }
 }
 
 impl Policy {
@@ -355,9 +388,8 @@ impl Policy {
         // (`Adventure.nextLevel` under `fl_warpStart`), and warp zones advance
         // by 1 to 3 (`SpecialManager.warpZone` -> `forcedGoto`).
         //
-        // One split per crossing, whatever the number of levels skipped. The
-        // route of a run goes through these shortcuts, so one segment matches
-        // them.
+        // One split per crossing, whatever the size of the move. The split
+        // closes the segment of the level the player just left.
         //
         // Only forward counts, and nothing in a run moves backwards: a death
         // costs a life and keeps the same level, and a warp cannot arrive
@@ -368,6 +400,7 @@ impl Policy {
             && now.dim == 0
         {
             actions.split = true;
+            actions.skips = skips_after(now.level - prev.level);
         }
     }
 }
@@ -688,6 +721,105 @@ mod tests {
         let mut r = Run::new();
         r.confirm(at(3, 10_000));
         assert!(!r.confirm(at(4, 20_000)).split);
+    }
+
+    // -- warp zones ---------------------------------------------------------
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn a_crossing_of_one_level_skips_nothing() {
+        let mut r = Run::new().running();
+        r.confirm(at(3, 10_000));
+        let actions = r.confirm(at(4, 20_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn a_warp_of_two_skips_the_level_it_never_played() {
+        // `SpecialManager.warpZone` -> `forcedGoto`: the umbrella. The player
+        // never enters level 43, so its segment must record no time, and no
+        // gold.
+        let mut r = Run::new().running();
+        r.confirm(at(42, 100_000));
+        let actions = r.confirm(at(44, 110_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 1);
+    }
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn a_warp_of_three_skips_the_two_levels_it_never_played() {
+        let mut r = Run::new().running();
+        r.confirm(at(42, 100_000));
+        let actions = r.confirm(at(45, 110_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 2);
+    }
+
+    /// @spec crossing::a-large-jump-skips-nothing
+    #[test]
+    fn the_level_0_shortcut_skips_nothing() {
+        // `0 -> 10` happens in every attempt, so the runner plans one segment
+        // for it. Nine dead segments would exist only to be skipped.
+        let mut r = Run::new().running();
+        r.confirm(at(0, 5_000));
+        let actions = r.confirm(at(10, 9_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::a-large-jump-skips-nothing
+    #[test]
+    fn a_jump_wider_than_a_warp_skips_nothing() {
+        // `warpZone` advances by at most 3. A wider move is the level 0
+        // shortcut read in the middle of its three writes, or a misread.
+        // Without the bound, one wrong read would burn the splits file.
+        let mut r = Run::new().running();
+        r.confirm(at(1, 5_000));
+        let actions = r.confirm(at(10, 9_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn nothing_that_does_not_split_ever_skips() {
+        // A skip is never sent alone. Every path that refuses the split must
+        // refuse the skips with it.
+        // Each case starts from its own run: acting on a level makes it the
+        // new reference, so chaining them would change what the next one
+        // means.
+        let mut backwards = Run::new().running();
+        backwards.confirm(at(42, 100_000));
+        assert_eq!(backwards.confirm(at(40, 101_000)).skips, 0);
+
+        // A death costs a life and leaves `currentId` alone.
+        let mut death = Run::new().running();
+        death.confirm(at(42, 100_000));
+        assert_eq!(death.confirm(at(42, 101_000)).skips, 0);
+
+        let mut parallel = Run::new().running();
+        parallel.confirm(at(42, 100_000));
+        let mut elsewhere = at(45, 101_000);
+        elsewhere.dim = 1;
+        assert_eq!(parallel.confirm(elsewhere).skips, 0);
+
+        let mut stopped = Run::new();
+        stopped.confirm(at(42, 100_000));
+        assert_eq!(stopped.confirm(at(45, 110_000)).skips, 0);
+    }
+
+    /// @spec crossing::one-split-per-crossing
+    #[test]
+    fn the_elevator_skips_nothing() {
+        // The run ends inside the last level. Nothing is left to skip.
+        let mut r = Run::new().running();
+        r.confirm(at(103, 600_000));
+        let actions = r.tick(Some(elevator(103, 601_000)));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
     }
 
     // -- end of game and dead objects ---------------------------------------

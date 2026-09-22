@@ -260,6 +260,9 @@ async fn run(
 
 /// Executes what the policy decided. Returns `true` if the current resolution
 /// must be dropped.
+///
+/// @spec crossing::one-split-per-crossing
+/// @spec crossing::warp-skips-the-levels-never-played
 fn apply(actions: hammerfest_core::Actions) -> bool {
     if actions.reset {
         timer::reset();
@@ -271,6 +274,12 @@ fn apply(actions: hammerfest_core::Actions) -> bool {
     }
     if actions.split {
         timer::split();
+        // The levels a warp zone carried the player over. A skipped segment
+        // records no time, so it takes no gold and stays out of the sum of
+        // best segments.
+        for _ in 0..actions.skips {
+            timer::skip_split();
+        }
     }
     actions.drop_resolution
 }
