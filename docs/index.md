@@ -106,7 +106,7 @@ sources sit beside its `Cargo.toml` rather than under a second `src/`.
 
 The LiveSplit runtime symbols exist only inside the WebAssembly sandbox.
 `core` receives a `State`, returns `Actions`, touches none of them, and carries
-63 tests. It cannot depend on `asr`, and that is what proves the claim: the
+77 tests. It cannot depend on `asr`, and that is what proves the claim: the
 compiler enforces it, not a convention.
 
 `src/` can be tested too. The reader reads through one trait of our own,
@@ -137,6 +137,8 @@ simply the old ones. Three separate checks guard against that.
 | `src/core/policy.rs` | when to start, split, reset. The state machine. |
 | `src/core/end_sequence.rs` | the end of the run, at the elevator |
 | `src/core/atom.rs` | decoding one AVM1 value |
+| `src/core/pacing.rs` | when the loop may scan the whole heap again |
+| `src/core/command.rs` | what one tick sends the timer, in order |
 | `src/lib.rs` | the main loop, and talking to LiveSplit |
 | `src/hammerfest.rs` | finding the process, scanning, reading the game |
 | `src/avm1.rs` | the AVM1 object model, measured at run time |
@@ -144,6 +146,8 @@ simply the old ones. Three separate checks guard against that.
 | `build.rs` | turns the obfuscated names into Rust constants |
 | `src/asr_stubs.rs` | 28 runtime symbols, so `cargo test` can link. Tests only. |
 | `src/memory_contract.rs` | the contract of `avm1::Memory`, run against both implementations |
+| `src/test_heap.rs` | a synthetic AVM1 heap, written byte by byte. Tests only. |
+| `src/replay.rs` | a real capture, replayed. The only test served Flash bytes. |
 | `scripts/` | reading and capturing memory, in Python |
 
 ---
@@ -164,18 +168,23 @@ simply the old ones. Three separate checks guard against that.
 | why the search must stay cheap | [About speed](internals/speed-matters.md) |
 | what the memory reader must do | [Memory reader](specs/memory-reader.md) |
 | what a level crossing sends LiveSplit | [Level crossings](specs/level-crossings.md) |
+| when the loop may scan again | [Resolution pacing](specs/resolution-pacing.md) |
+| what we send the timer, and in what order | [Timer commands](specs/timer-commands.md) |
 | how that is proved, and in what order | [About testing the memory reader](internals/testing-the-memory-reader.md) |
 | to read a live game yourself | [Read a live game](how-to/read-a-live-game.md) |
 | to record memory for tests | [Capture a fixture](how-to/capture-a-fixture.md) |
 | to measure the start delay | [Measure the startup](how-to/measure-the-startup.md) |
+| to check it still works, before a run | [Check before a session](how-to/check-before-a-session.md) |
+| what the net refuses to hold, and why | [What the net does not hold](internals/what-the-net-does-not-hold.md) |
 | the proof of any claim above | [reverse-engineering.md](reverse-engineering.md) |
 
 ---
 
 ## What the tests cover
 
-`core` is under test and can be refactored. The reader has one test out of the
-seventeen its spec asks for. The loop has none.
+`core` is under test. The reader is too: eighteen situations on a heap a test
+writes byte by byte, plus one capture of a real game replayed from the bytes to
+the split. The loop keeps only what asks the runtime a question.
 
 The state of the net, and what comes next, live in one place:
 [TODO](../TODO.md). It is computed by `mise run spec-coverage`, so read that
@@ -183,6 +192,8 @@ rather than trust a number on a page.
 
 How the net is built, and in what order:
 [About testing the memory reader](internals/testing-the-memory-reader.md).
+What it deliberately leaves out:
+[What the net does not hold](internals/what-the-net-does-not-hold.md).
 
 ---
 
@@ -212,8 +223,10 @@ to that dimension and can never be compared with a number from another. What
 that number actually is has not been observed. The split rule never reads it.
 
 **One version, one machine.** The layout is derived at run time. A different
-Flash build should fail cleanly rather than report a wrong level, but that has
-not been tested.
+Flash build fails cleanly rather than report a wrong level, and
+`reader.find::nothing-on-another-flash-build` holds that. What no test can see
+is the day the player itself is updated: the replay test then replays the old
+bytes, and only a real game shows it.
 
 A new build of the game is a separate problem. It renames every identifier, and
 the cure is to regenerate the obfuscation table.

@@ -42,58 +42,29 @@ and the twenty-eight tests on the synthetic heap stayed green. The list is on
 
 ## What is next, in order
 
-The list was agreed once and does not change on its own. It closes the net,
-and then the net gets run by something other than memory.
-
-### 1. The order of the commands
-
-`apply`, in `src/lib.rs`, calls `timer::start()` then `timer::set_game_time()`,
-and the order matters: starting a run resets the game time, so a time set
-earlier is lost. That rule is a comment today.
-
-`Policy` will emit an ordered list of commands, and `run` will execute it. The
-order becomes a value, tested in `core` with the rest of the decisions. A fixed
-size array, because `core` is `no_std` without `alloc`.
-
-It also answers a question that has no answer today: what would it take to
-drive another timer than LiveSplit. A list of commands supposes nothing about
-LiveSplit.
-
-### 2. Tests for `spec_coverage.py`
-
-A coverage report that lies is worse than no report. It reads no memory, so it
-is cheap to hold.
-
-### 3. The written procedure, and the note on what stays out
-
-What to run before a session, in five minutes. And one page that says what is
-deliberately outside the net: the attachment to the process, the Python scripts
-of the reverse engineering, and the performance, which is planned in another
-form.
-
-### 4. A git hook, and the CI
+### 1. A git hook, and the CI
 
 `mise run check` says of itself that it is for a hook or a CI, and nothing
-calls it. The hook comes first: it stops a fault before it leaves the machine.
-The CI proves it publicly.
+calls it. `.github/` exists and is empty. `.git/hooks` holds only samples.
 
-The replay test will not run in CI, and that is accepted: the fixture in git is
-enough for it to run, so it will. What will not run there is a capture of your
-own game.
+A net nobody runs protects nothing. The hook comes first: it stops a fault
+before it leaves the machine, in three seconds. The CI proves it publicly, and
+it will run the replay test too, because its capture is the only one in git.
+
+### 2. Whatever the redesign asks for next
+
+The net is posed. The reader, the decisions, the pacing and the order of the
+commands are all held by tests, and the parts that are not held say so in
+[What the net does not hold](docs/internals/what-the-net-does-not-hold.md).
 
 ---
 
 ## What is deliberately not planned
 
-**No test reads bytes a Flash player wrote.** Committing a trimmed capture
-costs three to six megabytes in git and covers three criteria the synthetic
-heap already covers. Add it the day the offset derivation itself changes. The
-reasoning is on the
-[reader test page](docs/internals/testing-the-memory-reader.md).
+Every gap, and the reason for it, lives on one page:
+[What the net does not hold](docs/internals/what-the-net-does-not-hold.md).
 
-**Finding the process stays outside the net.** The reader spec puts it out of
-scope, and `heap_iter`, `heap_ranges` and `heap_size` keep talking to `asr`
-directly for that reason.
-
-**No Python formatter.** Adding one means adding a dependency, which is a
-separate decision.
+In one line each: the runtime is a hard boundary; finding the process stays
+outside; the Python of the reverse engineering is a second opinion and never
+the reference; and performance is measured rather than tested, by the method
+[Speed matters](docs/internals/speed-matters.md) prescribes.
