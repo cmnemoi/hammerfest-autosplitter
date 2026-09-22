@@ -57,9 +57,18 @@ use hammerfest::Game;
 asr::async_main!(stable);
 asr::panic_handler!();
 
-/// EternalTwin starts several processes with the same name. Only the one that
-/// loaded Pepper Flash matters to us.
-const PROCESS_NAMES: &[&str] = &["Eternaltwin.exe", "Eternaltwin", "etwin"];
+/// EternalTwin starts several processes. Only the one that loaded Pepper
+/// Flash matters to us.
+///
+/// On Windows and Linux they all carry the same name. On macOS the plugin
+/// process carries its own: the runtime reports the name of the helper
+/// bundle, not the name of the application.
+const PROCESS_NAMES: &[&str] = &[
+    "Eternaltwin.exe",
+    "Eternaltwin",
+    "etwin",
+    "Eternaltwin Helper (Plugin)",
+];
 
 fn timer_state() -> TimerState {
     match timer::state() {
