@@ -2,6 +2,7 @@
 
 [![Continuous Integration](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-integration.yml/badge.svg)](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-integration.yml)
 [![Continuous Delivery](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-delivery.yml/badge.svg)](https://github.com/cmnemoi/hammerfest-autosplitter/actions/workflows/continuous-delivery.yml)
+[![Coverage](https://codecov.io/gh/cmnemoi/hammerfest-autosplitter/graph/badge.svg)](https://codecov.io/gh/cmnemoi/hammerfest-autosplitter)
 
 A LiveSplit autosplitter for [Hammerfest / Eternalfest](https://eternalfest.net/). It starts
 the timer when level 0 appears, splits on every level crossed, splits once more

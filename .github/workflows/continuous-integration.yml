@@ -28,3 +28,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # The same name the git hook calls, so the two cannot drift apart.
       - run: mise run ci
+      # Coverage is measured here and not in the hook: it is a second,
+      # instrumented build of everything, and a hook has to stay cheap.
+      - run: mise run coverage
+      - uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
