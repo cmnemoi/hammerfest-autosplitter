@@ -502,8 +502,8 @@ impl Binary {
     /// The layout, rebased on the module of this process.
     fn layout(&self, module: (u64, u64)) -> Option<Layout> {
         let mut l = self.layout.unwrap_or(MEASURED);
-        l.str_vt = module.0 + l.str_vt;
-        l.tbl_vt = module.0 + l.tbl_vt;
+        l.str_vt += module.0;
+        l.tbl_vt += module.0;
         l.module = module;
         Some(l)
     }
@@ -621,7 +621,7 @@ pub async fn resolve(
         .collect();
     if ranges.is_empty() {
         anchor.sweeps += 1;
-        if anchor.sweeps % FULL_SWEEP != 0 {
+        if !anchor.sweeps.is_multiple_of(FULL_SWEEP) {
             cost.outcome("unchanged_ranges");
             return None;
         }

@@ -63,7 +63,11 @@ Rust for the module, Python for the memory tools.
 
 ```sh
 mise run build    # -> target/*/release/hammerfest_autosplitter.wasm
-mise run test     # the rules, with no runtime and no memory
+mise run test     # every test of the workspace
+mise run lint     # clippy on both targets, and no warning allowed
+mise run fmt      # format the Rust code
+mise run check    # format and lint, changing nothing. For a hook or CI.
+mise run spec-coverage  # which spec ids have no test yet
 mise run state    # read a running game: level, clock, world
 ```
 

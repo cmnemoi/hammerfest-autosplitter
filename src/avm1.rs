@@ -142,8 +142,9 @@ impl Layout {
         let result = mem.read_into(buf, bytes);
         crate::diagnostics::validation_read(n * 2, result.is_some());
         result?;
-        for (unit, pair) in out[..n].iter_mut().zip(bytes.chunks_exact(2)) {
-            *unit = u16::from_le_bytes([pair[0], pair[1]]);
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (unit, pair) in out[..n].iter_mut().zip(pairs) {
+            *unit = u16::from_le_bytes(*pair);
         }
         Some(n)
     }
