@@ -346,7 +346,7 @@ and the reader found nothing in a heap that looked right.
 
 ### The red was checked, a second time
 
-Twelve mutations of the production code, each one reddening only what it
+Fourteen mutations of the production code, each one reddening only what it
 should.
 
 | mutation | what reddened |
@@ -363,17 +363,34 @@ should.
 | a missing `gameChrono` reads as zero | rejects-a-missing-chrono |
 | `gameTimer` is not subtracted from `frameTimer` | the-nominal-state |
 | the kept entry index is trusted without checking | every test of the layer |
+| any owner will do for the back-pointer | the-mode-the-manager-owns |
+| a manager becomes mandatory | an-orphan-game, and the two heaps with no manager |
 
 The last one is coarse on purpose. Every reading goes through
 `get_cached`, so a mutation there cannot redden one test alone.
 
-### Step 3, the change the net was for
+### Step 3, the change the net was for. Done
 
-Change `validate` to identify the `GameMode` positively, through the `manager`
-back-pointer, and see what step 2 says.
+`validate` now identifies the `GameMode` positively. The mode names its
+`GameManager`, and that manager's `current` must name the mode back. It is the
+same proof the `GameManager` path already used, in the other direction.
 
-Today the identification is negative: it is not a `View`, because it also owns
-a `gameChrono`. The `GameManager` path already proves itself positively,
-through a pointer that comes back. The asymmetry is the defect, and
-`reader.find::the-game-not-one-of-its-views` and `reader.find::an-orphan-game`
-are the two criteria that will judge the fix.
+A mode that names no manager is still kept, on the old evidence: it owns a
+`gameChrono`, and a `View` does not. That is what `reader.find::an-orphan-game`
+asks for, and the mutation that made a manager mandatory reddened it at once.
+
+What the change buys: a game that is over is no longer picked up by the
+fallback scan. The manager has moved on to the game that replaced it, and the
+corpse is refused. That is the new criterion,
+`reader.find::the-mode-the-manager-owns`.
+
+What it costs: nothing when the manager cannot be read. `child` answers `None`
+both for "no such property" and for "the object behind it cannot be read", so
+an unreadable manager falls back to the weak evidence rather than refusing a
+live game.
+
+### What the net said about the change
+
+The seventeen tests written before it all stayed green. The one new test was
+red before the change and green after. No test had to be edited to make the
+change pass, which is the whole point of writing them first.
