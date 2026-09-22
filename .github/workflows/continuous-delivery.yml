@@ -1,0 +1,57 @@
+# Publishes the module, and nothing else.
+#
+# `release-please` reads the conventional commits since the last tag and keeps
+# one pull request open with the next version and the changelog. Nothing is
+# published until that pull request is merged, which is the gate we want: every
+# LiveSplit user re-downloads the module on every activation, so a bad release
+# reaches everyone at once and there is no way to pin an old one.
+#
+# The release carries one file, `hammerfest_autosplitter.wasm`. The name never
+# changes, because the LiveSplit registry holds a fixed URL and downloads
+# whatever sits behind it:
+#
+#     https://github.com/cmnemoi/hammerfest-autosplitter/releases/latest/download/hammerfest_autosplitter.wasm
+#
+# So a new release reaches every user with no change to the registry.
+name: Continuous Delivery
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # `rust` bumps both crates of the workspace and `Cargo.lock` in one pass.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: rust
+
+  publish:
+    needs: release
+    if: ${{ needs.release.outputs.created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MISE_EXPERIMENTAL: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: mise run build
+      - name: Attach the module to the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload ${{ needs.release.outputs.tag }}
+          target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
