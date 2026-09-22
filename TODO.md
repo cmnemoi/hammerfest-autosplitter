@@ -42,19 +42,19 @@ and the twenty-eight tests on the synthetic heap stayed green. The list is on
 
 ## What is next, in order
 
-### 1. A git hook, and the CI
+### 1. Whatever the redesign asks for next
 
-`mise run check` says of itself that it is for a hook or a CI, and nothing
-calls it. `.github/` exists and is empty. `.git/hooks` holds only samples.
+The net is posed, and something other than memory runs it. `mise run ci` is
+the one name the git hook and the CI both call, so they cannot drift apart.
 
-A net nobody runs protects nothing. The hook comes first: it stops a fault
-before it leaves the machine, in three seconds. The CI proves it publicly, and
-it will run the replay test too, because its capture is the only one in git.
+Install the hook once per clone:
 
-### 2. Whatever the redesign asks for next
+```sh
+git config core.hooksPath .githooks
+```
 
-The net is posed. The reader, the decisions, the pacing and the order of the
-commands are all held by tests, and the parts that are not held say so in
+What the net holds: the reader, the decisions, the pacing of the scans and the
+order of the commands. What it does not hold says so, on one page:
 [What the net does not hold](docs/internals/what-the-net-does-not-hold.md).
 
 ---

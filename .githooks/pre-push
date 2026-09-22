@@ -1,0 +1,19 @@
+#!/bin/sh
+# Runs the net before anything leaves the machine.
+#
+# Install it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# It runs `mise run ci`: the format, the lint on both targets, every test, and
+# the checks of the script that reports the coverage. About twenty seconds on a
+# warm cache.
+#
+# On push, and not on commit. A commit is cheap and often wrong on purpose; a
+# push is what other people see.
+#
+# To push anyway, when you know why:
+#
+#     git push --no-verify
+set -e
+exec mise run ci

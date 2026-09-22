@@ -36,6 +36,12 @@ run = [
     "cargo clippy --workspace --tests -- -D warnings",
 ]
 
+[tasks.ci]
+description = "Everything that must pass before a change leaves the machine"
+# What the git hook runs, and what the CI runs. One name, so the two can never
+# drift apart.
+depends = ["check", "test"]
+
 [tasks.fmt]
 description = "Format the Rust code"
 run = "cargo fmt --all"

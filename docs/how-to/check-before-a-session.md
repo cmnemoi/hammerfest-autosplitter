@@ -9,8 +9,15 @@ and LiveSplit that are installed today.
 ## The five minutes
 
 ```sh
-mise run test     # 30 s. Every test, and the script that reports them.
+mise run ci       # 20 s. The format, the lint, every test.
 mise run build    # the .wasm LiveSplit loads
+```
+
+`mise run ci` is what the git hook and the CI run too, so the three can never
+drift apart. Install the hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
 ```
 
 Then, with the game and LiveSplit open:
