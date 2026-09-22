@@ -1,0 +1,30 @@
+# Everything that must pass before a change is merged.
+#
+# One job on purpose. The toolchain takes about twenty seconds to install and
+# the work itself about eighteen, so two jobs in parallel would pay the
+# installation twice to save six seconds of wall clock.
+name: Continuous Integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: ["main"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MISE_EXPERIMENTAL: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      # The same name the git hook calls, so the two cannot drift apart.
+      - run: mise run ci
