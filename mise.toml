@@ -11,8 +11,13 @@ description = "Build the autosplitter as a .wasm"
 run = "cargo build --release --target wasm32-unknown-unknown"
 
 [tasks.test]
-description = "Run every test of the workspace"
-run = "cargo test --workspace"
+description = "Run every test of the workspace, and the one script the net relies on"
+# `spec_coverage.py` decides what the coverage report says, so a report that
+# lies is worse than no report. Its own checks run here, and nowhere else.
+run = [
+    "cargo test --workspace",
+    "uv run python scripts/spec_coverage.py --self-check",
+]
 
 [tasks.lint]
 description = "Run clippy over both targets, and fail on any warning"
