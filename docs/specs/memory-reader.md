@@ -9,9 +9,9 @@ How the net around it is built is a separate page:
 
 ## Why
 
-About 1400 lines of Rust stand between a process and a `State`, and none of it
-has a test. It cannot have one: `cargo test` on that crate fails to link, with
-30 unresolved `asr` symbols.
+About 1400 lines of Rust stand between a process and a `State`. For a long
+time none of it had a test, and none of it could: `cargo test` on that crate
+failed to link, with 30 unresolved `asr` symbols.
 
 The risk is not that the layer finds nothing. It is that it finds something
 wrong. A missing `State` costs a few hundred milliseconds of display. A false
@@ -79,6 +79,11 @@ The offsets of a String, a property table and a ScriptObject are measured at
 run time. Under a layout that does not match the binary, neighbouring bytes
 decode into plausible numbers. The layer must then find nothing.
 
+A layout that has already read something is kept and trusted. So a player who
+updates the plugin between two games gets nothing until the autosplitter is
+started again. That is the decision this rule makes: no reading beats a wrong
+level.
+
 ### The reading refuses rather than defaults
 
 `{#reader::refuses-rather-than-defaults}`
@@ -105,7 +110,7 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::the-game-not-one-of-its-views` | a game and three `View` objects of it | the game is found, not a view |
 | `reader.find::the-first-of-two-candidates` | two games that both pass every rule | the first is found |
 | `reader.find::a-parallel-world` | a game in `xml_deepnight`, dimension 1 | the game is found, with dimension 1 |
-| `reader.find::nothing-on-another-flash-build` | a game written by another Flash build | nothing is found, and never a wrong level |
+| `reader.find::nothing-on-another-flash-build` | a game written by another Flash build, and a reader that has already proven the layout of the first build | nothing is found, and never a wrong level |
 | `reader.find::the-same-game-when-looking-again` | a game, looked for twice, the heap unchanged | the same game is found |
 | `reader.find::the-new-game-not-the-corpse` | a game replaced by another between two looks | the new game is found |
 

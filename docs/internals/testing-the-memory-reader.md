@@ -190,8 +190,8 @@ must return, because the reader prints while it searches.
 The builder writes bytes, the reader reads them, and both need the same table
 of offsets. Where the builder takes its own decides what the tests can see.
 
-It takes a table written in the test module. Not `MEASURED`, the seed the
-production code uses.
+It takes a table written in the test module, in `mod layout`. Not `MEASURED`,
+the seed the production code uses.
 
 A test double that shares its constants with the code under test cannot see an
 error in those constants. If someone mistypes `str_buf` from `0x08` to `0x10`
@@ -205,6 +205,11 @@ it shares those constants with the code under test.
 catches most of it. A table that is right for the old SWF and wrong for the new
 one still passes every test. See
 [About the obfuscation](../concepts/obfuscation.md).
+
+One number is shared of necessity: the geometry of a property table. The reader
+tries the two profiles of `avm1::PROFILES` and no third, so a heap written in a
+third geometry could not be read at all. The builder writes the `windows-x64`
+one. Every other offset is the test's own, and they differ from `MEASURED`.
 
 ---
 
@@ -231,26 +236,45 @@ before.
 
 ## The DSL
 
-Three phases, each nameable. The chain is sugar over the same functions, so a
-test can break it apart when that reads better.
+It lives in `src/test_heap.rs`, with the builder and the seventeen tests.
+Three phases, and each one has a name.
 
 ```rust
-// the chain
-given_a_heap()
+let mut heap = given_a_heap()
     .with_a_manager_and_a_game()
-        .in_world("xml_adventure")
-        .at_level(2)
-        .with_frame_timer(23_677)
-    .and_three_views_of_that_game()
-.when_we_look_for_the_game()
-.then_it_is_found()
-    .at_level(2)
-    .with_frame_timer(23_677);
+    .in_world("xml_deepnight")
+    .in_dimension(1)
+    .build();
 
-// the same, one phase per variable
-let heap  = given_a_heap().with_a_manager_and_a_game().at_level(2).build();
-let found = when_we_look_for_the_game(&heap);
-then_it_is_found(found).at_level(2);
+let found = when_we_look_for_the_game(&mut heap);
+
+let mut game = then_the_game_is_found(&heap, found);
+then_the_world_is(&game, "xml_deepnight");
+then_the_state(when_we_read_it(&heap, &mut game)).dimension(1);
+```
+
+What the heap may hold:
+
+```text
+with_a_manager_and_a_game()          the nominal heap
+with_a_game()                        no GameManager, so the fallback runs
+that_is_over()                       fl_gameOver is true
+and_three_views_of_that_game()       three objects that carry the anchor key
+and_a_second_game()                  two candidates, both valid
+written_by_another_flash_build()     the String vtable is elsewhere
+in_world(name) in_dimension(n) at_level(n)
+with_frame_timer(t) with_game_timer(t) with_duration(cycles)
+without_a_duration() stopped_at(ms)
+```
+
+What may happen to it afterwards, between two looks or two readings:
+
+```text
+the_game_is_replaced()               a new GameMode, and the corpse still there
+the_world_is_no_longer_known()       the memory was recycled
+the_level_becomes(n)
+the_chrono_is_lost()
+the_world_property_moves_slot()      the table was rebuilt
 ```
 
 Rules the vocabulary follows:
@@ -263,11 +287,22 @@ Rules the vocabulary follows:
 - **The layout belongs to the heap**, not to one game. Every object in a heap
   is written by the same Flash build.
 - **Finding and reading stay two steps**, because they are two contracts with
-  two costs. `.and_look_again()` and `.when_we_read_it_again()` carry the
-  situations that happen over time.
+  two costs. The fixture keeps the `Anchor`, so a second
+  `when_we_look_for_the_game` is the same search looking again.
 - **Both `with_a_game()` and `with_a_manager_and_a_game()` exist.** A heap
   always has a manager in production, so a test that omits it is exercising the
   fallback on purpose.
+
+### What a find test asserts, and why it is the address
+
+`then_the_game_is_found` compares the address of the table the reader returned
+with the address the builder wrote. Not the level, not the world.
+
+Two criteria need exactly that. `the-game-not-one-of-its-views` fails if the
+reader returns a view, and a view answers every value question the same way,
+because it points at the same `GameMechanics`. `the-first-of-two-candidates`
+fails if the reader returns the second game, and the two are identical in
+every field.
 
 ---
 
@@ -286,17 +321,51 @@ trait run against both implementations, and the first criterion.
 Eleven tests. The `.wasm` still builds, under every feature, and the 63 core
 tests still pass.
 
-### Step 2, the builder and the rest
+### Step 2, the builder and the rest. Done
 
-Write the heap builder and the remaining sixteen situations.
+`src/test_heap.rs` writes a synthetic heap byte by byte, and the sixteen
+remaining situations are written against it.
 
 | covered | against |
 | --- | --- |
 | the ten `reader.find::` criteria | a synthetic heap |
 | the seven `reader.read::` criteria | a synthetic heap |
 
-The two entry points are the two contracts the spec names: `resolve` for
-finding, `Game::read` for reading.
+Seventeen tests, and `mise run spec-coverage` says 17 of 17.
+
+The builder is three primitives -- `alloc`, `put`, `intern` -- and two things
+built on them: `object()` writes a ScriptObject and its property table, and
+`set()` writes one entry. Every object of a heap is allocated before any entry
+is written, because the manager cites the game and the game cites the manager
+back.
+
+One thing the builder must do, and it is easy to miss: `alloc` keeps every
+address 8-aligned. The reader scans aligned qwords and nothing else, so an
+object on an odd address is invisible to it. The first version did not align,
+and the reader found nothing in a heap that looked right.
+
+### The red was checked, a second time
+
+Twelve mutations of the production code, each one reddening only what it
+should.
+
+| mutation | what reddened |
+| --- | --- |
+| `key_addr` adds 8 to the offset of an entry | every test of the layer |
+| `validate` stops requiring a `gameChrono` | the-game-not-one-of-its-views |
+| `validate` stops rejecting a game over | rejects-a-game-already-over |
+| a proven binary still falls back to the full search | nothing-on-another-flash-build |
+| the manager path reuses the last address found | the-new-game-not-the-corpse |
+| the dimension is read as zero | a-parallel-world |
+| the world is no longer checked on reading | rejects-an-unknown-world |
+| the level bound is dropped on reading | rejects-a-level-out-of-bounds |
+| a missing `duration` reads as zero | rejects-a-missing-duration, the-nominal-state |
+| a missing `gameChrono` reads as zero | rejects-a-missing-chrono |
+| `gameTimer` is not subtracted from `frameTimer` | the-nominal-state |
+| the kept entry index is trusted without checking | every test of the layer |
+
+The last one is coarse on purpose. Every reading goes through
+`get_cached`, so a mutation there cannot redden one test alone.
 
 ### Step 3, the change the net was for
 
