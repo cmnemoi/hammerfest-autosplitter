@@ -6,7 +6,7 @@ at the elevator that ends the run, and resets when the game is over.
 
 ## How to use it
 
-Get [`hammerfest_autosplitter.wasm`](https://github.com/cmnemoi/hammerfest-r/releases/latest) (WIP : publish it in Livesplit registry). Then, in LiveSplit:
+Get [`hammerfest_autosplitter.wasm`](https://github.com/cmnemoi/hammerfest-autosplitter/releases/latest) (WIP : publish it in Livesplit registry). Then, in LiveSplit:
 
 1. **Edit Splits -> Activate**, and pick the file;
 2. right click -> **Compare Against -> Game Time**.
