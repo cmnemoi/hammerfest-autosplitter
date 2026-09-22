@@ -26,6 +26,7 @@ Tested on EternalTwin for Windows, `pepflashplayer.dll` win32-x64 32.0.0.465.
 | --- | --- |
 | `start` | level 0 appears |
 | `split` | the level number moves forward |
+| `split` | you enter or leave a parallel dimension |
 | `skip split` | for each level a warp zone carried you over |
 | `split` | the player enters the elevator of the last level |
 | `reset` | the game ends, or is abandoned |
@@ -37,8 +38,15 @@ records no time, so it takes no gold, and your run consumes the same number of
 segments whether the umbrella appeared or not.
 
 The level 0 shortcut is different. `0 -> 10` happens in every attempt, so it
-counts as one split and skips nothing. Set up one segment for it. A level in a
-parallel dimension splits nothing.
+counts as one split and skips nothing. Set up one segment for it.
+
+The main route goes through a parallel dimension, the one runners write `97.0`.
+Level 97 opens it, and leaving it lands on level 99. Both moves split, so give
+the dimension a segment of its own. Level 98 is never played: leave it out. The
+elevator of a dimension does not end the run.
+
+Inside the dimension, the `Level` variable shows the number the game holds
+there, which is not 97. Watch `World` instead: it names the dimension.
 
 Three variables sit next to the timer:
 

@@ -17,7 +17,7 @@ The autosplitter presses the key instead. It answers three questions:
 | question | what it sends LiveSplit |
 | --- | --- |
 | has the run started? | `start` |
-| has the player crossed a level? | `split`, then one `skip split` per level a warp zone carried them over |
+| has the player crossed a level, or changed dimension? | `split`, then one `skip split` per level a warp zone carried them over |
 | is the run over, or abandoned? | `split`, then `reset` |
 
 All three answers come from one number, the current level, plus a clock. So the
@@ -105,7 +105,7 @@ The LiveSplit runtime symbols exist only inside the WebAssembly sandbox, so
 anything that touches them cannot run on a development machine. Everything
 that must be tested has to stay free of them.
 
-So `core` receives a `State`, returns `Actions`, and carries all 56 tests.
+So `core` receives a `State`, returns `Actions`, and carries all 63 tests.
 
 ---
 
@@ -178,8 +178,14 @@ struct existed, reached no LiveSplit control, and was removed. If a setting is
 ever wanted, it arrives through the runtime settings API with a real path from
 LiveSplit.
 
-**Parallel dimensions are out of scope.** They are read and reported. They
-produce no split, and no end of run.
+**A parallel dimension splits, but never ends the run.** The main route goes
+through one, the one runners write `97.0`: level 97 opens it, and leaving it
+lands on level 99. Entering and leaving are both crossings. The elevator of a
+dimension ends nothing.
+
+`world` follows `currentDim`, so a level number read inside a dimension belongs
+to that dimension and can never be compared with a number from another. What
+that number actually is has not been observed. The split rule never reads it.
 
 **One version, one machine.** The layout is derived at run time. A different
 Flash build should fail cleanly rather than report a wrong level, but that has

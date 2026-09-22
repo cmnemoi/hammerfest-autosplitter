@@ -29,11 +29,12 @@ The run has to consume the same number of segments whatever the umbrella does.
 
 ## Scope
 
-The decision the policy makes when a confirmed level is higher than the
-previous confirmed level, in the main world, with the timer running.
+The decision the policy makes when a confirmed reading shows a new level or a
+new dimension, with the timer running.
 
-Outside: starting, resetting, the elevator that ends the run, parallel
-dimensions, and every rule that does not look at the level number.
+Outside: starting, resetting, and the elevator that ends the run. The elevator
+still counts in the main world only: a dimension has an ending of its own, and
+it is not the end of the run.
 
 ---
 
@@ -49,12 +50,45 @@ that segment carries the real time the player spent there.
 
 Nothing changes here. This rule already holds.
 
+### A change of dimension is a crossing
+
+`{#crossing::a-change-of-dimension-is-a-crossing}`
+
+`GameMode.world` follows `currentDim`
+([reverse-engineering.md, section 12](../reverse-engineering.md)). So the level
+number read inside a parallel dimension belongs to the numbering of that
+dimension. It cannot be compared with a number from the main world.
+
+When `currentDim` changes, the policy produces one `split` and no
+`skip_split`. The level number is not read at all on that move: neither its
+direction nor its distance survives the boundary.
+
+The main route goes through one dimension. Level 97 opens it, and leaving it
+lands on level 99:
+
+| transition | what changes | split | closes |
+| --- | --- | --- | --- |
+| into the dimension | `currentDim` | yes | segment 97 |
+| back out, on level 99 | `currentDim` | yes | the dimension's segment |
+
+Level 98 is never played. The dimension belongs to the route and appears in
+every attempt, so the runner leaves 98 out of the splits file. Nothing is
+skipped.
+
+Runners write that dimension `97.0`, after the level that opens it. The name is
+theirs. What `currentId` reads inside has never been observed, and this rule is
+built so that it never has to be.
+
 ### A warp zone skips the levels it never played
 
 `{#crossing::warp-skips-the-levels-never-played}`
 
 A warp zone that moves the level by N also produces N-1 `skip_split`, after
 the `split`.
+
+The size of a move only means something between two readings of the same
+dimension. Across a change of dimension the two numbers come from different
+spaces, so no size is computed and nothing is skipped.
 
 A skipped segment records no time. So it produces no gold, and it does not
 enter the sum of best segments. LiveSplit carries its time over to the next
@@ -106,8 +140,19 @@ send dozens of `skip_split` and burn the rest of the splits file.
   policy asks for 1 split and 0 skips.
 - Given the level does not move, or moves backwards, then the policy asks for
   0 splits and 0 skips.
-- Given the level moves forward in a parallel dimension, then the policy asks
-  for 0 splits and 0 skips.
+- Given a reading in the main world and then a reading in a dimension, when
+  the move is confirmed, then the policy asks for 1 split and 0 skips,
+  whatever the two level numbers are.
+- Given a reading in a dimension and then one in the main world, when the move
+  is confirmed, then the policy asks for 1 split and 0 skips, whatever the two
+  level numbers are.
+- Given a change of dimension whose two level numbers differ by 2, when the
+  move is confirmed, then the policy asks for 1 split and 0 skips.
+- Given the level moves forward inside one dimension, when the move is
+  confirmed, then the policy asks for 1 split, and skips by the same rule as
+  the main world.
+- Given the player enters the elevator inside a dimension, then the run does
+  not end.
 - Given the level moves forward while the timer is not running, then the
   policy asks for 0 splits and 0 skips.
 - Given the player enters the elevator, when the run ends, then the policy
@@ -116,6 +161,11 @@ send dozens of `skip_split` and burn the rest of the splits file.
 ---
 
 ## Out of scope
+
+**The level number a dimension uses.** It has never been read. The rule does
+not depend on it, and `the_route_holds_whatever_the_dimension_numbers_its_levels`
+holds it that way. Observing it would confirm the picture and change no
+behaviour.
 
 **Naming the cause of a jump.** `currentId` alone cannot tell a warp zone from
 the level 0 shortcut. The size of the move is the only evidence used. Reading

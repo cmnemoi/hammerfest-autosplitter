@@ -302,7 +302,11 @@ impl Policy {
         // frame -- 1, then 0, then 10 -- and nothing synchronises our read
         // with the game frame. Without this confirmation, a read that lands in
         // the middle would produce two splits instead of one, at random.
-        if self.seen.map(|s| s.level) == Some(now.level) {
+        //
+        // The dimension travels with the level. Entering one changes `world`
+        // and `currentId` together, and a split now depends on both, so both
+        // must be confirmed before we act.
+        if self.seen.map(|s| (s.level, s.dim)) == Some((now.level, now.dim)) {
             self.decide(timer, &now, &mut actions);
             self.prev = Some(now);
         }
@@ -383,10 +387,29 @@ impl Policy {
             return;
         }
 
-        // Any forward progress counts, not only `+1`. Hammerfest skips
-        // levels: the level 0 shortcut leads straight to level 10
-        // (`Adventure.nextLevel` under `fl_warpStart`), and warp zones advance
-        // by 1 to 3 (`SpecialManager.warpZone` -> `forcedGoto`).
+        if timer != TimerState::Running {
+            return;
+        }
+
+        // A change of dimension is a crossing of its own. `GameMode.world`
+        // follows `currentDim`, so a level number read inside a parallel
+        // dimension belongs to the numbering of that dimension. Against a
+        // number from another one it carries neither order nor distance, so
+        // neither test below may be applied to the pair.
+        //
+        // The main route goes through one dimension. Level 97 opens it, and
+        // leaving it lands on level 99. Both moves are crossings, and level 98
+        // is never played. Players write that dimension `97.0`; what
+        // `currentId` reads in there is not known, and nothing here needs it.
+        if now.dim != prev.dim {
+            actions.split = true;
+            return;
+        }
+
+        // Inside one dimension, any forward progress counts, not only `+1`.
+        // Hammerfest skips levels: the level 0 shortcut leads straight to
+        // level 10 (`Adventure.nextLevel` under `fl_warpStart`), and "warp
+        // zones" (umbrellas) advance by 1 to 3 (`SpecialManager.warpZone` -> `forcedGoto`).
         //
         // One split per crossing, whatever the size of the move. The split
         // closes the segment of the level the player just left.
@@ -395,10 +418,7 @@ impl Policy {
         // costs a life and keeps the same level, and a warp cannot arrive
         // below where it left. A lower number means a script jump, the writes
         // inside one frame, or a misread.
-        if timer == TimerState::Running
-            && now.level > prev.level
-            && now.dim == 0
-        {
+        if now.level > prev.level {
             actions.split = true;
             actions.skips = skips_after(now.level - prev.level);
         }
@@ -708,15 +728,6 @@ mod tests {
     }
 
     #[test]
-    fn does_not_split_in_a_parallel_dimension() {
-        let mut r = Run::new().running();
-        r.confirm(at(3, 10_000));
-        let mut s = at(4, 20_000);
-        s.dim = 1;
-        assert!(!r.confirm(s).split);
-    }
-
-    #[test]
     fn does_not_split_when_the_timer_is_not_running() {
         let mut r = Run::new();
         r.confirm(at(3, 10_000));
@@ -820,6 +831,124 @@ mod tests {
         let actions = r.tick(Some(elevator(103, 601_000)));
         assert!(actions.split);
         assert_eq!(actions.skips, 0);
+    }
+
+    // -- parallel dimensions -------------------------------------------------
+
+    /// A level inside the parallel dimension the main route goes through.
+    ///
+    /// Players call it `97.0`, after the level that opens it. That name is
+    /// theirs: what `currentId` reads in there has not been observed. It does
+    /// not matter, and `the_route_holds_whatever_the_dimension_numbers_its_levels`
+    /// is what keeps it that way.
+    fn in_dimension(level: i64, chrono_ms: i64) -> State {
+        State {
+            dim: 1,
+            ..at(level, chrono_ms)
+        }
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn entering_a_dimension_is_a_crossing() {
+        // The main route: level 97 opens the dimension.
+        let mut r = Run::new().running();
+        r.confirm(at(97, 100_000));
+        let actions = r.confirm(in_dimension(0, 110_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn leaving_a_dimension_is_a_crossing() {
+        // The dimension leads back to level 99 of the main world. Level 98 is
+        // never played, and the runner leaves it out of the splits file.
+        let mut r = Run::new().running();
+        r.confirm(in_dimension(0, 110_000));
+        let actions = r.confirm(at(99, 120_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_change_of_dimension_never_measures_the_size_of_the_move() {
+        // The two numbers come from two numberings, so their difference means
+        // nothing. Here it is 2, which inside one dimension would skip a
+        // level. Across the boundary it must skip none.
+        let mut r = Run::new().running();
+        r.confirm(in_dimension(1, 110_000));
+        let actions = r.confirm(at(3, 120_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_dimension_entered_on_a_lower_number_still_crosses() {
+        // Entering drops the level number from 97 to 0. Backwards in the main
+        // world means a misread, and splits nothing. Here it is the route.
+        let mut r = Run::new().running();
+        r.confirm(at(97, 100_000));
+        assert!(r.confirm(in_dimension(0, 110_000)).split);
+    }
+
+    /// @spec crossing::one-split-per-crossing
+    #[test]
+    fn a_crossing_inside_a_dimension_splits_like_any_other() {
+        let mut r = Run::new().running();
+        r.confirm(in_dimension(0, 110_000));
+        let actions = r.confirm(in_dimension(1, 115_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn a_warp_inside_a_dimension_skips_like_any_other() {
+        // One numbering, so the size of the move means something again.
+        let mut r = Run::new().running();
+        r.confirm(in_dimension(1, 110_000));
+        let actions = r.confirm(in_dimension(4, 115_000));
+        assert!(actions.split);
+        assert_eq!(actions.skips, 2);
+    }
+
+    /// @spec crossing::one-split-per-crossing
+    #[test]
+    fn standing_still_inside_a_dimension_splits_nothing() {
+        let mut r = Run::new().running();
+        r.confirm(in_dimension(2, 110_000));
+        let actions = r.confirm(in_dimension(1, 115_000));
+        assert!(!actions.split);
+        assert_eq!(actions.skips, 0);
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn the_route_holds_whatever_the_dimension_numbers_its_levels() {
+        // 97, then the dimension, then 99: three segments, nothing skipped.
+        //
+        // What `currentId` reads inside the dimension has never been observed.
+        // Players write the level `97.0`, which is their name for it, not the
+        // game's. So the rule may not depend on that number, and this test is
+        // what proves it does not: every candidate produces the same two
+        // splits, including the ones whose distance to 97 or to 99 falls
+        // inside the reach of a warp zone.
+        for inside in [0, 1, 96, 97, 98, 100, 970] {
+            let mut r = Run::new().running();
+            r.confirm(at(97, 100_000));
+            let mut splits = 0;
+            let mut skips = 0;
+            for read in [in_dimension(inside, 110_000), at(99, 120_000)] {
+                let actions = r.confirm(read);
+                splits += u32::from(actions.split);
+                skips += u32::from(actions.skips);
+            }
+            assert_eq!(splits, 2, "level {inside} inside the dimension");
+            assert_eq!(skips, 0, "level {inside} inside the dimension");
+        }
     }
 
     // -- end of game and dead objects ---------------------------------------
@@ -982,8 +1111,10 @@ mod tests {
 
         let mut elsewhere = elevator(103, 601_000);
         elsewhere.dim = 1;
-        let actions = r.tick(Some(elsewhere));
-        assert!(!actions.split);
+        // Entering the dimension is a crossing, so it does split. What must
+        // not happen is the end of the run.
+        let actions = r.confirm(elsewhere);
+        assert!(!actions.reset);
 
         // And the time still moves, because the run is not over.
         let mut later = elsewhere;

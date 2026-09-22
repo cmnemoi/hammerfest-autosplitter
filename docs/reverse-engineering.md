@@ -607,6 +607,10 @@ the rise, which is what that run has to show.
   `pepflashplayer.dll` win32-x64 32.0.0.465. Measured on one machine.
 - Tags 4 and 7 have not been identified. Tag 7 appears on objects whose vtable
   is `MODULE+0x178a300`, different from the ordinary ScriptObject.
-- The parallel dimensions are not handled: we read `world`, which follows
-  `currentDim`. `currentDim` is published in the reading so that splits outside
-  the main world can be ignored later.
+- The main route enters a parallel dimension at level 97 and leaves it on
+  level 99. Reported by runners, who write that dimension `97.0` after the
+  level that opens it. That name is theirs, and **what `world.currentId` reads
+  inside the dimension has never been observed**. `world` follows `currentDim`,
+  so the number belongs to that dimension and means nothing against a number
+  from the main world. The split rule therefore acts on `currentDim` alone and
+  never reads the number: see [Level crossings](specs/level-crossings.md).
