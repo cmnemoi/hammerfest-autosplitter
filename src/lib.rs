@@ -86,14 +86,16 @@ async fn main() {
     // story of a game.
     let mut policy = Policy::new();
 
-    // One line at load time, which says what build is running. It is the first
+    // What build is running, with the commit it was built from (`build.rs`).
+    //
+    // The registry has no field for a version, so the module shows it itself:
+    // as a title in its settings, where a runner finds it without touching
+    // their layout, and as the first line of the log, which is the first
     // thing we look for in a log someone sends us.
-    // LiveSplit shows no version of an auto splitter anywhere, and the
-    // registry has no field for one. This line is the only place a version
-    // can be read, so it carries it.
+    let version = alloc::format!("Hammerfest autosplitter {}", env!("AUTOSPLITTER_VERSION"));
+    asr::settings::gui::add_title("version", &version, 0);
     asr::print_message(&alloc::format!(
-        "Hammerfest: autosplitter {} started (budget={}, diagnostics={})",
-        env!("CARGO_PKG_VERSION"),
+        "{version} started (budget={}, diagnostics={})",
         cfg!(feature = "scan-budget"),
         cfg!(feature = "diagnostics"),
     ));
