@@ -317,7 +317,10 @@ impl Policy {
         let mut actions = Actions::nothing();
         actions.drop_resolution = true;
         self.saw_no_game = true;
-        self.prev = None;
+        // `prev` survives: entering a dimension replaces `world`, and a read
+        // in the middle finds no game. The crossing must still see the level
+        // it left. A new game is no risk: its clock restarts from zero, and
+        // `decide` restarts the run on that before it compares any level.
         self.seen = None;
 
         // Count lost reads only after we have seen a game. Not finding one
@@ -890,6 +893,17 @@ mod tests {
         assert!(r.confirm(in_dimension(0, 110_000)).split);
     }
 
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_dimension_entered_through_a_lost_read_still_crosses() {
+        // Entering a dimension replaces `world`, and one read in the middle
+        // finds no game. Observed on 15 -> 15.0, which the game numbers 42.
+        let mut r = Run::new().running();
+        r.confirm(at(15, 100_000));
+        r.tick(None);
+        assert!(r.confirm(in_dimension(42, 103_000)).split);
+    }
+
     /// @spec crossing::one-split-per-crossing
     #[test]
     fn a_crossing_inside_a_dimension_splits_like_any_other() {
@@ -1303,5 +1317,17 @@ mod tests {
         r.tick(None);
         r.timer = TimerState::NotRunning;
         assert!(r.tick(Some(at(0, 2_000))).start);
+    }
+
+    #[test]
+    fn a_new_game_after_a_loss_never_crosses_from_the_old_one() {
+        // A lost read keeps the last level, for a dimension entered through
+        // it. A new game must not measure its levels against that one.
+        let mut r = Run::new().running();
+        r.confirm(at(5, 20_000));
+        r.tick(None);
+        let actions = r.confirm(at(12, 2_000));
+        assert!(!actions.split);
+        assert!(actions.start);
     }
 }
