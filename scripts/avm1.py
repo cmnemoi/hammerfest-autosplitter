@@ -369,7 +369,10 @@ class Avm1:
             if diversity < 0.25:
                 continue
             score = sum(1 for v in vals if self.well_formed(v)) / len(vals)
-            if score > best_score:
+            # The column of the next entry holds the same values, shifted by
+            # one: it differs by one atom at most, and can win by that atom
+            # alone. So a later candidate must win by more than one entry.
+            if score > best_score + 1 / len(vals):
                 best, best_score = d, score
         self.L.tbl_value = best
         return best is not None and best_score > 0.95
