@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "hammerfest-autosplitter"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "asr",
  "dlmalloc",
@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "hammerfest-core"
-version = "0.1.2"
+version = "0.2.0"
 
 [[package]]
 name = "itoa"

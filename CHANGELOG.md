@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.2...v0.2.0) (2026-09-23)
+
+
+### Features
+
+* show the version of the autosplitter in its settings ([a76c59d](https://github.com/cmnemoi/hammerfest-autosplitter/commit/a76c59d56e5f054c03d3d4dd3ee117c9c625bef7))
+
+
+### Bug Fixes
+
+* show the dimension in the World variable ([db2cf14](https://github.com/cmnemoi/hammerfest-autosplitter/commit/db2cf147ad8efc9bb5f6ff0759734b95ff9fcc54))
+
 ## [0.1.2](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.1...v0.1.2) (2026-09-23)
 
 
