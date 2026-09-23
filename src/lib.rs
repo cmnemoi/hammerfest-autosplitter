@@ -219,7 +219,7 @@ async fn run(
             }
         }
         if let Some(state) = read.as_ref() {
-            publish(state, game.as_ref().map_or("", |g| g.set));
+            publish(state);
         }
 
         let actions = policy.tick(timer_state(), read);
@@ -299,11 +299,13 @@ fn send(command: Command) {
 }
 
 /// What LiveSplit shows next to the timer.
-fn publish(state: &State, set: &str) {
+fn publish(state: &State) {
     // `GameInterface.setLevel` writes `""+currentId`. The number the game
     // displays is that index, with no offset.
     timer::set_variable_int("Level", state.level.id);
-    timer::set_variable("World", set);
+    // The world of the level, read with it: inside a dimension, that is
+    // the dimension, not the world the game was found in.
+    timer::set_variable("World", state.level.world.set_name());
     // The clock the game itself reports at the end of a game
     // (`"T="+gameChrono.get()`). It excludes pauses and level transitions, so
     // it cannot serve as real time -- but it is the number the player sees, so

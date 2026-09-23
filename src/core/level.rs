@@ -34,6 +34,17 @@ impl World {
             _ => None,
         }
     }
+
+    /// The `setName` of this world, as the game writes it.
+    pub const fn set_name(self) -> &'static str {
+        match self {
+            Self::Adventure => "xml_adventure",
+            Self::Deepnight => "xml_deepnight",
+            Self::Hiko => "xml_hiko",
+            Self::Ayame => "xml_ayame",
+            Self::Hk => "xml_hk",
+        }
+    }
 }
 
 /// One level: a world, and `currentId` inside it.
@@ -90,5 +101,24 @@ impl Route {
         }
         self.here = Some(level);
         (level.id > here.id).then_some(Crossing::Forward(level.id - here.id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_world_shows_the_set_name_it_was_read_from() {
+        for name in [
+            "xml_adventure",
+            "xml_deepnight",
+            "xml_hiko",
+            "xml_ayame",
+            "xml_hk",
+        ] {
+            let world = World::from_set_name(name).expect(name);
+            assert_eq!(world.set_name(), name);
+        }
     }
 }
