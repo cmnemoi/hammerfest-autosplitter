@@ -48,3 +48,47 @@ impl Level {
         Self { world, id }
     }
 }
+
+/// A move the splits must follow.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Crossing {
+    /// Forward inside one world, by this many levels.
+    Forward(i64),
+    /// Into another world. The two numbers share no numbering, so the move
+    /// has no size.
+    OtherWorld,
+}
+
+/// The level the player is on, and where they left each world.
+#[derive(Clone, Debug, Default)]
+pub struct Route {
+    here: Option<Level>,
+    /// The level each world showed when the player last left it.
+    left: [Option<i64>; 5],
+}
+
+impl Route {
+    /// The player is read on `level`. Is that a crossing?
+    ///
+    /// Back in a world, the game first shows the level the player left it
+    /// from, then the level they arrive on: the adventure reads 6, then 7,
+    /// sixty milliseconds apart. That first read is not a place the player
+    /// reaches. It is ignored, and the crossing is measured from the world
+    /// they come from.
+    pub fn enter(&mut self, level: Level) -> Option<Crossing> {
+        let Some(here) = self.here else {
+            self.here = Some(level);
+            return None;
+        };
+        if level.world != here.world {
+            if self.left[level.world as usize] == Some(level.id) {
+                return None;
+            }
+            self.left[here.world as usize] = Some(here.id);
+            self.here = Some(level);
+            return Some(Crossing::OtherWorld);
+        }
+        self.here = Some(level);
+        (level.id > here.id).then_some(Crossing::Forward(level.id - here.id))
+    }
+}

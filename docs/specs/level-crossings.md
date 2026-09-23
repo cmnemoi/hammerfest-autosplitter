@@ -54,30 +54,43 @@ Nothing changes here. This rule already holds.
 
 `{#crossing::a-change-of-dimension-is-a-crossing}`
 
-`GameMode.world` follows `currentDim`
-([reverse-engineering.md, section 12](../reverse-engineering.md)). So the level
-number read inside a parallel dimension belongs to the numbering of that
-dimension. It cannot be compared with a number from the main world.
+A level is a world and a number: `GameMechanics.setName` and `currentId`, both
+read from `GameMode.world`. Each world numbers its levels on its own. Entering
+the dimension of level 6 reads 34 in `xml_deepnight`; the one of level 15 reads
+42. A number from one world cannot be compared with a number from another.
 
-When `currentDim` changes, the policy produces one `split` and no
-`skip_split`. The level number is not read at all on that move: neither its
-direction nor its distance survives the boundary.
+When the world changes, the policy produces one `split` and no `skip_split`.
+Neither the direction nor the distance of the two numbers survives the
+boundary.
 
 The main route goes through one dimension. Level 97 opens it, and leaving it
 lands on level 99:
 
 | transition | what changes | split | closes |
 | --- | --- | --- | --- |
-| into the dimension | `currentDim` | yes | segment 97 |
-| back out, on level 99 | `currentDim` | yes | the dimension's segment |
+| into the dimension | `world` | yes | segment 97 |
+| back out, on level 99 | `world` | yes | the dimension's segment |
 
 Level 98 is never played. The dimension belongs to the route and appears in
 every attempt, so the runner leaves 98 out of the splits file. Nothing is
 skipped.
 
 Runners write that dimension `97.0`, after the level that opens it. The name is
-theirs. What `currentId` reads inside has never been observed, and this rule is
-built so that it never has to be.
+theirs, the game does not carry it, and no rule depends on it.
+
+Two things the game writes around a dimension are not crossings:
+
+- `GameMode.currentDim` changes before `world`: about two seconds before on
+  the way in, and one read before on the way out. The policy never reads it to
+  decide: the world comes from the same object as the number, so the two
+  always agree.
+- On the way out, the game shows the level of the entrance for about 60 ms,
+  then the level the player arrives on: `6`, then `7`. A world that comes back
+  on the level it was left from is a return, not a place the player reaches.
+  It produces nothing, and the next crossing is measured from the world the
+  player comes from.
+
+A new game forgets where the last one left each world.
 
 ### A warp zone skips the levels it never played
 
@@ -148,6 +161,14 @@ send dozens of `skip_split` and burn the rest of the splits file.
   level numbers are.
 - Given a change of dimension whose two level numbers differ by 2, when the
   move is confirmed, then the policy asks for 1 split and 0 skips.
+- Given the reads observed on level 6 (`currentDim` ahead of `world`, one lost
+  read, 34 in the dimension, 6 then 7 in the adventure), then the policy asks
+  for 2 splits and 0 skips.
+- Given a dimension entered from 13 that leads to 16, and the adventure shows
+  13 before 16, then the policy asks for 2 splits and 0 skips.
+- Given only `currentDim` changes, then the policy asks for 0 splits.
+- Given a new game enters the dimension the last game left, then the entry is
+  a crossing.
 - Given the level moves forward inside one dimension, when the move is
   confirmed, then the policy asks for 1 split, and skips by the same rule as
   the main world.
@@ -162,10 +183,12 @@ send dozens of `skip_split` and burn the rest of the splits file.
 
 ## Out of scope
 
-**The level number a dimension uses.** It has never been read. The rule does
-not depend on it, and `the_route_holds_whatever_the_dimension_numbers_its_levels`
-holds it that way. Observing it would confirm the picture and change no
-behaviour.
+**An autosplitter started inside a dimension.** It never saw the entrance, so
+the level shown for 60 ms on the way out looks like a place, and the way out
+produces 2 splits instead of 1. `SetManager._previousId` might tell the two
+apart; it has not been observed on that move.
+`an_autosplitter_started_inside_a_dimension_splits_once_on_the_way_out` holds
+the case, ignored until then.
 
 **Naming the cause of a jump.** `currentId` alone cannot tell a warp zone from
 the level 0 shortcut. The size of the move is the only evidence used. Reading

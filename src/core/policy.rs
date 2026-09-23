@@ -5,7 +5,7 @@
 //! reads no memory and knows nothing about LiveSplit.
 
 use crate::end_sequence::EndSequence;
-use crate::level::Level;
+use crate::level::{Crossing, Level, Route, World};
 
 /// What the game says about itself at one instant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -18,7 +18,9 @@ pub struct State {
     pub chrono_ms: i64,
     /// `Chrono.frameTimer`: it advances every frame while this GameMode runs.
     pub frame_timer: i64,
-    /// `GameMode.currentDim`: 0 for the main world.
+    /// `GameMode.currentDim`: 0 for the main world. Shown to the runner, and
+    /// never used to decide: it changes two seconds before `world` does on
+    /// the way into a dimension. `level.world` is what a decision reads.
     pub dim: i64,
     /// `GameMode.fl_gameOver`.
     pub game_over: bool,
@@ -112,6 +114,8 @@ pub struct Policy {
     prev: Option<State>,
     /// The previous read, not confirmed yet.
     seen: Option<State>,
+    /// Where the player is, and where they left each world.
+    route: Route,
     /// Did we see the absence of a game since the last one?
     saw_no_game: bool,
     /// Did we see this game start, rather than find it already running?
@@ -231,6 +235,9 @@ impl Policy {
         if self.origin.is_some_and(|o| now.frame_timer < o) || now.duration_ms < self.duration_seen
         {
             self.origin = None;
+            // Where the last game left each world means nothing in this one.
+            // `prev` stays: `decide` needs its clock to restart the run.
+            self.route = Route::default();
         }
         self.duration_seen = now.duration_ms;
 
@@ -278,7 +285,7 @@ impl Policy {
         // the last level of the adventure; a parallel dimension ending is not
         // the end of this run.
         if now.end_sequence.started()
-            && now.dim == 0
+            && now.level.world == World::Adventure
             && !self.finished
             && self.seen.is_some_and(|s| !s.end_sequence.started())
         {
@@ -303,11 +310,13 @@ impl Policy {
         // with the game frame. Without this confirmation, a read that lands in
         // the middle would produce two splits instead of one, at random.
         //
-        // The dimension travels with the level. Entering one changes `world`
-        // and `currentId` together, and a split now depends on both, so both
-        // must be confirmed before we act.
-        if self.seen.map(|s| (s.level, s.dim)) == Some((now.level, now.dim)) {
-            self.decide(timer, &now, &mut actions);
+        // The world travels with the level: a split depends on both, so both
+        // are confirmed before we act.
+        if self.seen.map(|s| s.level) == Some(now.level) {
+            // The route follows every confirmed level, whatever the timer
+            // says: the next crossing is measured from this one.
+            let crossing = self.route.enter(now.level);
+            self.decide(timer, &now, crossing, &mut actions);
             self.prev = Some(now);
         }
         self.seen = Some(now);
@@ -318,9 +327,9 @@ impl Policy {
         let mut actions = Actions::nothing();
         actions.drop_resolution = true;
         self.saw_no_game = true;
-        // `prev` survives: entering a dimension replaces `world`, and a read
-        // in the middle finds no game. The crossing must still see the level
-        // it left. A new game is no risk: its clock restarts from zero, and
+        // `prev` and `route` survive: entering a dimension replaces `world`,
+        // and a read in the middle finds no game. The crossing must still see
+        // the level it left. A new game is no risk: its clock restarts from zero, and
         // `decide` restarts the run on that before it compares any level.
         self.seen = None;
 
@@ -352,6 +361,7 @@ impl Policy {
     fn forget(&mut self) {
         self.prev = None;
         self.seen = None;
+        self.route = Route::default();
         self.saw_no_game = true;
         // The origin belongs to the game that just ended. If we keep it, the
         // next game runs its timer from the wrong instant.
@@ -360,7 +370,13 @@ impl Policy {
         self.duration_seen = 0;
     }
 
-    fn decide(&self, timer: TimerState, now: &State, actions: &mut Actions) {
+    fn decide(
+        &self,
+        timer: TimerState,
+        now: &State,
+        crossing: Option<Crossing>,
+        actions: &mut Actions,
+    ) {
         // A finished run decides nothing more. The end sequence still reads as
         // a live game for fourteen seconds.
         if self.finished {
@@ -391,22 +407,17 @@ impl Policy {
             return;
         }
 
-        // A change of dimension is a crossing of its own. `GameMode.world`
-        // follows `currentDim`, so a level number read inside a parallel
-        // dimension belongs to the numbering of that dimension. Against a
-        // number from another one it carries neither order nor distance, so
-        // neither test below may be applied to the pair.
+        // Each world numbers its levels on its own: the adventure, and each
+        // parallel dimension. `Route` compares two numbers only inside one
+        // world, and ignores the level the game shows for a moment on the
+        // way back into a world.
         //
         // The main route goes through one dimension. Level 97 opens it, and
         // leaving it lands on level 99. Both moves are crossings, and level 98
-        // is never played. Players write that dimension `97.0`; what
-        // `currentId` reads in there is not known, and nothing here needs it.
-        if now.dim != prev.dim {
-            actions.split = true;
-            return;
-        }
-
-        // Inside one dimension, any forward progress counts, not only `+1`.
+        // is never played. Players write that dimension `97.0`; the game does
+        // not, and nothing here needs that name.
+        //
+        // Inside one world, any forward progress counts, not only `+1`.
         // Hammerfest skips levels: the level 0 shortcut leads straight to
         // level 10 (`Adventure.nextLevel` under `fl_warpStart`), and "warp
         // zones" (umbrellas) advance by 1 to 3 (`SpecialManager.warpZone` -> `forcedGoto`).
@@ -418,9 +429,13 @@ impl Policy {
         // costs a life and keeps the same level, and a warp cannot arrive
         // below where it left. A lower number means a script jump, the writes
         // inside one frame, or a misread.
-        if now.level.id > prev.level.id {
-            actions.split = true;
-            actions.skips = skips_after(now.level.id - prev.level.id);
+        match crossing {
+            Some(Crossing::OtherWorld) => actions.split = true,
+            Some(Crossing::Forward(jump)) => {
+                actions.split = true;
+                actions.skips = skips_after(jump);
+            }
+            None => {}
         }
     }
 }
@@ -428,7 +443,6 @@ impl Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::level::World;
 
     /// A live game state. Each test changes only what matters to it.
     ///
@@ -512,6 +526,21 @@ mod tests {
         fn confirm(&mut self, s: State) -> Actions {
             self.tick(Some(s));
             self.tick(Some(s))
+        }
+
+        /// Confirms each read in turn, and counts the splits and the skips.
+        /// `None` is one read that finds no game.
+        fn play(&mut self, reads: impl IntoIterator<Item = Option<State>>) -> (u32, u32) {
+            let (mut splits, mut skips) = (0, 0);
+            for read in reads {
+                let actions = match read {
+                    Some(s) => self.confirm(s),
+                    None => self.tick(None),
+                };
+                splits += u32::from(actions.split);
+                skips += u32::from(actions.skips);
+            }
+            (splits, skips)
         }
     }
 
@@ -814,9 +843,7 @@ mod tests {
 
         let mut parallel = Run::new().running();
         parallel.confirm(at(42, 100_000));
-        let mut elsewhere = at(45, 101_000);
-        elsewhere.dim = 1;
-        assert_eq!(parallel.confirm(elsewhere).skips, 0);
+        assert_eq!(parallel.confirm(in_dimension(45, 101_000)).skips, 0);
 
         let mut stopped = Run::new();
         stopped.confirm(at(42, 100_000));
@@ -848,6 +875,156 @@ mod tests {
             dim: 1,
             ..at(level, chrono_ms)
         }
+    }
+
+    /// The read in the two seconds before a dimension: `currentDim` already
+    /// says 1, but `world` is still the adventure, on the level of the
+    /// entrance.
+    fn dim_ahead_of_world(level: i64, chrono_ms: i64) -> State {
+        State {
+            dim: 1,
+            ..at(level, chrono_ms)
+        }
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_dimension_crossed_as_the_game_writes_it_splits_twice() {
+        // The reads observed on level 6. On the way in, `currentDim` moves
+        // two seconds before `world`, then one read finds no game. On the way
+        // out, the adventure shows the level of the entrance for 60 ms before
+        // the next one. The runner leaves two segments: 6, and the dimension.
+        let mut r = Run::new().running();
+        r.confirm(at(6, 46_589));
+        let played = r.play([
+            Some(dim_ahead_of_world(6, 68_084)),
+            None,
+            Some(in_dimension(34, 69_234)),
+            Some(at(6, 74_334)),
+            Some(at(7, 74_334)),
+        ]);
+        assert_eq!(played, (2, 0), "(splits, skips)");
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_dimension_left_with_current_dim_ahead_splits_twice() {
+        // Observed on level 6, a second time. On the way out, `currentDim`
+        // says 0 while `world` is still the dimension, then the adventure
+        // shows 6, then 7.
+        let mut r = Run::new().running();
+        r.confirm(at(6, 41_160));
+        let played = r.play([
+            None,
+            Some(in_dimension(34, 57_364)),
+            Some(State {
+                dim: 0,
+                ..in_dimension(34, 60_836)
+            }),
+            Some(at(6, 60_836)),
+            Some(at(7, 60_836)),
+        ]);
+        assert_eq!(played, (2, 0), "(splits, skips)");
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_dimension_that_leads_further_on_skips_nothing() {
+        // The dimension of level 13 leads to level 16. On the way out the
+        // adventure shows 13 first, so 13 -> 16 looked like a warp of three.
+        // The runner leaves 14 and 15 out of the splits file: nothing to skip.
+        let mut r = Run::new().running();
+        r.confirm(at(13, 50_000));
+        let played = r.play([
+            Some(in_dimension(40, 60_000)),
+            Some(at(13, 70_000)),
+            Some(at(16, 70_000)),
+        ]);
+        assert_eq!(played, (2, 0), "(splits, skips)");
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_run_through_two_dimensions_splits_on_every_crossing() {
+        // 6, the dimension of 6, then 7 to 15, the dimension of 15, then 16.
+        // Each way out shows the level of the entrance first.
+        let mut r = Run::new().running();
+        r.confirm(at(6, 40_000));
+        let reads = [Some(in_dimension(34, 50_000)), Some(at(6, 60_000))]
+            .into_iter()
+            .chain((7..=15).map(|level| Some(at(level, 60_000 + level * 1_000))))
+            .chain([
+                Some(in_dimension(42, 80_000)),
+                Some(in_dimension(43, 85_000)),
+                Some(at(15, 90_000)),
+                Some(at(16, 90_000)),
+            ]);
+        // 6 -> 34, 34 -> 7, 7 -> 8 ... 14 -> 15, 15 -> 42, 42 -> 43, 43 -> 16.
+        assert_eq!(r.play(reads), (13, 0), "(splits, skips)");
+    }
+
+    /// @spec crossing::warp-skips-the-levels-never-played
+    #[test]
+    fn a_warp_right_after_a_dimension_skips_what_it_flew_over() {
+        // Out of the dimension on 16, an umbrella at once: 16 -> 19.
+        let mut r = Run::new().running();
+        r.confirm(at(13, 50_000));
+        let played = r.play([
+            Some(in_dimension(40, 60_000)),
+            Some(at(13, 70_000)),
+            Some(at(16, 70_000)),
+            Some(at(19, 75_000)),
+        ]);
+        assert_eq!(played, (3, 2), "(splits, skips)");
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn current_dim_alone_never_splits() {
+        // `currentDim` moves on its own for two seconds on the way in. The
+        // level is where the player is, and it did not change.
+        let mut r = Run::new().running();
+        r.confirm(at(20, 50_000));
+        let played = r.play([
+            Some(dim_ahead_of_world(20, 51_000)),
+            Some(at(20, 52_000)),
+            Some(dim_ahead_of_world(20, 53_000)),
+        ]);
+        assert_eq!(played, (0, 0), "(splits, skips)");
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    fn a_new_game_forgets_the_dimensions_of_the_last_one() {
+        // The last game left the dimension of 6 from 34. The next one enters
+        // the same dimension, on the same 34: that is a crossing, not a
+        // return.
+        let mut r = Run::new().running();
+        r.play([
+            Some(at(6, 40_000)),
+            Some(in_dimension(34, 50_000)),
+            Some(at(7, 60_000)),
+            None,
+        ]);
+        assert!(r.confirm(at(0, 2_000)).start, "a new game");
+        r.confirm(at(6, 30_000));
+        assert!(r.confirm(in_dimension(34, 40_000)).split);
+    }
+
+    /// @spec crossing::a-change-of-dimension-is-a-crossing
+    #[test]
+    #[ignore = "known limit: without the entrance, the level shown on the way out looks like a place"]
+    fn an_autosplitter_started_inside_a_dimension_splits_once_on_the_way_out() {
+        // Loaded in the middle of a run, inside the dimension of 6. It never
+        // saw the entrance, so it cannot know that 6 is only shown on the way
+        // out.
+        let mut r = Run::new().running();
+        let played = r.play([
+            Some(in_dimension(34, 50_000)),
+            Some(at(6, 60_000)),
+            Some(at(7, 60_000)),
+        ]);
+        assert_eq!(played, (1, 0), "(splits, skips)");
     }
 
     /// @spec crossing::a-change-of-dimension-is-a-crossing
@@ -1122,8 +1299,10 @@ mod tests {
         let mut r = Run::new().running();
         r.confirm(at(103, 600_000));
 
-        let mut elsewhere = elevator(103, 601_000);
-        elsewhere.dim = 1;
+        let elsewhere = State {
+            level: Level::new(World::Deepnight, 103),
+            ..elevator(103, 601_000)
+        };
         // Entering the dimension is a crossing, so it does split. What must
         // not happen is the end of the run.
         let actions = r.confirm(elsewhere);
