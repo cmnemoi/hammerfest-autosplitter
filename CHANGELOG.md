@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.1...v0.1.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* split once into a parallel dimension and once out of it ([b198ce5](https://github.com/cmnemoi/hammerfest-autosplitter/commit/b198ce525f95c880d388af8fc0aa0f16125f6087))
+
 ## [0.1.1](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.0...v0.1.1) (2026-09-23)
 
 
