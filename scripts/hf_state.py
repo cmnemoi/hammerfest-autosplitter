@@ -264,16 +264,18 @@ def main():
     last_end = None
     stalled = 0
     while True:
+        if hf is None:
+            hf = attach(a.pid, verbose=False)
+            if hf is None:
+                time.sleep(1)
+                continue
         try:
             s = hf.snapshot()
         except OSError:
             s = None
         if s is None or s["level"] is None:
             print("  lost -> resolving again")
-            hf = attach(a.pid, verbose=False)
-            if hf is None:
-                time.sleep(1)
-                continue
+            hf = None
             last = None
             continue
         # `last` only moves on a level change, so the heartbeat is followed
@@ -294,14 +296,14 @@ def main():
                   % (end, end / SECOND, s["level"], s["chrono_ms"],
                      s["elevator_open"]))
         last_end = end
-        if last is None:
-            print("  level %-3s clock %s ms" % (s["level"], s["chrono_ms"]))
-            last = s
-        elif s["level"] != last["level"]:
-            print("  level %s -> %-3s clock %s ms  (+%s ms)"
-                  % (last["level"], s["level"], s["chrono_ms"],
-                     (s["chrono_ms"] or 0) - (last["chrono_ms"] or 0)))
-            last = s
+        # The dimension and the level come from two objects: `currentDim`
+        # from the GameMode, `currentId` from the world. Follow all three, to
+        # see whether a read can catch one of them ahead of the others.
+        where = (s["set"], s["dim"], s["level"])
+        if last is None or where != last_where:
+            print("  %-13s dim %-3s level %-3s frame %s  clock %s ms"
+                  % (where + (s["frame"], s["chrono_ms"])))
+            last, last_where = s, where
         time.sleep(a.interval)
 
 
