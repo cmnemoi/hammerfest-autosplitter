@@ -146,7 +146,7 @@ pub struct Game {
     hints: Hints,
 }
 
-pub use hammerfest_core::{EndSequence, State};
+pub use hammerfest_core::{EndSequence, Level, State, World};
 
 // -- memory ranges ----------------------------------------------------------
 
@@ -1086,13 +1086,16 @@ impl Game {
 
         // The world must always be a known world. That is what detects that
         // we now read recycled memory.
+        //
+        // It also says which world, and so which numbering, `currentId`
+        // belongs to. Both come from this one object, so they always agree.
+        // `GameMode.currentDim` does not: it changes two seconds before
+        // `world` does, on the way into a dimension.
         let set_atom = l.get_cached(mem, world, keys::SET_NAME, &mut self.hints.set_name)?;
-        if !keys::WORLDS
+        let set = keys::WORLDS
             .iter()
-            .any(|(obf, _)| l.string_eq(mem, set_atom & !7, obf))
-        {
-            return None;
-        }
+            .find(|(obf, _)| l.string_eq(mem, set_atom & !7, obf))
+            .and_then(|&(_, clear)| World::from_set_name(clear))?;
 
         let level = avm1::as_int(l.get_cached(
             mem,
@@ -1109,7 +1112,7 @@ impl Game {
             .unwrap_or(-1);
 
         Some(State {
-            level,
+            level: Level::new(set, level),
             previous,
             chrono_ms,
             frame_timer,

@@ -581,7 +581,7 @@ pub fn then_the_state(state: Option<State>) -> StateCheck {
 
 impl StateCheck {
     pub fn level(self, level: i64) -> Self {
-        assert_eq!(self.0.level, level, "level");
+        assert_eq!(self.0.level.id, level, "level");
         self
     }
 

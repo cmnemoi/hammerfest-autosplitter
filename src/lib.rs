@@ -302,7 +302,7 @@ fn send(command: Command) {
 fn publish(state: &State, set: &str) {
     // `GameInterface.setLevel` writes `""+currentId`. The number the game
     // displays is that index, with no offset.
-    timer::set_variable_int("Level", state.level);
+    timer::set_variable_int("Level", state.level.id);
     timer::set_variable("World", set);
     // The clock the game itself reports at the end of a game
     // (`"T="+gameChrono.get()`). It excludes pauses and level transitions, so

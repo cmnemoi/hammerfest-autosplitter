@@ -5,12 +5,13 @@
 //! reads no memory and knows nothing about LiveSplit.
 
 use crate::end_sequence::EndSequence;
+use crate::level::Level;
 
 /// What the game says about itself at one instant.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub struct State {
-    /// `GameMode.world.currentId`: the level, as the game displays it.
-    pub level: i64,
+    /// `GameMode.world`: its `setName`, and its `currentId`.
+    pub level: Level,
     /// `SetManager._previousId`.
     pub previous: i64,
     /// `Chrono.get()`, in milliseconds.
@@ -370,7 +371,7 @@ impl Policy {
         };
 
         // A finished timer does not accept `start`. It must be reset first.
-        if timer == TimerState::Ended && now.level == FIRST_LEVEL {
+        if timer == TimerState::Ended && now.level.id == FIRST_LEVEL {
             actions.reset = true;
             actions.start = true;
             return;
@@ -417,9 +418,9 @@ impl Policy {
         // costs a life and keeps the same level, and a warp cannot arrive
         // below where it left. A lower number means a script jump, the writes
         // inside one frame, or a misread.
-        if now.level > prev.level {
+        if now.level.id > prev.level.id {
             actions.split = true;
-            actions.skips = skips_after(now.level - prev.level);
+            actions.skips = skips_after(now.level.id - prev.level.id);
         }
     }
 }
@@ -427,6 +428,7 @@ impl Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::level::World;
 
     /// A live game state. Each test changes only what matters to it.
     ///
@@ -436,7 +438,7 @@ mod tests {
     /// and 562 ms over four games.
     fn at(level: i64, chrono_ms: i64) -> State {
         State {
-            level,
+            level: Level::new(World::Adventure, level),
             previous: level - 1,
             chrono_ms,
             frame_timer: 1_000 + chrono_ms,
@@ -842,6 +844,7 @@ mod tests {
     /// is what keeps it that way.
     fn in_dimension(level: i64, chrono_ms: i64) -> State {
         State {
+            level: Level::new(World::Deepnight, level),
             dim: 1,
             ..at(level, chrono_ms)
         }
@@ -1239,7 +1242,7 @@ mod tests {
         // that drives this. `duration` freezes with the pause, as the game
         // does it.
         let read = |level: i64, frame: i64, duration: i64| State {
-            level,
+            level: Level::new(World::Adventure, level),
             previous: level - 1,
             chrono_ms: duration,
             frame_timer: frame,

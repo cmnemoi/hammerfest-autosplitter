@@ -159,7 +159,7 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hammerfest_core::{Policy, State, TimerState};
+    use hammerfest_core::{Level, Policy, State, TimerState, World};
 
     use crate::hammerfest::{resolve, Anchor, Binary};
     use crate::test_heap::block_on;
@@ -184,7 +184,12 @@ mod tests {
         let state = game.read(&capture).expect("the reader read no state");
 
         assert_eq!(game.set, capture.says.set, "world");
-        assert_eq!(state.level, capture.says.level, "level");
+        assert_eq!(
+            Some(state.level.world),
+            World::from_set_name(&capture.says.set),
+            "world of the level"
+        );
+        assert_eq!(state.level.id, capture.says.level, "level");
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }
 
@@ -219,8 +224,8 @@ mod tests {
 
         // The next level, as the game would write it one second later.
         let next = State {
-            level: state.level + 1,
-            previous: state.level,
+            level: Level::new(state.level.world, state.level.id + 1),
+            previous: state.level.id,
             chrono_ms: state.chrono_ms + 1_000,
             frame_timer: state.frame_timer + 32,
             ..state
@@ -248,7 +253,7 @@ mod tests {
         let Some(state) = game.read(capture) else {
             return false;
         };
-        game.set == capture.says.set && state.level == capture.says.level
+        game.set == capture.says.set && state.level.id == capture.says.level
     }
 
     /// The smallest set of regions that still holds the game.
