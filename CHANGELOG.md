@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.0...v0.1.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **scripts:** find the game again after a new game starts ([512eee9](https://github.com/cmnemoi/hammerfest-autosplitter/commit/512eee9b343e7341d819a33c9b1a3b6fb5470d8f))
+* split when the player enters a parallel dimension ([0d8d096](https://github.com/cmnemoi/hammerfest-autosplitter/commit/0d8d09653e87a48c412c4952fb7c46138d2e46a4))
+
 ## 0.1.0 (2026-09-22)
 
 
