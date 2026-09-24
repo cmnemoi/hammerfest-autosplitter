@@ -197,6 +197,15 @@ impl Bytes {
         Obj { so, tbl, next: 0 }
     }
 
+    /// Adds one entry whose key is `key_atom` as it is, not an interned
+    /// String.
+    fn set_raw_key(&mut self, o: &mut Obj, key_atom: u64, value: u64) {
+        let key_addr = o.tbl + layout::KEYS + o.next * layout::STRIDE;
+        o.next += 1;
+        self.put(key_addr, key_atom);
+        self.put((key_addr as i64 + layout::VALUE) as u64, value);
+    }
+
     /// Adds one property. The entries are written from index zero upward, as
     /// a table the player filled would be.
     fn set(&mut self, o: &mut Obj, key: &str, value: u64) {
@@ -239,6 +248,7 @@ pub struct World {
     second_game: bool,
     corpse: bool,
     another_build: bool,
+    foreign_keys: bool,
     set_name: &'static str,
     dim: i64,
     level: i64,
@@ -260,6 +270,7 @@ impl Default for World {
             second_game: false,
             corpse: false,
             another_build: false,
+            foreign_keys: false,
             set_name: "xml_adventure",
             dim: 0,
             level: 2,
@@ -375,6 +386,16 @@ impl World {
         self
     }
 
+    /// Each table starts with a key that is not a String object.
+    ///
+    /// The Linux player writes such keys: measured on a running game, the
+    /// entry in front of `world` held a pointer to an object of another
+    /// class. The base of a table must be found all the same.
+    pub fn with_a_key_that_is_not_a_string_first(mut self) -> Self {
+        self.foreign_keys = true;
+        self
+    }
+
     pub fn build(self) -> Fixture {
         // What the reader already knows. On another build, it knows the
         // layout of the first one, and the search never questions it.
@@ -406,6 +427,13 @@ impl World {
         let mut second = self.second_game.then(|| b.object(12));
         let mut mechanics = b.object(4);
         let mut chrono = b.object(4);
+
+        if self.foreign_keys {
+            let foreign = b.object(1).so | atom::TAG_STRING;
+            for o in [&mut manager, &mut game_mode] {
+                b.set_raw_key(o, foreign, int(0));
+            }
+        }
 
         let obfuscated = keys::WORLDS
             .iter()
@@ -754,6 +782,19 @@ fn finds_nothing_in_a_heap_written_by_another_flash_build() {
     let found = when_we_look_for_the_game(&mut heap);
 
     then_nothing_is_found(found);
+}
+
+/** @spec reader.find::a-key-that-is-not-a-string */
+#[test]
+fn finds_a_game_when_a_key_is_not_a_string() {
+    let mut heap = given_a_heap()
+        .with_a_manager_and_a_game()
+        .with_a_key_that_is_not_a_string_first()
+        .build();
+
+    let found = when_we_look_for_the_game(&mut heap);
+
+    then_the_game_is_found(&heap, found);
 }
 
 /** @spec reader.read::the-nominal-state */

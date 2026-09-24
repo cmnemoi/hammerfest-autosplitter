@@ -63,6 +63,24 @@ pub fn as_number(mem: &dyn Memory, atom: u64) -> Option<f64> {
 
 /// Table capacity, at `tbl + 0x08` on both platforms.
 const TBL_CAPACITY: u64 = 0x08;
+/// Entries searched back from a key, looking for the header of its table.
+///
+/// The header is `i * stride + keys` bytes in front of entry `i`, and `i` is
+/// unknown. Measured on a running game, the anchor keys sat at entries 2, 61,
+/// 70, 97 and 570 of their tables, the largest of which held 793 entries.
+///
+/// The rule used to be "walk back while the previous qword decodes as a
+/// string, then subtract the key offset". It held on Windows and it does not
+/// hold on macOS: the heap there packs String pointers on both sides of a
+/// table, so the walk ran up to 95 entries past the base and never landed on
+/// a header.
+///
+/// It does not hold on Linux either, for the opposite reason: a table there
+/// can hold a key that is not a String object. Measured on a running game, the
+/// entry in front of `world` held one, so the walk stopped short of the base.
+const MAX_BACK: u64 = 2048;
+/// Bytes read at a time while searching back.
+const BACK_CHUNK: usize = 8192;
 const MAX_CAPACITY: u64 = 1 << 16;
 /// Maximum length of a decoded key. Obfuscated names are 2 to 8 characters.
 const MAX_KEY: usize = 64;
@@ -200,12 +218,6 @@ impl Layout {
         }
     }
 
-    pub fn key_len(&self, mem: &dyn Memory, addr: u64) -> Option<usize> {
-        let raw = read_u64(mem, addr)?;
-        let mut buf = [0u16; MAX_KEY];
-        self.read_string(mem, raw & !7, &mut buf)
-    }
-
     /// The atom of property `key`, or None.
     pub fn get(&self, mem: &dyn Memory, tbl: u64, key: &str) -> Option<u64> {
         let mut ignored = 0;
@@ -305,25 +317,59 @@ impl Layout {
     /// becomes the reference vtable. That is how it is derived instead of hard
     /// coded.
     pub fn table_base(&mut self, mem: &dyn Memory, keyslot: u64) -> Option<u64> {
-        let mut first = keyslot;
-        while first > self.profile.stride {
-            let prev = first - self.profile.stride;
-            if self.key_len(mem, prev).is_none() {
-                break;
+        let stride = self.profile.stride;
+        let mut buf = alloc::vec![0u8; BACK_CHUNK + 8];
+        let mut i = 0u64;
+
+        while i < MAX_BACK {
+            // The headers of the candidates in this chunk, from the nearest
+            // one down. One read covers them all.
+            let n = (BACK_CHUNK as u64 / stride).min(MAX_BACK - i);
+            let hi = keyslot.checked_sub(i * stride + self.profile.keys)?;
+            let lo = hi.checked_sub((n - 1) * stride)?;
+            let span = (hi - lo) as usize + 16;
+            let chunk = mem.read_into(lo, &mut buf[..span]).map(|_| &buf[..span]);
+
+            for k in 0..n {
+                let tbl = hi - k * stride;
+                // A chunk that would not read is served one address at a
+                // time. A range near the edge of a region refuses as a whole,
+                // and the header we want can sit inside it.
+                let vt = match chunk {
+                    Some(bytes) => u64_at(bytes, (tbl - lo) as usize)?,
+                    None => match read_u64(mem, tbl) {
+                        Some(vt) => vt,
+                        None => continue,
+                    },
+                };
+                if self.tbl_vt == 0 {
+                    if !self.in_module(vt) {
+                        continue;
+                    }
+                } else if vt != self.tbl_vt {
+                    continue;
+                }
+                // A table holds our key, so its capacity must cover its index.
+                let cap = match chunk {
+                    Some(bytes) => u64_at(bytes, (tbl - lo) as usize + TBL_CAPACITY as usize)
+                        .filter(|&c| c > 0 && c <= MAX_CAPACITY),
+                    None => self.capacity(mem, tbl),
+                };
+                let Some(cap) = cap else { continue };
+                if i + k >= cap {
+                    continue;
+                }
+                self.tbl_vt = vt;
+                return Some(tbl);
             }
-            first = prev;
+            i += n;
         }
-        let tbl = first.checked_sub(self.profile.keys)?;
-        let vt = read_u64(mem, tbl)?;
-        if self.tbl_vt == 0 {
-            if !self.in_module(vt) {
-                return None;
-            }
-            self.tbl_vt = vt;
-        } else if vt != self.tbl_vt {
-            return None;
-        }
-        self.capacity(mem, tbl)?;
-        Some(tbl)
+        None
     }
+}
+
+/// A qword read from a local buffer, if the offset fits inside it.
+fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
+    let raw = buf.get(off..off + 8)?;
+    Some(u64::from_le_bytes(<[u8; 8]>::try_from(raw).ok()?))
 }

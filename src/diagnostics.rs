@@ -94,11 +94,16 @@ pub struct FreshMap {
     ranges: Option<alloc::vec::Vec<(u64, u64)>>,
 }
 
+/// Shortest period between two refreshes, in microseconds.
+const MAP_PERIOD_US: u64 = 100_000;
+/// The share of the time the refresh may take. One tenth, so a refresh that
+/// costs 194 ms is paid once every 1.94 s.
+const MAP_DUTY: u64 = 10;
+
 impl FreshMap {
     pub fn poll(&mut self, pid: asr::ProcessId) -> Option<&[(u64, u64)]> {
         let now = now_us();
         if now >= self.next_us {
-            self.next_us = now + 100_000;
             if let Some(process) = asr::Process::attach_by_pid(pid) {
                 let ranges = crate::hammerfest::heap_ranges(&process);
                 #[cfg(feature = "diagnostics")]
@@ -115,6 +120,20 @@ impl FreshMap {
                 self.ranges = None;
                 event("map_refresh_failed");
             }
+            // Never spend more than a tenth of the time on the map.
+            //
+            // A refresh costs one runtime call per region of the process.
+            // The Windows plugin process holds about a hundred regions, and
+            // the refresh costs a few milliseconds. The macOS one holds six
+            // thousand seven hundred, and it costs 194 ms.
+            //
+            // LiveSplit gives a tick 8.3 ms, and stops a module that falls
+            // five seconds behind that rate. A fixed period of 100 ms is
+            // shorter than one macOS refresh, so the loop refreshed on every
+            // tick and LiveSplit stopped the module after 27 of them. The
+            // period now follows the machine it runs on.
+            let end = now_us();
+            self.next_us = end + MAP_PERIOD_US.max((end - now) * MAP_DUTY);
         }
         self.ranges.as_deref()
     }
