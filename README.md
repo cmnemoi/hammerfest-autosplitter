@@ -36,7 +36,7 @@ You need [mise](https://mise.jdx.dev) to interact with this repository.
 ```sh
 mise run build    # Build the autosplitter for Livesplit
 mise run test     # Run autosplitter tests
-mist run check    # Check for code issues
+mise run check    # Check for code issues
 ```
 
 On Windows you also need a C++ linker :
