@@ -27,6 +27,7 @@ The autosplitter has been tested on:
 
 - Windows, Eternaltwin 1.0.0
 - macOS ARM, Eternaltwin 0.6.6 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
+- Linux x64, Eternaltwin 1.0.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute
 

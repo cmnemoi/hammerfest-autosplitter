@@ -122,6 +122,7 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::nothing-on-another-flash-build` | a game written by another Flash build, and a reader that has already proven the layout of the first build | nothing is found, and never a wrong level |
 | `reader.find::the-same-game-when-looking-again` | a game, looked for twice, the heap unchanged | the same game is found |
 | `reader.find::the-new-game-not-the-corpse` | a game replaced by another between two looks | the new game is found |
+| `reader.find::a-key-that-is-not-a-string` | a game and its manager, whose tables hold a key that is not a String object in front of the anchor key, as the Linux player writes them | the game is found |
 
 ### Reading the state
 

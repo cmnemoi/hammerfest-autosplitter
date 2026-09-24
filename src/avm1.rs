@@ -74,6 +74,10 @@ const TBL_CAPACITY: u64 = 0x08;
 /// hold on macOS: the heap there packs String pointers on both sides of a
 /// table, so the walk ran up to 95 entries past the base and never landed on
 /// a header.
+///
+/// It does not hold on Linux either, for the opposite reason: a table there
+/// can hold a key that is not a String object. Measured on a running game, the
+/// entry in front of `world` held one, so the walk stopped short of the base.
 const MAX_BACK: u64 = 2048;
 /// Bytes read at a time while searching back.
 const BACK_CHUNK: usize = 8192;
