@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.2.0...v0.3.0) (2026-09-24)
+
+
+### Features
+
+* Support Linux and macOS ([d673173](https://github.com/cmnemoi/hammerfest-autosplitter/commit/d673173f35463e95bcca743acbacc74761422934))
+
 ## [0.2.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.1.2...v0.2.0) (2026-09-23)
 
 
