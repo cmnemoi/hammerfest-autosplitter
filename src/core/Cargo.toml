@@ -1,6 +1,6 @@
 [package]
 name = "hammerfest-core"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
 
 # No dependency, and above all not `asr`: that is what makes this crate
