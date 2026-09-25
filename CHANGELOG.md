@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.3.0...v1.0.0) (2026-09-25)
+
+
+### Miscellaneous Chores
+
+* release 1.0.0 ([1565bfd](https://github.com/cmnemoi/hammerfest-autosplitter/commit/1565bfd3d2a2667d88c25677811fe0756877cede))
+
 ## [0.3.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.2.0...v0.3.0) (2026-09-24)
 
 

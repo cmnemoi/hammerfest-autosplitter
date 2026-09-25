@@ -3,7 +3,7 @@ members = ["src/core"]
 
 [package]
 name = "hammerfest-autosplitter"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
 
 # Only the replay test reads this. A dev-dependency never reaches the `.wasm`:
