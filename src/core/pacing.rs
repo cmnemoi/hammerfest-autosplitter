@@ -11,6 +11,10 @@ const MIN_WAIT: u32 = 20;
 const MAX_WAIT: u32 = 60;
 /// Heap growth that cancels a wait, in bytes.
 const GROWTH: u64 = 4 << 20;
+/// How long a loading window stays open after a growth: about five seconds.
+const LOADING_WINDOW: u32 = 600;
+/// The wait after a failure while the window is open: 50 ms.
+const LOADING_WAIT: u32 = 6;
 
 /// What the loop knows about its own scanning.
 pub struct Pacing {
@@ -20,6 +24,8 @@ pub struct Pacing {
     next_wait: u32,
     /// The size of the heap at the last scan.
     heap: u64,
+    /// Ticks left in the loading window.
+    loading: u32,
     /// Is a game held since it was found?
     holds_a_game: bool,
 }
@@ -36,6 +42,7 @@ impl Pacing {
             wait: 0,
             next_wait: MIN_WAIT,
             heap: 0,
+            loading: 0,
             holds_a_game: false,
         }
     }
@@ -46,6 +53,13 @@ impl Pacing {
     /// answer of `false` spends one tick of the wait.
     pub fn may_scan(&mut self, heap: u64) -> bool {
         let grown = heap > self.heap + GROWTH;
+        self.loading = self.loading.saturating_sub(1);
+        // The first measure is not a growth: there was nothing before it.
+        //
+        // @spec pacing::a-loading-window
+        if grown && self.heap > 0 {
+            self.loading = LOADING_WINDOW;
+        }
         if self.wait > 0 && !grown {
             self.wait -= 1;
             return false;
@@ -56,6 +70,10 @@ impl Pacing {
 
     /// The scan found nothing.
     pub fn scan_failed(&mut self) {
+        if self.is_loading() {
+            self.wait = LOADING_WAIT;
+            return;
+        }
         self.wait = self.next_wait;
         self.next_wait = (self.next_wait * 2).min(MAX_WAIT);
     }
@@ -77,6 +95,14 @@ impl Pacing {
         self.holds_a_game = false;
         self.wait = 0;
         self.next_wait = MIN_WAIT;
+    }
+
+    /// Is the heap being loaded? A growth opened the window, and it has not
+    /// closed yet.
+    ///
+    /// @spec pacing::a-loading-window
+    pub fn is_loading(&self) -> bool {
+        self.loading > 0
     }
 
     /// Ticks left before the next scan. For the trace, and nothing else.
@@ -167,6 +193,62 @@ mod tests {
         p.scan_failed();
 
         assert!(!p.may_scan(SETTLED + (512 << 10)));
+    }
+
+    /// @spec pacing::a-loading-window
+    #[test]
+    fn a_failure_while_the_heap_loads_waits_a_few_ticks() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+        p.scan_failed();
+        assert!(p.may_scan(SETTLED + (8 << 20)));
+
+        p.scan_failed();
+
+        assert_eq!(ticks_refused(&mut p, SETTLED + (8 << 20)), 6);
+    }
+
+    /// @spec pacing::a-loading-window
+    #[test]
+    fn a_failure_while_the_heap_loads_does_not_lengthen_the_wait() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+        assert!(p.may_scan(SETTLED + (8 << 20)));
+        for _ in 0..3 {
+            p.scan_failed();
+            ticks_refused(&mut p, SETTLED + (8 << 20));
+        }
+
+        p.scan_failed();
+
+        assert_eq!(ticks_refused(&mut p, SETTLED + (8 << 20)), 6);
+    }
+
+    /// @spec pacing::a-loading-window
+    #[test]
+    fn the_loading_window_closes_by_itself() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+        assert!(p.may_scan(SETTLED + (8 << 20)));
+        for _ in 0..600 {
+            p.may_scan(SETTLED + (8 << 20));
+        }
+
+        p.scan_failed();
+
+        assert!(!p.is_loading());
+        assert!(ticks_refused(&mut p, SETTLED + (8 << 20)) >= 20);
+    }
+
+    /// @spec pacing::a-loading-window
+    #[test]
+    fn a_heap_that_does_not_grow_opens_no_window() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+
+        p.scan_failed();
+
+        assert!(!p.is_loading());
     }
 
     /// @spec pacing::a-game-found-clears-the-wait

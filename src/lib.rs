@@ -294,6 +294,12 @@ async fn run<P: FlashPlayer>(
                         "HF_DIAG event=resolve_trigger t_us={} heap={now}",
                         diagnostics::now_us()
                     ));
+                    // While the SWF loads, a player whose objects are born in
+                    // memory already committed is swept whole: what changed
+                    // would miss the game.
+                    if runtime.births_in_reused_memory() && pacing.is_loading() {
+                        anchor.sweep_everything_next();
+                    }
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
                     let all = ranges.map_or_else(|| runtime.heap_ranges(process), |rs| rs.to_vec());

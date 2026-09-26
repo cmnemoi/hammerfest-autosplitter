@@ -126,6 +126,17 @@ impl<H> Anchor<H> {
         *self = Self::default();
     }
 
+    /// The next search sweeps every region, and not only those that changed.
+    ///
+    /// For a player whose objects are born in memory already committed: the
+    /// regions it saw would stay the same, and the search would skip the very
+    /// memory where the game was born.
+    ///
+    /// @spec pacing::a-loading-window
+    pub fn sweep_everything_next(&mut self) {
+        self.regions.clear();
+    }
+
     /// Has a search found the `GameManager`? It exists as soon as the SWF of
     /// Hammerfest is loaded, before any game: it tells a tab that plays
     /// Hammerfest from one that plays something else.

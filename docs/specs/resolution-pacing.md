@@ -63,6 +63,22 @@ where a new scan can learn something.
 Growth below 4 MiB leaves the wait alone. A game in progress moves the heap by
 a few hundred KiB, and treating that as a birth would scan on every tick.
 
+### A heap that grows opens a loading window
+
+`{#pacing::a-loading-window}`
+
+A growth of 4 MiB or more is the SWF being loaded, and the game follows it
+within a second. For the 600 ticks that follow (about five seconds), a failed
+scan waits 6 ticks (50 ms), and not the wait that grows with each failure. The
+window closes by itself: outside a load, the wait grows as before.
+
+The loop also asks, during the window, for a scan of every region and not only
+of those that changed, for a player whose objects are born in memory already
+committed. Ruffle in a browser is one: the allocator of its linear memory
+reuses the room it freed. Found with the live check on 2026-09-26: the
+`GameManager` was born there, and three scans in a row skipped it as
+unchanged.
+
 ### A game found clears the wait
 
 `{#pacing::a-game-found-clears-the-wait}`

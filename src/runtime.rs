@@ -55,6 +55,13 @@ impl Runtime {
         }
     }
 
+    /// Are the objects of this player born in memory already committed? The
+    /// allocator of a linear memory reuses the room it freed, so a new object
+    /// does not grow the memory, and a search of what changed misses it.
+    pub fn births_in_reused_memory(self) -> bool {
+        matches!(self, Runtime::RuffleWeb { .. })
+    }
+
     /// Several Firefox tabs may run Ruffle, and only one plays Hammerfest.
     pub fn is_one_of_several(self) -> bool {
         matches!(self, Runtime::RuffleWeb { .. })
