@@ -10,7 +10,8 @@ use hammerfest_core::atom;
 use crate::avm1::{read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
 use crate::heap::{Avm1Heap, Object, ObjectReference, Slot, StringReference, Value};
 use crate::scan::{
-    give_the_tick_back, scan_bytes, scan_bytes_until, scan_u64_any, u64_at, Scan, CHUNK, OVERLAP,
+    give_the_tick_back, move_region_first, scan_bytes, scan_bytes_until, scan_u64_any, u64_at,
+    Scan, CHUNK, OVERLAP,
 };
 
 /// A Pepper Flash heap, read with one layout.
@@ -207,12 +208,113 @@ impl Binary {
 
 // -- the search ---------------------------------------------------------------
 
+/// Pepper Flash, as the search sees it.
+///
+/// What it knows of the binary outlives the plugin process. The key strings
+/// it found do not: they belong to the SWF loaded in this process.
+#[derive(Default)]
+pub struct PepperFlash {
+    module: (u64, u64),
+    binary: Binary,
+    key_strings: KeyStrings,
+}
+
+/// The String objects of the keys a search starts from, interned by the SWF.
+#[derive(Default)]
+struct KeyStrings {
+    world: Option<u64>,
+    version: Option<u64>,
+}
+
+impl KeyStrings {
+    fn of(&mut self, key: &str) -> &mut Option<u64> {
+        if key == crate::keys::WORLD {
+            &mut self.world
+        } else {
+            &mut self.version
+        }
+    }
+}
+
+impl PepperFlash {
+    pub fn new(binary: Binary) -> Self {
+        Self {
+            binary,
+            ..Self::default()
+        }
+    }
+
+    /// A plugin process whose module sits at `module`, and a binary about
+    /// which nothing is known yet.
+    pub fn attached_to(module: (u64, u64)) -> Self {
+        let mut player = Self::default();
+        player.attach(module);
+        player
+    }
+
+    /// A plugin process to search, whose module sits at `module`.
+    ///
+    /// Nothing another process learned is valid here: ASLR moves the module,
+    /// and the AVM1 heap is built again. Only the binary stays the same.
+    pub fn attach(&mut self, module: (u64, u64)) {
+        self.module = module;
+        self.key_strings = KeyStrings::default();
+    }
+
+    /// See [`Binary::recognize`].
+    #[cfg(feature = "known-flash")]
+    pub fn recognize(&mut self, mem: &dyn Memory) -> bool {
+        self.binary.recognize(mem, self.module)
+    }
+
+    /// The layout of this heap holds for the binary: the next search starts
+    /// from it.
+    pub(crate) fn learn(&mut self, heap: &PepperFlashHeap) {
+        self.binary.learn(&heap.layout());
+    }
+
+    /// The first object that owns `key` and that `accept` keeps.
+    ///
+    /// The string of the key is looked for in `fresh`, the memory that
+    /// changed: that is where the SWF has just created it. The tables that
+    /// cite it are looked for in `all`, starting with the region of the
+    /// string, since both live in the same AVM1 heap.
+    pub(crate) async fn objects_owning<T>(
+        &mut self,
+        mem: &dyn Memory,
+        key: &str,
+        fresh: &[(u64, u64)],
+        all: &mut [(u64, u64)],
+        cost: &mut Scan<'_>,
+        mut accept: impl FnMut(PepperFlashHeap, Object) -> Option<T>,
+    ) -> Option<T> {
+        cost.stage("key_string");
+        let (layout, string) = find_string(
+            mem,
+            self.module,
+            fresh,
+            key,
+            self.key_strings.of(key),
+            &self.binary,
+            cost,
+        )
+        .await?;
+        move_region_first(all, string);
+
+        cost.stage("key_tables");
+        scan_tables(mem, all, layout, string, key, cost, |layout, table| {
+            accept(PepperFlashHeap::new(layout), Object(table))
+        })
+        .await
+    }
+}
+
 /// Finds the interned String object of a key, and the String layout with it.
 ///
 /// The cache saves two full scans per attempt: these objects come from the
 /// constant pool of the SWF, so they live as long as the plugin. It is checked
 /// again by decoding the string, never assumed valid.
-pub(crate) async fn find_string(
+async fn find_string(
     mem: &dyn Memory,
     module: (u64, u64),
     ranges: &[(u64, u64)],
@@ -304,7 +406,7 @@ pub(crate) async fn find_string(
 /// the whole heap, so collecting them before examining them would force us to
 /// always read the hundred MiB, even when the right table is the first one we
 /// meet.
-pub(crate) async fn scan_tables<T>(
+async fn scan_tables<T>(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
     layout: Layout,

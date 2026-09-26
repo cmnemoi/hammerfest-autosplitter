@@ -164,7 +164,7 @@ mod tests {
 
     use crate::test_heap::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
-    use hammerfest_reader::pepper_flash::Binary;
+    use hammerfest_reader::pepper_flash::PepperFlash;
     use hammerfest_reader::search_log::Silent;
 
     /// @spec reader::the-right-layout
@@ -177,9 +177,8 @@ mod tests {
 
         let found = block_on(resolve(
             &capture,
-            capture.module,
+            &mut PepperFlash::attached_to(capture.module),
             &mut Anchor::default(),
-            &mut Binary::default(),
             &capture.ranges(),
             &mut Silent,
         ));
@@ -213,9 +212,8 @@ mod tests {
         };
         let mut game = block_on(resolve(
             &capture,
-            capture.module,
+            &mut PepperFlash::attached_to(capture.module),
             &mut Anchor::default(),
-            &mut Binary::default(),
             &capture.ranges(),
             &mut Silent,
         ))
@@ -247,9 +245,8 @@ mod tests {
         capture.masked.replace(masked.to_vec());
         let found = block_on(resolve(
             capture,
-            capture.module,
+            &mut PepperFlash::attached_to(capture.module),
             &mut Anchor::default(),
-            &mut Binary::default(),
             &capture.ranges(),
             &mut Silent,
         ));

@@ -18,7 +18,7 @@ use crate::memory_contract::Heap;
 use hammerfest_reader::avm1::{Layout, PROFILES};
 use hammerfest_reader::hammerfest::{resolve, Anchor, Game, State};
 use hammerfest_reader::keys;
-use hammerfest_reader::pepper_flash::Binary;
+use hammerfest_reader::pepper_flash::{Binary, PepperFlash};
 use hammerfest_reader::search_log::Silent;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
@@ -500,7 +500,11 @@ impl World {
             mechanics,
             chrono,
             anchor: Anchor::default(),
-            binary,
+            player: {
+                let mut player = PepperFlash::new(binary);
+                player.attach(MODULE);
+                player
+            },
         }
     }
 }
@@ -515,7 +519,7 @@ pub struct Fixture {
     mechanics: Obj,
     chrono: Obj,
     pub anchor: Anchor,
-    pub binary: Binary,
+    pub player: PepperFlash,
 }
 
 impl Fixture {
@@ -583,9 +587,8 @@ pub fn when_we_look_for_the_game(f: &mut Fixture) -> Option<Game> {
     let (heap, ranges) = (f.heap(), f.ranges());
     block_on(resolve(
         &heap,
-        MODULE,
+        &mut f.player,
         &mut f.anchor,
-        &mut f.binary,
         &ranges,
         &mut Silent,
     ))
@@ -692,9 +695,8 @@ pub fn block_on<F: core::future::Future>(f: F) -> F::Output {
 fn finds_nothing_in_an_empty_heap() {
     let found = block_on(resolve(
         &Heap::default(),
-        (0x1000, 0x1000),
+        &mut PepperFlash::attached_to((0x1000, 0x1000)),
         &mut Anchor::default(),
-        &mut Binary::default(),
         &[],
         &mut Silent,
     ));

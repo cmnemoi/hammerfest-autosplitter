@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use crate::avm1::{Layout, Memory};
 use crate::heap::{Avm1Heap, Object, Slot};
 use crate::keys;
-use crate::pepper_flash::{find_string, scan_tables, Binary, PepperFlashHeap};
+use crate::pepper_flash::{PepperFlash, PepperFlashHeap};
 use crate::scan::{move_region_first, Scan};
 use crate::search_log::SearchLog;
 
@@ -67,9 +67,6 @@ pub use hammerfest_core::{EndSequence, Level, State, World};
 /// process.
 #[derive(Default)]
 pub struct Anchor {
-    /// The String objects of the anchor keys, interned by the SWF.
-    string_world: Option<u64>,
-    string_version: Option<u64>,
     /// The property table of the `GameManager`, and the layout that goes with
     /// it.
     ///
@@ -164,9 +161,8 @@ pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game
 ///    This only serves when stage 2 fails.
 pub async fn resolve(
     mem: &dyn Memory,
-    module: (u64, u64),
+    player: &mut PepperFlash,
     anchor: &mut Anchor,
-    binary: &mut Binary,
     ranges: &[(u64, u64)],
     log: &mut dyn SearchLog,
 ) -> Option<Game> {
@@ -220,13 +216,22 @@ pub async fn resolve(
     // half a second to several seconds.
     if anchor.manager.is_none() {
         cost.stage("manager");
-        if let Some((layout, tbl)) =
-            scan_for_manager(mem, module, &ranges, &mut full, anchor, binary, &mut cost).await
+        if let Some((heap, manager)) = player
+            .objects_owning(
+                mem,
+                keys::F_VERSION,
+                &ranges,
+                &mut full,
+                &mut cost,
+                |heap, manager| is_the_game_manager(mem, heap, manager),
+            )
+            .await
         {
-            cost.log.manager_found(tbl, layout.profile.name);
-            binary.learn(&layout);
-            anchor.layout = Some(layout);
-            anchor.manager = Some(tbl);
+            cost.log
+                .manager_found(manager.0, heap.layout().profile.name);
+            player.learn(&heap);
+            anchor.layout = Some(heap.layout());
+            anchor.manager = Some(manager.0);
             anchor.current_hint = Slot::default();
             let game = resolve_via_manager(mem, anchor);
             cost.outcome(if game.is_some() {
@@ -257,38 +262,22 @@ pub async fn resolve(
 
     // Fallback: look for the GameMode itself, anchored on `world` -- a key
     // only a handful of objects carry.
-    cost.stage("world_string");
-    let (layout, strobj) = find_string(
-        mem,
-        module,
-        &ranges,
-        keys::WORLD,
-        &mut anchor.string_world,
-        binary,
-        &mut cost,
-    )
-    .await?;
-    // The interned string and the tables that cite it live in the same AVM1
-    // heap. Starting with its region usually saves us from reading the rest,
-    // and that is what makes the duration stable from one time to the next.
-    move_region_first(&mut full, strobj);
-
-    cost.stage("world_tables");
-    let game = scan_tables(
-        mem,
-        &full,
-        layout,
-        strobj,
-        keys::WORLD,
-        &mut cost,
-        |l, t| validate(mem, PepperFlashHeap::new(l), t),
-    )
-    .await?;
+    cost.stage("world");
+    let game = player
+        .objects_owning(
+            mem,
+            keys::WORLD,
+            &ranges,
+            &mut full,
+            &mut cost,
+            |heap, mode| validate(mem, heap, mode.0),
+        )
+        .await?;
 
     let layout = game.heap.layout();
     cost.log
         .game_mode_found(game.game_mode, game.set, layout.profile.name);
-    binary.learn(&layout);
+    player.learn(&game.heap);
     anchor.last_game_mode = Some(game.game_mode);
     anchor.layout = Some(layout);
     // `Mode.manager` leads to the GameManager. Keeping it does not shorten
@@ -301,69 +290,33 @@ pub async fn resolve(
     Some(game)
 }
 
-/// Locates the `GameManager`, the anchor that makes every later detection
-/// immediate.
+/// Is this object, which owns `fVersion`, the `GameManager`?
 ///
-/// It is anchored on `fVersion`, which its constructor sets and which no other
-/// class carries. A common key such as `current` -- which every SetManager has
-/// -- would be cited dozens of times, and every candidate costs the rebuild of
-/// a table.
+/// `fVersion` is set by its constructor, and no other class carries it. A
+/// common key such as `current` -- which every SetManager has -- would be
+/// cited dozens of times, and every candidate costs the rebuild of a table.
 ///
-/// The point is the timing: the Flash plugin exists as soon as the application
-/// opens, so long before a game starts. This scan has all the time it needs
-/// while the player is still on the loading screens, and the game that starts
-/// next is seen in a few reads.
-async fn scan_for_manager(
+/// The cross reference proves the candidate *and* teaches the heap how its
+/// objects lead to their properties on the way: `GameManager.current` points
+/// at a mode whose `manager` points back at that same GameManager.
+///
+/// The point of looking for it is the timing: the Flash plugin exists as soon
+/// as the application opens, so long before a game starts. This search has
+/// all the time it needs while the player is still on the loading screens,
+/// and the game that starts next is seen in a few reads.
+fn is_the_game_manager(
     mem: &dyn Memory,
-    module: (u64, u64),
-    fresh: &[(u64, u64)],
-    ranges: &mut [(u64, u64)],
-    anchor: &mut Anchor,
-    binary: &mut Binary,
-    cost: &mut Scan<'_>,
-) -> Option<(Layout, u64)> {
-    // The string is only searched in what changed -- that is where the SWF
-    // has just created it. The tables that cite it, on the other hand, are
-    // searched everywhere: once the string is found, we know a game exists,
-    // and the next pass stops at the first valid table.
-    cost.stage("manager_string");
-    let (layout, strobj) = find_string(
-        mem,
-        module,
-        fresh,
-        keys::F_VERSION,
-        &mut anchor.string_version,
-        binary,
-        cost,
-    )
-    .await?;
-
-    // The interned string and the tables that cite it live in the same AVM1
-    // heap. Starting with its region usually saves us from reading the rest.
-    // That is what made the duration stable on the fallback path, and it was
-    // missing here.
-    move_region_first(ranges, strobj);
-
-    cost.stage("manager_tables");
-    scan_tables(
-        mem,
-        ranges,
-        layout,
-        strobj,
-        keys::F_VERSION,
-        cost,
-        |mut l, t| {
-            // The cross reference proves the candidate *and* derives the
-            // `ScriptObject -> table` offset on the way. Without that offset,
-            // nothing below can be read: `GameManager.current` points at a mode
-            // whose `manager` field points back at that same GameManager.
-            let current = l.get(mem, t, keys::CURRENT)?;
-            let mode = l.derive_so_tbl(mem, current, keys::MANAGER)?;
-            let back = l.child(mem, mode, keys::MANAGER)?;
-            (back == t).then_some((l, t))
-        },
-    )
-    .await
+    mut heap: PepperFlashHeap,
+    manager: Object,
+) -> Option<(PepperFlashHeap, Object)> {
+    let current = heap
+        .property(mem, manager, keys::CURRENT, &mut Slot::default())?
+        .as_object()?;
+    let mode = heap.object_owning(mem, current, keys::MANAGER)?;
+    let back = heap
+        .property(mem, mode, keys::MANAGER, &mut Slot::default())?
+        .as_object()?;
+    (heap.object(mem, back)? == manager).then_some((heap, manager))
 }
 
 /// Is a table that owns `world` really the GameMode?

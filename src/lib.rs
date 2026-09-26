@@ -36,6 +36,7 @@ use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest_process::ProcessMemory;
 use hammerfest_reader::hammerfest::{self, Game};
+use hammerfest_reader::pepper_flash::PepperFlash;
 
 asr::async_main!(stable);
 asr::panic_handler!();
@@ -73,7 +74,7 @@ async fn main() {
     // What one resolution learns and the next one reuses.
     let mut anchor = hammerfest::Anchor::default();
     // What we keep about the binary outlives the plugin process.
-    let mut binary = hammerfest_reader::pepper_flash::Binary::default();
+    let mut player = PepperFlash::default();
     // The policy crosses processes: a plugin that disappears is part of the
     // story of a game.
     let mut policy = Policy::new();
@@ -101,15 +102,16 @@ async fn main() {
                 // Nothing another process learned is valid here: ASLR moves
                 // the module, and the AVM1 heap is built again.
                 anchor.reset();
+                player.attach(module);
                 #[cfg(feature = "known-flash")]
                 {
-                    let matched = binary.recognize(&ProcessMemory(&process), module);
+                    let matched = player.recognize(&ProcessMemory(&process));
                     asr::print_message(&alloc::format!(
                         "HF_DIAG event=binary_profile t_us={} matched={matched}",
                         diagnostics::now_us()
                     ));
                 }
-                run(&process, pid, module, &mut anchor, &mut binary, &mut policy).await;
+                run(&process, pid, &mut player, &mut anchor, &mut policy).await;
                 asr::print_message("Hammerfest: Flash plugin closed");
             }
             None => {
@@ -123,9 +125,8 @@ async fn main() {
 async fn run(
     process: &Process,
     pid: asr::ProcessId,
-    module: (u64, u64),
+    player: &mut PepperFlash,
     anchor: &mut hammerfest::Anchor,
-    binary: &mut hammerfest_reader::pepper_flash::Binary,
     policy: &mut Policy,
 ) {
     let mut game: Option<Game> = None;
@@ -185,9 +186,8 @@ async fn run(
                     let all = ranges.map_or_else(|| plugin::heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(
                         &memory,
-                        module,
+                        player,
                         anchor,
-                        binary,
                         &all,
                         &mut runtime_log::RuntimeLog::default(),
                     )

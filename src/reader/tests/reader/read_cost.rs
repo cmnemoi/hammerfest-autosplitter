@@ -166,9 +166,9 @@ mod situations {
 
     use super::*;
     use crate::replay::Capture;
-    use crate::test_heap::{given_a_heap, MODULE};
+    use crate::test_heap::given_a_heap;
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
-    use hammerfest_reader::pepper_flash::Binary;
+    use hammerfest_reader::pepper_flash::PepperFlash;
     use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";
@@ -182,14 +182,13 @@ mod situations {
         costs: &mut Costs,
         situation: &str,
         memory: &dyn Memory,
-        module: (u64, u64),
-        (anchor, binary): (&mut Anchor, &mut Binary),
+        (player, anchor): (&mut PepperFlash, &mut Anchor),
         ranges: &[(u64, u64)],
     ) -> Option<Game> {
         let metered = Metered::new(memory);
         let (game, cost) = measure(
             &metered,
-            resolve(&metered, module, anchor, binary, ranges, &mut Silent),
+            resolve(&metered, player, anchor, ranges, &mut Silent),
         );
         costs.record(situation, cost);
         game
@@ -199,23 +198,22 @@ mod situations {
         let capture = Capture::load("main-world").expect(
             "the capture fixtures/replay/main-world is missing, so its cost cannot be measured",
         );
-        let (mut anchor, mut binary) = (Anchor::default(), Binary::default());
+        let (mut player, mut anchor) =
+            (PepperFlash::attached_to(capture.module), Anchor::default());
         let ranges = capture.ranges();
 
         let first = search(
             costs,
             "real-game/first-search",
             &capture,
-            capture.module,
-            (&mut anchor, &mut binary),
+            (&mut player, &mut anchor),
             &ranges,
         );
         let second = search(
             costs,
             "real-game/second-search",
             &capture,
-            capture.module,
-            (&mut anchor, &mut binary),
+            (&mut player, &mut anchor),
             &ranges,
         );
         assert!(
@@ -241,8 +239,7 @@ mod situations {
                 costs,
                 situation,
                 &heap,
-                MODULE,
-                (&mut fixture.anchor, &mut fixture.binary),
+                (&mut fixture.player, &mut fixture.anchor),
                 &ranges,
             );
             assert!(found.is_none(), "{situation} found a game that is over");
