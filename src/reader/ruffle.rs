@@ -11,31 +11,102 @@
 //!   -> the object               the first one the strategy keeps
 //! ```
 //!
-//! See `docs/concepts/ruffle-heap.md` for every offset, and where it was read.
+//! The same source runs on the desktop, compiled for x86-64, and in a
+//! browser, compiled to wasm32. The logic is the same; the widths and the
+//! offsets are not, and a [`RuffleLayout`] holds them. See
+//! `docs/concepts/ruffle-heap.md` and `docs/concepts/ruffle-web-heap.md` for
+//! every offset, and where it was read.
 
 use alloc::vec::Vec;
 
-use crate::avm1::{read_u64, Memory};
+use crate::avm1::Memory;
 use crate::heap::{Avm1Heap, FlashPlayer, Object, ObjectReference, Slot, StringReference, Value};
-use crate::scan::{scan_qwords, scan_u64_any, u64_at, Scan};
+use crate::scan::{scan_words, word_at, Scan};
 
-const LAYOUT_NAME: &str = "ruffle-0.6.0";
+/// Where Ruffle puts what the reader reads, for one target.
+#[derive(Copy, Clone, Debug)]
+pub struct RuffleLayout {
+    pub name: &'static str,
+    /// The bytes of a pointer, of a `usize`, and of the hash of a key.
+    pub word: usize,
+    /// How far in front of a collected value its vtable sits.
+    pub gc_vtable: u64,
+    /// What the vtable of an AVM1 object says of it.
+    pub object_alignment: u64,
+    pub object_size: u64,
+    /// The capacity of the entries of an object; their pointer and their
+    /// length follow, one word each.
+    pub entries: u64,
+    pub entry_size: usize,
+    pub entry_key: usize,
+    pub entry_hash: usize,
+    /// Where a value holds a string or an object.
+    pub value_pointer: usize,
+    /// The length of a string, after the pointer to its units.
+    pub string_meta: usize,
+}
 
-/// A collected value is preceded by the vtable of its type. Its low bits are
-/// flags of the collector.
-const GC_VTABLE: u64 = 0x08;
+/// Ruffle desktop 0.6.0, x86-64: `docs/concepts/ruffle-heap.md`.
+pub const DESKTOP: RuffleLayout = RuffleLayout {
+    name: "ruffle-0.6.0",
+    word: 8,
+    gc_vtable: 0x08,
+    object_alignment: 8,
+    object_size: 160,
+    entries: 0x08,
+    entry_size: 56,
+    entry_key: 0x28,
+    entry_hash: 0x30,
+    value_pointer: 0x08,
+    string_meta: 0x10,
+};
+
+/// Ruffle web 0.6.0, wasm32: `docs/concepts/ruffle-web-heap.md`.
+pub const WEB: RuffleLayout = RuffleLayout {
+    name: "ruffle-web-0.6.0",
+    word: 4,
+    gc_vtable: 0x04,
+    object_alignment: 4,
+    object_size: 80,
+    entries: 0x04,
+    entry_size: 40,
+    entry_key: 0x20,
+    entry_hash: 0x24,
+    value_pointer: 0x04,
+    string_meta: 0x04,
+};
+
+impl RuffleLayout {
+    /// The hash of `key`, as wide as this target keeps it: a 32-bit target
+    /// keeps the low half of the same FNV-1a 64.
+    fn hash_of(&self, key: &str) -> u64 {
+        key_hash(key) & self.word_mask()
+    }
+
+    fn word_mask(&self) -> u64 {
+        u64::MAX >> (64 - 8 * self.word)
+    }
+
+    fn word(&self, bytes: &[u8], offset: usize) -> Option<u64> {
+        word_at(bytes, offset, self.word)
+    }
+
+    fn read_word(&self, memory: &dyn Memory, address: u64) -> Option<u64> {
+        let mut bytes = [0u8; 8];
+        memory.read_into(address, &mut bytes[..self.word])?;
+        self.word(&bytes, 0)
+    }
+
+    /// Does this entry hold the hash of `key`?
+    ///
+    /// @spec ruffle::an-entry-answers-by-its-hash
+    fn answers_for(&self, entry: &[u8], key: &str) -> bool {
+        self.word(entry, self.entry_hash) == Some(self.hash_of(key))
+    }
+}
+
+/// The collector keeps flags in the low bits of a vtable.
 const GC_FLAGS: u64 = 0xF;
-/// What the vtable of an AVM1 object says of it: its alignment, its size.
-const OBJECT_ALIGNMENT: u64 = 8;
-const OBJECT_SIZE: u64 = 160;
-
-/// The map of an object: the capacity, the pointer and the length of its
-/// entries, one after the other.
-const ENTRIES: u64 = 0x08;
-const ENTRIES_POINTER: u64 = 0x10;
-const ENTRY_SIZE: u64 = 56;
-const ENTRY_KEY: usize = 0x28;
-const ENTRY_HASH: usize = 0x30;
 /// More entries than any Hammerfest object holds. A larger length is not a
 /// map.
 const MAX_ENTRIES: u64 = 4096;
@@ -48,11 +119,10 @@ const TAG_STRING: u8 = 4;
 const TAG_OBJECT: u8 = 5;
 const TAG_MOVIE_CLIP: u8 = 6;
 const VALUE_BOOL: usize = 0x01;
-const VALUE_PAYLOAD: usize = 0x08;
+const VALUE_NUMBER: usize = 0x08;
 
-/// A string: the pointer to its units, then its length, whose top bit says
-/// the units are UTF-16 and not Latin-1.
-const STRING_META: usize = 0x10;
+/// The top bit of the length of a string says its units are UTF-16, and not
+/// Latin-1.
 const WIDE: u32 = 1 << 31;
 /// Longer than any key or world name.
 const MAX_STRING: usize = 64;
@@ -82,9 +152,10 @@ fn lowered(unit: u16) -> u16 {
     }
 }
 
-/// A Ruffle heap, read with the vtable its AVM1 objects carry.
+/// A Ruffle heap, read with one layout and the vtable its AVM1 objects carry.
 #[derive(Copy, Clone, Debug)]
 pub struct RuffleHeap {
+    layout: RuffleLayout,
     object_vtable: u64,
 }
 
@@ -95,33 +166,32 @@ impl RuffleHeap {
     ///
     /// @spec ruffle::the-entries-are-found-again
     fn entries(&self, memory: &dyn Memory, object: Object) -> Option<(u64, u64)> {
+        let layout = self.layout;
         let mut map = [0u8; 24];
-        memory.read_into(object.0 + ENTRIES, &mut map)?;
-        let (capacity, pointer, length) = (u64_at(&map, 0)?, u64_at(&map, 8)?, u64_at(&map, 16)?);
+        let map = &mut map[..3 * layout.word];
+        memory.read_into(object.0 + layout.entries, map)?;
+        let (capacity, pointer, length) = (
+            layout.word(map, 0)?,
+            layout.word(map, layout.word)?,
+            layout.word(map, 2 * layout.word)?,
+        );
         (length <= capacity && length <= MAX_ENTRIES).then_some((pointer, length))
     }
 
     fn decode(&self, entry: &[u8]) -> Option<Value> {
-        let payload = u64_at(entry, VALUE_PAYLOAD)?;
+        let pointer = self.layout.word(entry, self.layout.value_pointer)?;
         let value = match *entry.first()? {
             TAG_UNDEFINED => Value::Undefined,
             TAG_NULL => Value::Null,
             TAG_BOOL => Value::Bool(*entry.get(VALUE_BOOL)? != 0),
-            TAG_NUMBER => Value::Number(f64::from_bits(payload)),
-            TAG_STRING => Value::String(StringReference(payload)),
-            TAG_OBJECT => Value::Object(ObjectReference(payload)),
+            TAG_NUMBER => Value::Number(f64::from_bits(word_at(entry, VALUE_NUMBER, 8)?)),
+            TAG_STRING => Value::String(StringReference(pointer)),
+            TAG_OBJECT => Value::Object(ObjectReference(pointer)),
             TAG_MOVIE_CLIP => Value::Other,
             _ => return None,
         };
         Some(value)
     }
-}
-
-/// Does this entry hold the hash of `key`?
-///
-/// @spec ruffle::an-entry-answers-by-its-hash
-fn answers_for(entry: &[u8], key: &str) -> bool {
-    u64_at(entry, ENTRY_HASH) == Some(key_hash(key))
 }
 
 impl Avm1Heap for RuffleHeap {
@@ -132,24 +202,26 @@ impl Avm1Heap for RuffleHeap {
         key: &str,
         slot: &mut Slot,
     ) -> Option<Value> {
+        let layout = self.layout;
+        let size = layout.entry_size;
         let (entries, length) = self.entries(memory, object)?;
-        let mut entry = [0u8; ENTRY_SIZE as usize];
+        let mut entry = [0u8; 64];
+        let entry = &mut entry[..size];
         if slot.0 < length
             && memory
-                .read_into(entries + slot.0 * ENTRY_SIZE, &mut entry)
+                .read_into(entries + slot.0 * size as u64, entry)
                 .is_some()
-            && answers_for(&entry, key)
+            && layout.answers_for(entry, key)
         {
-            return self.decode(&entry);
+            return self.decode(entry);
         }
 
-        let mut all = alloc::vec![0u8; (length * ENTRY_SIZE) as usize];
+        let mut all = alloc::vec![0u8; length as usize * size];
         memory.read_into(entries, &mut all)?;
-        let (entries_read, _) = all.as_chunks::<{ ENTRY_SIZE as usize }>();
-        let (index, entry) = entries_read
-            .iter()
+        let (index, entry) = all
+            .chunks_exact(size)
             .enumerate()
-            .find(|(_, entry)| answers_for(*entry, key))?;
+            .find(|(_, entry)| layout.answers_for(entry, key))?;
         *slot = Slot(index as u64);
         self.decode(entry)
     }
@@ -171,11 +243,17 @@ impl Avm1Heap for RuffleHeap {
     }
 
     fn string_is(&self, memory: &dyn Memory, string: StringReference, text: &str) -> bool {
+        let layout = self.layout;
         let mut header = [0u8; 24];
-        if memory.read_into(string.0, &mut header).is_none() {
+        // Up to the word after the length: the same read on every target.
+        let header = &mut header[..layout.string_meta + 8];
+        if memory.read_into(string.0, header).is_none() {
             return false;
         }
-        let (Some(units), Some(meta)) = (u64_at(&header, 0), u64_at(&header, STRING_META)) else {
+        let (Some(units), Some(meta)) = (
+            layout.word(header, 0),
+            word_at(header, layout.string_meta, 4),
+        ) else {
             return false;
         };
         let meta = meta as u32;
@@ -203,34 +281,51 @@ impl Avm1Heap for RuffleHeap {
 
     /// @spec ruffle::an-object-is-proven-by-its-type
     fn is_object(&self, memory: &dyn Memory, object: Object) -> Option<bool> {
-        let tagged = read_u64(memory, object.0.checked_sub(GC_VTABLE)?)?;
+        let tagged = self
+            .layout
+            .read_word(memory, object.0.checked_sub(self.layout.gc_vtable)?)?;
         Some(tagged & !GC_FLAGS == self.object_vtable)
     }
 
     fn layout_name(&self) -> &'static str {
-        LAYOUT_NAME
+        self.layout.name
     }
 }
 
 /// Ruffle, as the search sees it.
-#[derive(Default)]
 pub struct Ruffle {
-    module: (u64, u64),
-    /// The vtable of an AVM1 object, once a game proved it. ASLR moves it
-    /// with the module, so it lives as long as the process.
+    layout: RuffleLayout,
+    /// Where the vtable of an AVM1 object may sit: in the executable on the
+    /// desktop, in the static data of the linear memory in a browser.
+    statics: (u64, u64),
+    /// The vtable of an AVM1 object, once a game proved it, or once the
+    /// build is known. It moves with the module, so it lives as long as the
+    /// process.
     object_vtable: Option<u64>,
 }
 
+impl Default for Ruffle {
+    fn default() -> Self {
+        Self {
+            layout: DESKTOP,
+            statics: (0, 0),
+            object_vtable: None,
+        }
+    }
+}
+
 impl Ruffle {
+    /// Ruffle desktop, whose executable sits at `module`.
     pub fn attached_to(module: (u64, u64)) -> Self {
         let mut player = Self::default();
         player.attach(module);
         player
     }
 
-    /// A Ruffle process to search, whose executable sits at `module`.
+    /// A Ruffle desktop process to search, whose executable sits at `module`.
     pub fn attach(&mut self, module: (u64, u64)) {
-        self.module = module;
+        self.layout = DESKTOP;
+        self.statics = module;
         self.object_vtable = None;
     }
 
@@ -239,30 +334,38 @@ impl Ruffle {
     ///
     /// @spec ruffle::an-object-is-proven-by-its-type
     fn object_vtable_of(&self, memory: &dyn Memory, object: u64) -> Option<u64> {
-        let vtable = read_u64(memory, object.checked_sub(GC_VTABLE)?)? & !GC_FLAGS;
+        let layout = self.layout;
+        let vtable = layout.read_word(memory, object.checked_sub(layout.gc_vtable)?)? & !GC_FLAGS;
         if let Some(known) = self.object_vtable {
             return (vtable == known).then_some(vtable);
         }
-        if !(self.module.0..self.module.1).contains(&vtable) {
+        if !(self.statics.0..self.statics.1).contains(&vtable) {
             return None;
         }
-        let mut layout = [0u8; 16];
-        memory.read_into(vtable, &mut layout)?;
-        (u64_at(&layout, 0)? == OBJECT_ALIGNMENT && u64_at(&layout, 8)? == OBJECT_SIZE)
+        let mut described = [0u8; 16];
+        let described = &mut described[..2 * layout.word];
+        memory.read_into(vtable, described)?;
+        (layout.word(described, 0)? == layout.object_alignment
+            && layout.word(described, layout.word)? == layout.object_size)
             .then_some(vtable)
     }
 
     /// Is this an entry, of this key?
     fn is_entry_of(&self, memory: &dyn Memory, entry: u64, key: &str) -> bool {
-        let mut bytes = [0u8; ENTRY_SIZE as usize];
-        if memory.read_into(entry, &mut bytes).is_none() || bytes[0] > TAG_MOVIE_CLIP {
+        let layout = self.layout;
+        let mut bytes = [0u8; 64];
+        let bytes = &mut bytes[..layout.entry_size];
+        if memory.read_into(entry, bytes).is_none() || bytes[0] > TAG_MOVIE_CLIP {
             return false;
         }
-        let Some(key_string) = u64_at(&bytes, ENTRY_KEY) else {
+        let Some(key_string) = layout.word(bytes, layout.entry_key) else {
             return false;
         };
-        let heap = RuffleHeap { object_vtable: 0 };
-        answers_for(&bytes, key) && heap.string_is(memory, StringReference(key_string), key)
+        let heap = RuffleHeap {
+            layout,
+            object_vtable: 0,
+        };
+        layout.answers_for(bytes, key) && heap.string_is(memory, StringReference(key_string), key)
     }
 }
 
@@ -271,7 +374,7 @@ impl FlashPlayer for Ruffle {
 
     /// Two sweeps. The first finds the entries of `key` by their hash, in the
     /// memory that changed. The second finds the maps that hold them, in all
-    /// the memory: a qword that points at the start of the entries, followed
+    /// the memory: a word that points at the start of the entries, followed
     /// by a length that reaches the entry.
     async fn objects_owning<T>(
         &mut self,
@@ -282,12 +385,16 @@ impl FlashPlayer for Ruffle {
         cost: &mut Scan<'_>,
         mut accept: impl FnMut(RuffleHeap, Object) -> Option<T>,
     ) -> Option<T> {
+        let layout = self.layout;
+        let hash = layout.hash_of(key);
+        let entry_size = layout.entry_size as u64;
+
         cost.stage("key_entries");
         let mut entries: Vec<u64> = Vec::new();
-        scan_u64_any(memory, fresh, &[key_hash(key)], cost, |hash| {
-            let entry = hash - ENTRY_HASH as u64;
+        scan_words(memory, fresh, layout.word, cost, |address, value, _| {
+            let entry = address.wrapping_sub(layout.entry_hash as u64);
             // Two blocks overlap, so a hit can come twice.
-            if !entries.contains(&entry) && self.is_entry_of(memory, entry, key) {
+            if value == hash && !entries.contains(&entry) && self.is_entry_of(memory, entry, key) {
                 entries.push(entry);
             }
             false
@@ -300,29 +407,46 @@ impl FlashPlayer for Ruffle {
         cost.stage("key_owners");
         let mut tried: Vec<u64> = Vec::new();
         let mut found = None;
-        scan_qwords(memory, all, cost, |address, pointer, length| {
-            let Some(length) = length else {
-                return false;
-            };
-            let reach = length.saturating_mul(ENTRY_SIZE);
-            if pointer > highest || pointer.saturating_add(reach) <= lowest || length > MAX_ENTRIES
-            {
-                return false;
-            }
-            let holds_an_entry = entries.iter().any(|&entry| {
-                entry >= pointer && (entry - pointer) % ENTRY_SIZE == 0 && entry - pointer < reach
-            });
-            let object = address - ENTRIES_POINTER;
-            if !holds_an_entry || tried.contains(&object) {
-                return false;
-            }
-            tried.push(object);
-            let Some(object_vtable) = self.object_vtable_of(memory, object) else {
-                return false;
-            };
-            found = accept(RuffleHeap { object_vtable }, Object(object));
-            found.is_some()
-        })
+        let pointer_offset = layout.entries + layout.word as u64;
+        scan_words(
+            memory,
+            all,
+            layout.word,
+            cost,
+            |address, pointer, length| {
+                let Some(length) = length else {
+                    return false;
+                };
+                let reach = length.saturating_mul(entry_size);
+                if pointer > highest
+                    || pointer.saturating_add(reach) <= lowest
+                    || length > MAX_ENTRIES
+                {
+                    return false;
+                }
+                let holds_an_entry = entries.iter().any(|&entry| {
+                    entry >= pointer
+                        && (entry - pointer) % entry_size == 0
+                        && entry - pointer < reach
+                });
+                let object = address.wrapping_sub(pointer_offset);
+                if !holds_an_entry || tried.contains(&object) {
+                    return false;
+                }
+                tried.push(object);
+                let Some(object_vtable) = self.object_vtable_of(memory, object) else {
+                    return false;
+                };
+                found = accept(
+                    RuffleHeap {
+                        layout,
+                        object_vtable,
+                    },
+                    Object(object),
+                );
+                found.is_some()
+            },
+        )
         .await;
         found
     }

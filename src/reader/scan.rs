@@ -281,16 +281,18 @@ pub(crate) fn move_region_first(ranges: &mut [(u64, u64)], addr: u64) {
     }
 }
 
-/// Walks every aligned qword, with the qword that follows it when the block
-/// holds it, and calls `on_qword` on each. Returning `true` stops the sweep.
+/// Walks every aligned word of `width` bytes, 4 or 8, with the word that
+/// follows it when the block holds it, and calls `on_word` on each. Returning
+/// `true` stops the sweep.
 ///
 /// For a search that cannot say in advance which value it looks for: a
 /// pointer into a range, and the length beside it.
-pub(crate) async fn scan_qwords(
+pub(crate) async fn scan_words(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
+    width: usize,
     cost: &mut Scan<'_>,
-    mut on_qword: impl FnMut(u64, u64, Option<u64>) -> bool,
+    mut on_word: impl FnMut(u64, u64, Option<u64>) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
     let mut chunks = 0usize;
@@ -301,12 +303,12 @@ pub(crate) async fn scan_qwords(
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
                 let mut i = 0;
-                while i + 8 <= n {
-                    let value = u64_at(&buf[..n], i).unwrap_or(0);
-                    if on_qword(base + i as u64, value, u64_at(&buf[..n], i + 8)) {
+                while i + width <= n {
+                    let value = word_at(&buf[..n], i, width).unwrap_or(0);
+                    if on_word(base + i as u64, value, word_at(&buf[..n], i + width, width)) {
                         return;
                     }
-                    i += 8;
+                    i += width;
                 }
             }
             if n <= OVERLAP {
@@ -320,4 +322,12 @@ pub(crate) async fn scan_qwords(
             }
         }
     }
+}
+
+/// A little endian word of `width` bytes, 4 or 8, if it fits in the buffer.
+pub(crate) fn word_at(buf: &[u8], offset: usize, width: usize) -> Option<u64> {
+    let raw = buf.get(offset..offset.checked_add(width)?)?;
+    let mut bytes = [0u8; 8];
+    bytes[..width].copy_from_slice(raw);
+    Some(u64::from_le_bytes(bytes))
 }
