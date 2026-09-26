@@ -129,6 +129,18 @@ check: see [Check before a session](../how-to/check-before-a-session.md).
 Measured on 2026-09-26, before this rule existed: 0 and 267 ms under
 EternalTwin, 50 ms under Ruffle desktop, 1073 ms under Ruffle in Firefox.
 
+Measured on the same day, once the searches of a linear memory went by blocks,
+tested each word in a tight loop, and swept everything during the loading
+window: **0 ms under Firefox, and 0 ms under EternalTwin**, the game started
+after the check each time. In Firefox the `GameManager` was found during the
+black screen before level 0, as it is under EternalTwin. The 267 ms had come
+from a game started before the check.
+
+Under EternalTwin, one update in a hundred took 7.7 ms, close to the tick of
+8.3 ms, before the window and after it alike. The sweeps of Pepper Flash still
+call back on every candidate; they are the next place to look if a slower
+machine goes over.
+
 ---
 
 ## Out of scope
