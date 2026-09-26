@@ -1,8 +1,8 @@
 # About the heap of Ruffle in a browser
 
-> **Draft.** Read in the source of Ruffle 0.6.0 and in its two released
-> `.wasm`, on 2026-09-26. Not checked on a live game yet. Each line says where
-> it comes from:
+> **Read in the source of Ruffle 0.6.0 and in its two released `.wasm`, then
+> checked on a live game in Firefox under Linux, on 2026-09-26.** Chrome and
+> Windows are not checked yet. Each line says where it comes from:
 >
 > - **[S]** read in the source;
 > - **[B]** read in the released `.wasm`, disassembled with `wasm-tools`;
@@ -188,11 +188,27 @@ instead of the 300 MiB of the desktop heap.
 
 ---
 
-## To check on a live game
+## Seen on a live game
 
-- Which build Firefox loads (the network panel).
-- The shape of the range and the alignment of the base, with Ruffle rather
-  than a test page.
-- Which of the `Isolated Web Co` processes holds the game.
+On 2026-09-26, Firefox ESR 140 under Linux, the Ruffle extension 0.6.0, a
+game at level 2 of `xml_adventure` on eternalfest.net.
+`mise run ruffle-web-state` reads it, and `fixtures/replay/ruffle-web-main-world`
+keeps it: 140 pages, 164 KiB.
+
+- **Firefox loads the extensions build.** Its two vtables are where the binary
+  says, which proves the base.
+- **The linear memory is 99 MiB**, found by its shape: an `rw` range followed
+  by the reserve.
+- **Every offset of this page holds**: the header of 8 bytes, the entry of 40,
+  the hash of 32 bits, the pointers at `+4` in a value, the string as `ptr,
+  meta`. Pass A found 5 entries of `]=[]8`, pass B 4 objects that own them,
+  and one of them is the `GameMode`: level `2.0`, previous `1.0`.
+- **The search took 0.78 s**, in Python, against about 20 s for the 300 MiB
+  of Ruffle desktop.
+
+## Still to check
+
+- Chrome, and Windows.
+- Whether a tab of another site in the same process can hide the game.
 - The order of getter, setter and id in an entry, and where a clip reference
   sits. The reader needs neither.
