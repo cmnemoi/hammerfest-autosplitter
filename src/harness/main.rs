@@ -22,8 +22,8 @@
 //!   level;
 //! - one `update()` stays within one tick at the 99th percentile. LiveSplit
 //!   gives a tick 8.3 ms, and stops a module that falls five seconds behind;
-//! - a start is dated at most 300 ms after level 0, when the game is started
-//!   after this check.
+//! - a start is dated at most 50 ms after level 0, three frames at 60 fps,
+//!   when the game is started after this check.
 //!
 //! See `docs/how-to/check-before-a-session.md`.
 
@@ -39,8 +39,9 @@ use livesplit_auto_splitting::{Config, LogLevel, Runtime, Timer, TimerState};
 
 const MODULE: &str = "target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm";
 const TICK: Duration = Duration::from_nanos(1_000_000_000 / 120);
-/// A blink: the eye cannot tell a later start from one on time.
-const START_LATENESS: Duration = Duration::from_millis(300);
+/// Three frames at 60 fps: below what the eye tells between two windows, and
+/// the delay autosplitters already live with.
+const START_LATENESS: Duration = Duration::from_millis(50);
 
 /// What the module did, as a timer sees it.
 #[derive(Default)]
@@ -222,14 +223,14 @@ fn judge(judged: &mut Judged) -> Vec<String> {
             "the module published no level: is a game started, past the black screen?".to_owned(),
         );
     }
-    // @spec pacing::a-start-dated-within-a-blink
+    // @spec pacing::a-start-dated-within-three-frames
     if let Some(late) = report
         .start_lateness
         .iter()
         .find(|late| **late > START_LATENESS)
     {
         failures.push(format!(
-            "a start was dated {:.0} ms after level 0, more than a blink ({:.0} ms). \
+            "a start was dated {:.0} ms after level 0, more than three frames ({:.0} ms). \
              Was the game started after this check?",
             ms(*late),
             ms(START_LATENESS)

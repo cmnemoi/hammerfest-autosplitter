@@ -91,14 +91,20 @@ true of Pepper Flash too: without this rule, every tick of the menus asked for
 a scan, the `GameManager` was declared silent after two seconds instead of
 thirty, and a full scan started again every two and a half seconds.
 
-### A start is dated within a blink
+### A start is dated within three frames
 
-`{#pacing::a-start-dated-within-a-blink}`
+`{#pacing::a-start-dated-within-three-frames}`
 
 The run starts when level 0 appears. The time is right whatever the delay,
 since the game time carries it, but a runner watches the big timer too. So the
-module dates the start at most 300 ms after level 0: the time of a blink, below
-which the eye cannot tell.
+module dates the start at most 50 ms after level 0: three frames at 60 fps.
+
+Why that figure, researched on 2026-09-26: the eye tells the order of two
+flashes from about 20 to 40 ms, but the game and the timer sit in two windows,
+and a look from one to the other takes about 200 ms. A delay between two
+windows shows from about 100 ms. Speedrunning counts in frames, and a LiveSplit
+autosplitter reads memory 20 to 60 times a second, so 1 to 3 frames of delay
+are already the norm. A blink, 300 ms, was the first figure, and far too much.
 
 No unit test can hold it: it depends on the search in a live player. The live
 end-to-end check judges it, `mise run e2e`, when the game is started after the
