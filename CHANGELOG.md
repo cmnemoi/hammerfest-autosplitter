@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.0.0...v1.1.0) (2026-09-26)
+
+
+### Features
+
+* find the game in Ruffle desktop ([534bb49](https://github.com/cmnemoi/hammerfest-autosplitter/commit/534bb49cc51f9d35faf41861cf99420edf00dde4))
+* read the game in the heap of Ruffle 0.6.0 ([ea8804a](https://github.com/cmnemoi/hammerfest-autosplitter/commit/ea8804a07b336bfc6954038d92df899ab3f4f3f0))
+
+
+### Bug Fixes
+
+* keep waiting between scans while no game is held ([9bc9ea8](https://github.com/cmnemoi/hammerfest-autosplitter/commit/9bc9ea8d4a363cd3c2d5de8651a1ea35c11378cd))
+
 ## [1.0.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v0.3.0...v1.0.0) (2026-09-25)
 
 

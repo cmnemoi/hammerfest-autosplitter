@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "hammerfest-autosplitter"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asr",
  "dlmalloc",
@@ -109,11 +109,11 @@ dependencies = [
 
 [[package]]
 name = "hammerfest-core"
-version = "1.0.0"
+version = "1.1.0"
 
 [[package]]
 name = "hammerfest-process"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "asr",
  "hammerfest-reader",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "hammerfest-reader"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "flate2",
  "hammerfest-core",
