@@ -34,7 +34,7 @@ Out, for now:
 
 Measured on a live game under Linux: the projector's AVM1 is the one of Pepper
 Flash. Its String, its ScriptObject and its property table have the Linux
-layout of the plugin, and the capture in `fixtures/replay/projector-main-world`
+layout of the plugin, and the capture in `fixtures/replay/linux-projector`
 is read by `PepperFlash` with no change.
 
 **Refused: a reader of its own.** It would be a copy of the Pepper Flash one.
@@ -122,7 +122,7 @@ table was ever proven.
 `{#projector::a-real-game-is-read}`
 
 The bytes the projector 32.0.0.465 wrote under Linux, in
-`fixtures/replay/projector-main-world`, give the level, the world and the
+`fixtures/replay/linux-projector`, give the level, the world and the
 dimension the game showed.
 
 ### A 32-bit build is read in words of four bytes
@@ -132,7 +132,7 @@ dimension the game showed.
 Every scenario of [Memory reader](memory-reader.md) runs on a heap written in
 words of four bytes, and a negative integer keeps its sign. The bytes the
 Windows projector 32.0.0.465 wrote under Wine, in
-`fixtures/replay/projector-win32-main-world`, give the level, the world and
+`fixtures/replay/windows-projector-wine`, give the level, the world and
 the dimension the game showed.
 
 ## Acceptance criteria

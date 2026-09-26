@@ -192,7 +192,7 @@ instead of the 300 MiB of the desktop heap.
 
 On 2026-09-26, Firefox ESR 140 under Linux, the Ruffle extension 0.6.0, a
 game at level 2 of `xml_adventure` on eternalfest.net.
-`mise run ruffle-web-state` reads it, and `fixtures/replay/ruffle-web-main-world`
+`mise run ruffle-web-state` reads it, and `fixtures/replay/linux-ruffle-web`
 keeps it: 140 pages, 164 KiB.
 
 - **Firefox loads the extensions build.** Its two vtables are where the binary

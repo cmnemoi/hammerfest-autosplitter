@@ -8,6 +8,23 @@ useful capture too.
 
 ---
 
+## One fixture per platform
+
+Each platform the autosplitter supports, an OS and a Flash player, has one
+trimmed capture in `fixtures/replay/<os>-<player>`. The CI replays every one
+of them (`mise run test:slow`), so a change that breaks one platform is red on
+every push.
+
+| OS \ player | Pepper Flash (EternalTwin) | Flash projector | Ruffle desktop | Ruffle in a browser |
+| --- | --- | --- | --- | --- |
+| Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | missing | missing |
+| Linux | missing | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
+| macOS | missing: needs a Mac | not shipped | missing: needs a Mac | missing: needs a Mac |
+
+A missing cell is a platform the net does not hold yet.
+
+---
+
 ## Take one
 
 ```sh
@@ -125,7 +142,7 @@ The first run writes every region, 85 MiB, for the tool to work on. The tool
 then empties the biggest region, looks for the game again, and keeps it emptied
 while the game is still found. The last run writes only what is left.
 
-For `main-world`, what is left is 5 regions of 124, 33.3 MiB raw and 2.5 MiB
+For `windows-pepper-flash`, what is left is 5 regions of 124, 33.3 MiB raw and 2.5 MiB
 gzipped. That one lives in git, under `fixtures/replay/`. The captures
 themselves stay out.
 

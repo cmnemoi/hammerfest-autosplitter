@@ -191,8 +191,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_capture() {
-        let Some(capture) = Capture::load("main-world") else {
-            println!("no capture in fixtures/replay/main-world, test skipped");
+        let Some(capture) = Capture::load("windows-pepper-flash") else {
+            println!("no capture in fixtures/replay/windows-pepper-flash, test skipped");
             return;
         };
 
@@ -226,8 +226,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_ruffle_capture() {
-        let capture = Capture::load("ruffle-main-world")
-            .expect("the capture fixtures/replay/ruffle-main-world is missing");
+        let capture = Capture::load("linux-ruffle")
+            .expect("the capture fixtures/replay/linux-ruffle is missing");
 
         let found = block_on(resolve(
             &capture,
@@ -254,8 +254,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_flash_projector_capture() {
-        let capture = Capture::load("projector-main-world")
-            .expect("the capture fixtures/replay/projector-main-world is missing");
+        let capture = Capture::load("linux-projector")
+            .expect("the capture fixtures/replay/linux-projector is missing");
 
         let found = block_on(resolve(
             &capture,
@@ -282,8 +282,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_32_bit_flash_projector_capture() {
-        let capture = Capture::load("projector-win32-main-world")
-            .expect("the capture fixtures/replay/projector-win32-main-world is missing");
+        let capture = Capture::load("windows-projector-wine")
+            .expect("the capture fixtures/replay/windows-projector-wine is missing");
         let mut player = PepperFlash::with_words(Word::Four);
         player.attach(capture.module);
 
@@ -310,8 +310,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_firefox_capture() {
-        let capture = Capture::load("ruffle-web-main-world")
-            .expect("the capture fixtures/replay/ruffle-web-main-world is missing");
+        let capture = Capture::load("linux-ruffle-web")
+            .expect("the capture fixtures/replay/linux-ruffle-web is missing");
         let (base, size) = capture.linear.expect("the capture names no linear memory");
         let linear = LinearMemory::new(&capture, base, size);
         let build = RuffleBuild::recognised_in(&linear).expect("no known build of Ruffle");
@@ -344,8 +344,8 @@ mod tests {
     #[test]
     #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn a_real_game_that_crosses_a_level_splits() {
-        let Some(capture) = Capture::load("main-world") else {
-            println!("no capture in fixtures/replay/main-world, test skipped");
+        let Some(capture) = Capture::load("windows-pepper-flash") else {
+            println!("no capture in fixtures/replay/windows-pepper-flash, test skipped");
             return;
         };
         let mut game = block_on(resolve(
@@ -389,9 +389,9 @@ mod tests {
     #[ignore = "a measure, not a test: it times the first search"]
     fn times_the_first_search() {
         const RUNS: u32 = 20;
-        let pepper_flash = Capture::load("main-world").expect("no main-world");
-        let ruffle = Capture::load("ruffle-main-world").expect("no ruffle-main-world");
-        let firefox = Capture::load("ruffle-web-main-world").expect("no ruffle-web-main-world");
+        let pepper_flash = Capture::load("windows-pepper-flash").expect("no windows-pepper-flash");
+        let ruffle = Capture::load("linux-ruffle").expect("no linux-ruffle");
+        let firefox = Capture::load("linux-ruffle-web").expect("no linux-ruffle-web");
         let (base, size) = firefox.linear.expect("no linear memory");
         let linear = LinearMemory::new(&firefox, base, size);
         let build = RuffleBuild::recognised_in(&linear).expect("no build");
@@ -475,12 +475,13 @@ mod tests {
     /// cargo test -p hammerfest-reader smallest -- --ignored --nocapture
     /// ```
     ///
-    /// It trims `main-world`, or the capture `HF_CAPTURE` names. A capture of
+    /// It trims `windows-pepper-flash`, or the capture `HF_CAPTURE` names. A capture of
     /// a 32-bit build says `HF_WORD_BYTES=4`.
     #[test]
     #[ignore = "a tool, not a test: it trims a new capture"]
     fn smallest_set_of_regions() {
-        let name = std::env::var("HF_CAPTURE").unwrap_or_else(|_| String::from("main-world"));
+        let name =
+            std::env::var("HF_CAPTURE").unwrap_or_else(|_| String::from("windows-pepper-flash"));
         let word = match std::env::var("HF_WORD_BYTES").as_deref() {
             Ok("4") => Word::Four,
             _ => Word::Eight,

@@ -4,7 +4,7 @@
 //! The offsets below are this module's own, taken from
 //! `docs/concepts/ruffle-heap.md`. They are not the reader's. A driver that
 //! shared its offsets with the code under test could not see an error in
-//! them. The replay of `fixtures/replay/ruffle-main-world` is what checks the
+//! them. The replay of `fixtures/replay/linux-ruffle` is what checks the
 //! reader's offsets against bytes Ruffle really wrote.
 
 use alloc::{string::String, vec, vec::Vec};

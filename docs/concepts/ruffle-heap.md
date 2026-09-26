@@ -307,7 +307,7 @@ sweeps.
 
 [L] Under Linux, Eternalfest Desktop 0.1.0, Ruffle 0.6.0, a game at level 2 of
 `xml_adventure`. `mise run ruffle-state` reads it, and
-`fixtures/replay/ruffle-main-world` keeps it.
+`fixtures/replay/linux-ruffle` keeps it.
 
 - **The search above works as written, on the first try.** Pass A found 18
   buckets of `]=[]8`, pass B found 19 objects that own them, and one of them is

@@ -270,7 +270,7 @@ mod situations {
 
     fn measured() -> Costs {
         let mut costs = Costs::default();
-        let pepper_flash = a_capture("main-world");
+        let pepper_flash = a_capture("windows-pepper-flash");
         let player = PepperFlash::attached_to(pepper_flash.module);
         a_real_game(
             &mut costs,
@@ -281,12 +281,12 @@ mod situations {
         );
         a_game_that_is_over::<PepperFlashHeapWriter>(&mut costs, "");
 
-        let ruffle = a_capture("ruffle-main-world");
+        let ruffle = a_capture("linux-ruffle");
         let player = Ruffle::attached_to(ruffle.module);
         a_real_game(&mut costs, "ruffle-", &ruffle, &ruffle.ranges(), player);
         a_game_that_is_over::<RuffleDesktopHeap>(&mut costs, "ruffle-");
 
-        let firefox = a_capture("ruffle-web-main-world");
+        let firefox = a_capture("linux-ruffle-web");
         let (base, size) = firefox.linear.expect("the capture names no linear memory");
         let linear = LinearMemory::new(&firefox, base, size);
         let build = RuffleBuild::recognised_in(&linear).expect("no known build of Ruffle");

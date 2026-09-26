@@ -18,8 +18,8 @@ regions that carry the object graph, and the others become zeros: they are
 still in the map, at their address and their size, so the search walks the
 same heap. It just finds nothing in them.
 
-    mise run replay-fixture -- main-world
-    mise run replay-fixture -- main-world --keep 0x4793b400000 0xf811400000
+    mise run replay-fixture -- windows-pepper-flash
+    mise run replay-fixture -- windows-pepper-flash --keep 0x4793b400000 0xf811400000
 
 The Rust test says which regions to keep. It prints them when it runs on the
 whole capture.

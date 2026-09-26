@@ -180,8 +180,8 @@ Seventeen scenarios run on both. Two stay on Pepper Flash, because they are
 its own traps: another Flash build, and a key that is not a String object.
 
 The Ruffle driver writes with its own offsets, never the reader's. The replay
-of `fixtures/replay/ruffle-main-world` is the only test that checks the
-reader's offsets against bytes Ruffle wrote, as `main-world` does for Pepper
+of `fixtures/replay/linux-ruffle` is the only test that checks the
+reader's offsets against bytes Ruffle wrote, as `windows-pepper-flash` does for Pepper
 Flash.
 
 The read cost baseline gains six situations: four on the Ruffle fixture, two
@@ -230,7 +230,7 @@ that the entry it remembers still holds the key.
 `{#ruffle::a-real-game-is-read}`
 
 The bytes Ruffle 0.6.0 wrote under Linux, in
-`fixtures/replay/ruffle-main-world`, give the level, the world and the
+`fixtures/replay/linux-ruffle`, give the level, the world and the
 dimension the game showed.
 
 ## Acceptance criteria
@@ -309,7 +309,7 @@ and a search of the whole 97 MB took 1.24 s.
 `{#browser::a-real-game-is-read}`
 
 The bytes Ruffle 0.6.0 wrote in Firefox under Linux, in
-`fixtures/replay/ruffle-web-main-world`, give the level, the world and the
+`fixtures/replay/linux-ruffle-web`, give the level, the world and the
 dimension the game showed.
 
 ### Acceptance criteria
@@ -359,7 +359,7 @@ Windows is not checked.
 - `docs/concepts/ruffle-heap.md`: strings, objects and property maps of Ruffle,
   drawn from a real capture;
 - a trimmed fixture of a game under Ruffle 0.6.0, like
-  `fixtures/replay/main-world`;
+  `fixtures/replay/windows-pepper-flash`;
 - a Python script that reads a live game, as a second opinion.
 
 It succeeds when a complete and correct `State` is read from a live Ruffle,

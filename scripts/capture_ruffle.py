@@ -17,7 +17,7 @@ Like every capture, it is not atomic: the game runs while we read, so
 `state_before` and `state_after` bracket it, and no clock in it is exact.
 
 Usage:
-    capture_ruffle.py --name ruffle-main-world
+    capture_ruffle.py --name linux-ruffle
 """
 import argparse
 import gzip

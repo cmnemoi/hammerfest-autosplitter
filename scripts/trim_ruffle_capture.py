@@ -16,8 +16,8 @@ The regions stay in the map, at their address and their size, so the search
 sweeps the same ranges it would in the live process.
 
 Usage:
-    trim_ruffle_capture.py ruffle-main-world
-        reads fixtures/ruffle-main-world, writes fixtures/replay/ruffle-main-world
+    trim_ruffle_capture.py linux-ruffle
+        reads fixtures/linux-ruffle, writes fixtures/replay/linux-ruffle
 """
 import argparse
 import bisect

@@ -81,7 +81,7 @@ The situations measured:
 
 | situation | what it stands for |
 | --- | --- |
-| `real-game/first-search` | the first search in a real game: the capture in `fixtures/replay/main-world`, nothing learned yet |
+| `real-game/first-search` | the first search in a real game: the capture in `fixtures/replay/windows-pepper-flash`, nothing learned yet |
 | `real-game/second-search` | the same search again, with what the first one learned |
 | `real-game/first-read` | the first read of the state of that game, when nothing is learned about where its properties sit |
 | `real-game/next-read` | the read that follows, as every tick does |

@@ -18,8 +18,8 @@ linear memory in the process, and its size. Every pointer in it is an offset
 from that base.
 
 Usage:
-    uv run --group analysis python scripts/capture_ruffle_web.py --name ruffle-web-main-world
-    ... --name ruffle-web-main-world --from-capture     trim again, with no game
+    uv run --group analysis python scripts/capture_ruffle_web.py --name linux-ruffle-web
+    ... --name linux-ruffle-web --from-capture     trim again, with no game
 """
 import argparse
 import gzip
