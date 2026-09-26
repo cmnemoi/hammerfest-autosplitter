@@ -22,14 +22,16 @@ EternalTwin.
 In:
 
 - Hammerfest, the main world and its dimensions, with the same rules as today;
-- Ruffle desktop, on Linux and Windows first.
+- Ruffle desktop, on Linux and Windows first;
+- Ruffle in a browser, as the extension runs it on eternalfest.net: Firefox
+  under Linux first, then Chrome and Windows, each checked on a live game. See
+  [Ruffle in a browser](#ruffle-in-a-browser).
 
 Out:
 
 - other contrées of Eternalfest: their worlds and ends need rules of their own,
   in `core`, not in the reader;
-- Ruffle in a browser: the VM lives in the wasm memory of a browser process,
-  which is another problem;
+- a site that hosts its own Ruffle: it may pin any version, and its layout;
 - macOS: best effort, after the release.
 
 ---
@@ -239,6 +241,74 @@ dimension the game showed.
 | `ruffle.find::a-map-that-is-not-an-object` | a game whose object carries the vtable of another type | nothing is found |
 | `ruffle.read::entries-that-moved` | a game whose entries were moved elsewhere, and reordered, after the first read | the level is still read |
 | `ruffle.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure` | the game is found, at level 2, in `xml_adventure`, dimension 0 |
+
+---
+
+## Ruffle in a browser
+
+Hammerfest on eternalfest.net, played with the Ruffle extension, in Firefox
+under Linux first. The layout is on
+[About the heap of Ruffle in a browser](../concepts/ruffle-web-heap.md).
+
+### Decisions
+
+**One Ruffle reader, two layouts.** The logic of a Ruffle map -- an entry
+answers by its hash, an object is proven by its type -- comes from the source
+of Ruffle, the same for desktop and web. The widths and offsets come from the
+target and the version, and change for other reasons: they are data, one table
+per target. A third driver runs the shared scenarios on the web layout, so a
+change to the shared logic is tested on every player.
+
+**Refused: a separate web reader.** Two copies of the same logic would drift.
+When the web code has to diverge for real, the fork is made then.
+
+**Offsets, not addresses.** Every pointer in a linear memory is an offset from
+its base. `LinearMemory` turns an offset into an address, as `ProcessMemory`
+turns an address into bytes, and the reader works with offsets.
+
+**The base is found by the shape of its range, then proven by a build.** A
+linear memory is an `rw` range followed by a reserve of 4 GiB or more. The
+vtables of a known build of Ruffle, at their offsets, prove it and name the
+build.
+
+**Several tabs.** The first process in which the strategy finds a
+`GameManager` is read. The others are named in the log.
+
+### Rules
+
+#### A linear memory is proven by a known build
+
+`{#browser::proven-by-a-known-build}`
+
+A linear memory is read only when the vtables of the object and of the string
+of a known build of Ruffle sit at their offsets in it. Any other build, or
+another wasm module, is not read at all.
+
+#### An offset is read from the base
+
+`{#browser::an-offset-from-the-base}`
+
+The reader asks for offsets. An offset is read at the base plus that offset,
+and only inside the linear memory: a read that runs past its end reads
+nothing.
+
+#### A real game in a browser is read
+
+`{#browser::a-real-game-is-read}`
+
+The bytes Ruffle 0.6.0 wrote in Firefox under Linux, in
+`fixtures/replay/ruffle-web-main-world`, give the level, the world and the
+dimension the game showed.
+
+### Acceptance criteria
+
+| id | given | then |
+| --- | --- | --- |
+| `browser.find::the-extensions-build` | a linear memory with the vtables of the extensions build | the build is recognised |
+| `browser.find::the-mvp-build` | a linear memory with the vtables of the MVP build | the build is recognised |
+| `browser.find::an-unknown-build` | a linear memory whose vtables are not where a known build puts them | nothing is recognised, and no game is looked for |
+| `browser.read::past-the-end` | a read that runs past the end of the linear memory | nothing is read |
+| `browser.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure`, in Firefox | the game is found, at level 2, in `xml_adventure`, dimension 0 |
 
 ---
 
