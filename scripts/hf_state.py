@@ -14,10 +14,16 @@ The resolution chain, with no hard coded address:
     GameMode["8qkdA"]             -> gameChrono: Chrono
     Chrono[...]                   -> fl_stop ? haltedTimer : frameTimer-gameTimer
 
+The Flash projector carries the same AVM1: under Linux its executable is the
+module, and `--pid` names it.
+
 Usage:
     hf_state.py                   one reading
     hf_state.py --watch           follows the level transitions
     hf_state.py --dump            prints GameMode, world and Chrono in full
+    hf_state.py --pid 1234        in this process: a projector, say
+    hf_state.py --capture fixtures/linux-pepper-flash
+                                  in a capture, with no game running
 """
 import argparse
 import sys
@@ -25,9 +31,13 @@ import time
 
 import avm1
 import hfmap
-import winmem
+import platform_memory
+import procmem
 
-PLUGIN = r"pepflashplayer\.dll|libpepflashplayer\.so|PepperFlashPlayer"
+# The plugin of EternalTwin, and the projector: `flashplayer` under Linux,
+# `flashplayer.exe` or `flashplayer_32_sa.exe` under Windows.
+PLUGIN = (r"pepflashplayer\.dll|libpepflashplayer\.so|PepperFlashPlayer"
+          r"|[/\\]flashplayer(_32_sa)?(\.exe)?$")
 
 K_WORLD = hfmap.obf("world")
 K_CURRENT_ID = hfmap.obf("currentId")
@@ -61,7 +71,7 @@ END_MODE_CYCLES = SECOND * 14   # Data.SECOND*14, the value case 4 writes
 
 
 class Hammerfest:
-    """A Hammerfest state resolved in a live process.
+    """A Hammerfest state resolved in a live process, or in a capture.
 
     Nothing is cached beyond the GameMode table. The game rebuilds its objects
     between two games, and an abandoned slot stays readable while holding a
@@ -69,12 +79,12 @@ class Hammerfest:
     again, which costs microseconds and cannot go stale in silence.
     """
 
-    def __init__(self, pid):
-        self.pid = pid
-        self.p = winmem.Proc(pid)
+    def __init__(self, memory):
+        self.p = memory
+        self.pid = memory.pid
         m = self.p.module(PLUGIN)
         if m is None:
-            raise RuntimeError("pepflashplayer.dll is missing from pid %d" % pid)
+            raise RuntimeError("no Flash player in pid %d" % self.pid)
         self.base, self.end, self.plugin_path = m
         self.heaps = self.p.regions()
         self.av = avm1.Avm1(self.p, (self.base, self.end), self.heaps)
@@ -190,11 +200,15 @@ class Hammerfest:
                   % (addr, label, self.av.tag(atom) or 0, self.av.describe(atom)))
 
 
-def attach(pid=None, verbose=True):
-    pids = [pid] if pid else winmem.ppapi_pids()
-    if not pids:
-        return None
-    hf = Hammerfest(pids[0])
+def attach(pid=None, verbose=True, capture=None):
+    if capture:
+        memory = procmem.Recorded(capture)
+    else:
+        pids = [pid] if pid else platform_memory.flash_pids(PLUGIN)
+        if not pids:
+            return None
+        memory = platform_memory.Proc(pids[0])
+    hf = Hammerfest(memory)
     if verbose:
         print("pid            %d" % hf.pid)
         print("plugin         %s" % hf.plugin_path)
@@ -235,12 +249,13 @@ def main():
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--dump", action="store_true")
     ap.add_argument("--interval", type=float, default=0.03)
+    ap.add_argument("--capture", help="a capture directory, read instead of a process")
     a = ap.parse_args()
 
-    hf = attach(a.pid)
+    hf = attach(a.pid, capture=a.capture)
     if hf is None:
-        sys.exit("\nnot resolved: does the --type=ppapi process exist, and "
-                 "are you in a game?")
+        sys.exit("\nnot resolved: does a Flash player run, and are you in a "
+                 "game?")
 
     if a.dump:
         hf.dump(hf.gm, "GameMode")

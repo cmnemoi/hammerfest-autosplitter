@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Records the memory of the Flash plugin as a replayable fixture.
+"""Records the memory of the Flash plugin, or of a Flash projector, as a
+replayable fixture. On Windows and on Linux.
 
 One capture serves two purposes at once:
 
@@ -40,6 +41,7 @@ Usage:
     capture_heap.py --no-module           skip the plugin image
     capture_heap.py --raw                 no compression, to measure the cost
     capture_heap.py --level 6             smaller, and slower to take
+    capture_heap.py --pid 1234            this process: a projector, say
 """
 import argparse
 import datetime
@@ -51,7 +53,7 @@ import sys
 import time
 
 import hf_state
-import winmem
+import platform_memory
 
 # Read size. Large enough that the cost of a call disappears, small enough
 # that one unreadable page does not lose much.
@@ -177,10 +179,10 @@ def main():
                          "alone, which metadata.json always carries.")
     args = ap.parse_args()
 
-    pids = [args.pid] if args.pid else winmem.ppapi_pids()
+    pids = [args.pid] if args.pid else platform_memory.flash_pids(hf_state.PLUGIN)
     if not pids:
-        sys.exit("no --type=ppapi process: is a Flash instance alive?")
-    proc = winmem.Proc(pids[0])
+        sys.exit("no Flash process: is a Flash instance alive?")
+    proc = platform_memory.Proc(pids[0])
     module = proc.module(hf_state.PLUGIN)
     if module is None:
         sys.exit("pid %d carries no Flash plugin" % pids[0])
@@ -230,12 +232,14 @@ def main():
 
     after = snapshot(hf)
 
-    # Put the flags back next to the region they came from. They are recorded,
-    # never used to select: the selection already happened, in `region_info`.
+    # Put the flags back next to the region they came from: Windows reports
+    # its protection, state and type, Linux its permissions. They are
+    # recorded, never used to select: the selection already happened, in
+    # `region_info`.
     for entry, region in zip(heap_index, info):
-        entry["protect"] = hex(region["protect"])
-        entry["state"] = hex(region["state"])
-        entry["type"] = hex(region["type"])
+        for flag, value in region.items():
+            if flag not in ("base", "end", "size"):
+                entry[flag] = hex(value) if isinstance(value, int) else value
 
     stored = sum(
         os.path.getsize(os.path.join(directory, f))
