@@ -280,3 +280,44 @@ pub(crate) fn move_region_first(ranges: &mut [(u64, u64)], addr: u64) {
         ranges.swap(0, i);
     }
 }
+
+/// Walks every aligned qword, with the qword that follows it when the block
+/// holds it, and calls `on_qword` on each. Returning `true` stops the sweep.
+///
+/// For a search that cannot say in advance which value it looks for: a
+/// pointer into a range, and the length beside it.
+pub(crate) async fn scan_qwords(
+    mem: &dyn Memory,
+    ranges: &[(u64, u64)],
+    cost: &mut Scan<'_>,
+    mut on_qword: impl FnMut(u64, u64, Option<u64>) -> bool,
+) {
+    let mut buf = vec![0u8; CHUNK];
+    let mut chunks = 0usize;
+
+    for &(start, end) in ranges {
+        let mut base = start;
+        while base < end {
+            let n = core::cmp::min(CHUNK as u64, end - base) as usize;
+            if cost.read_block(mem, base, &mut buf[..n]) {
+                let mut i = 0;
+                while i + 8 <= n {
+                    let value = u64_at(&buf[..n], i).unwrap_or(0);
+                    if on_qword(base + i as u64, value, u64_at(&buf[..n], i + 8)) {
+                        return;
+                    }
+                    i += 8;
+                }
+            }
+            if n <= OVERLAP {
+                break;
+            }
+            base += (n - OVERLAP) as u64;
+            chunks += 1;
+            if cost.should_yield(chunks) {
+                cost.paused();
+                give_the_tick_back().await;
+            }
+        }
+    }
+}

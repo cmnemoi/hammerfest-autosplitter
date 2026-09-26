@@ -6,3 +6,9 @@ real-game/first-read 2054 reads 17296 bytes 0 yields
 real-game/first-search 8162 reads 60306388 bytes 6 yields
 real-game/next-read 309 reads 2586 bytes 0 yields
 real-game/second-search 1281 reads 10798 bytes 0 yields
+ruffle-game-over/first-search 35 reads 8402 bytes 0 yields
+ruffle-game-over/second-search 0 reads 0 bytes 0 yields
+ruffle-real-game/first-read 43 reads 44653 bytes 0 yields
+ruffle-real-game/first-search 1334 reads 419456651 bytes 49 yields
+ruffle-real-game/next-read 30 reads 1085 bytes 0 yields
+ruffle-real-game/second-search 37 reads 28989 bytes 0 yields

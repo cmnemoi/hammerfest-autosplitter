@@ -165,6 +165,7 @@ mod tests {
     use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::pepper_flash::PepperFlash;
+    use hammerfest_reader::ruffle::Ruffle;
     use hammerfest_reader::search_log::Silent;
 
     /// @spec reader::the-right-layout
@@ -192,6 +193,33 @@ mod tests {
             World::from_set_name(&capture.says.set),
             "world of the level"
         );
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /// The same, on the bytes Ruffle 0.6.0 wrote under Linux.
+    ///
+    /// The capture is committed, so a missing one is a failure and not a skip.
+    ///
+    /// @spec ruffle.replay::the-main-world
+    /// @spec ruffle::a-real-game-is-read
+    #[test]
+    fn reads_a_real_game_out_of_a_ruffle_capture() {
+        let capture = Capture::load("ruffle-main-world")
+            .expect("the capture fixtures/replay/ruffle-main-world is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut Ruffle::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real Ruffle heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
         assert_eq!(state.level.id, capture.says.level, "level");
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }

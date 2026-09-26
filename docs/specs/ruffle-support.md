@@ -3,7 +3,8 @@
 Why the autosplitter will read Ruffle, how, and in what order. The decisions
 were taken on 2026-09-26. Each one carries its reason.
 
-This page has no rule ids yet. A rule gets an id when a test holds it.
+The rules of the Ruffle reader are under [Rules](#rules). The scenarios the
+two players share are in [Memory reader](memory-reader.md).
 
 ---
 
@@ -188,6 +189,56 @@ on the synthetic Ruffle heap.
 
 Extracting `PepperFlashHeap` is a pure refactoring: the baseline does not
 move. A saving comes after, in a commit of its own, with its baseline.
+
+---
+
+## Rules
+
+What the Ruffle reader adds to the rules of [Memory reader](memory-reader.md).
+Every scenario of that page runs on Ruffle too.
+
+### An entry answers for its key by its hash
+
+`{#ruffle::an-entry-answers-by-its-hash}`
+
+Ruffle keeps, beside each key of a map, the FNV hash of that key. The reader
+reads a property from an entry only when the hash it holds is the hash of the
+key asked. An entry that holds another hash, or memory that was an entry once,
+answers nothing.
+
+### An object is proven by its type
+
+`{#ruffle::an-object-is-proven-by-its-type}`
+
+Every object Ruffle collects carries, in front of it, the vtable of its type,
+and that vtable gives its size. A candidate is an AVM1 object only when that
+vtable lies in the module and says 8 and 160. A map found in another kind of
+allocation is not an object, and is never read.
+
+### The entries are found again at every read
+
+`{#ruffle::the-entries-are-found-again}`
+
+Ruffle moves the entries of a map when the map grows. The reader keeps the
+object, never the entries: it reads where they are at every read, and checks
+that the entry it remembers still holds the key.
+
+### A real game is read
+
+`{#ruffle::a-real-game-is-read}`
+
+The bytes Ruffle 0.6.0 wrote under Linux, in
+`fixtures/replay/ruffle-main-world`, give the level, the world and the
+dimension the game showed.
+
+## Acceptance criteria
+
+| id | given | then |
+| --- | --- | --- |
+| `ruffle.read::an-entry-whose-hash-lies` | a game whose `currentId` entry holds the hash of another key | nothing is read |
+| `ruffle.find::a-map-that-is-not-an-object` | a game whose object carries the vtable of another type | nothing is found |
+| `ruffle.read::entries-that-moved` | a game whose entries were moved elsewhere, and reordered, after the first read | the level is still read |
+| `ruffle.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure` | the game is found, at level 2, in `xml_adventure`, dimension 0 |
 
 ---
 

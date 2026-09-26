@@ -14,6 +14,7 @@ pub mod avm1;
 pub mod hammerfest;
 pub mod heap;
 pub mod pepper_flash;
+pub mod ruffle;
 mod scan;
 pub mod search_log;
 

@@ -167,9 +167,12 @@ mod situations {
     use super::*;
     use crate::pepper_flash_heap::PepperFlashHeapWriter;
     use crate::replay::Capture;
+    use crate::ruffle_heap::RuffleHeapWriter;
     use crate::scenarios::{World, WrittenHeap};
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
-    use hammerfest_reader::pepper_flash::{PepperFlash, PepperFlashHeap};
+    use hammerfest_reader::heap::FlashPlayer;
+    use hammerfest_reader::pepper_flash::PepperFlash;
+    use hammerfest_reader::ruffle::Ruffle;
     use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";
@@ -179,13 +182,13 @@ mod situations {
 ";
 
     /// One search, with what earlier searches learned, and its cost recorded.
-    fn search(
+    fn search<P: FlashPlayer>(
         costs: &mut Costs,
         situation: &str,
         memory: &dyn Memory,
-        (player, anchor): (&mut PepperFlash, &mut Anchor<PepperFlashHeap>),
+        (player, anchor): (&mut P, &mut Anchor<P::Heap>),
         ranges: &[(u64, u64)],
-    ) -> Option<Game<PepperFlashHeap>> {
+    ) -> Option<Game<P::Heap>> {
         let metered = Metered::new(memory);
         let (game, cost) = measure(
             &metered,
@@ -195,53 +198,61 @@ mod situations {
         game
     }
 
-    fn a_real_game(costs: &mut Costs) {
-        let capture = Capture::load("main-world").expect(
-            "the capture fixtures/replay/main-world is missing, so its cost cannot be measured",
-        );
-        let (mut player, mut anchor) =
-            (PepperFlash::attached_to(capture.module), Anchor::default());
+    /// A real game, from its capture: two searches, then two reads.
+    ///
+    /// `player` names the situations: `real-game/...` for Pepper Flash, which
+    /// came first, and `ruffle-real-game/...` for Ruffle.
+    fn a_real_game<P: FlashPlayer>(
+        costs: &mut Costs,
+        player_prefix: &str,
+        capture_name: &str,
+        attach: impl FnOnce((u64, u64)) -> P,
+    ) {
+        let capture = Capture::load(capture_name).unwrap_or_else(|| {
+            panic!("the capture fixtures/replay/{capture_name} is missing, so its cost cannot be measured")
+        });
+        let (mut player, mut anchor) = (attach(capture.module), Anchor::default());
         let ranges = capture.ranges();
+        let situation = |name: &str| format!("{player_prefix}real-game/{name}");
 
         let first = search(
             costs,
-            "real-game/first-search",
+            &situation("first-search"),
             &capture,
             (&mut player, &mut anchor),
             &ranges,
         );
         let second = search(
             costs,
-            "real-game/second-search",
+            &situation("second-search"),
             &capture,
             (&mut player, &mut anchor),
             &ranges,
         );
         assert!(
             first.is_some(),
-            "the first search found no game in a real heap"
+            "the first search found no game in {capture_name}"
         );
         let mut game = second.expect("the second search found no game in a real heap");
 
-        for situation in ["real-game/first-read", "real-game/next-read"] {
+        for name in ["first-read", "next-read"] {
             let metered = Metered::new(&capture);
             let (state, cost) = measure(&metered, async { game.read(&metered) });
-            assert!(state.is_some(), "{situation} read no state in a real game");
-            costs.record(situation, cost);
+            assert!(state.is_some(), "{name} read no state in {capture_name}");
+            costs.record(&situation(name), cost);
         }
     }
 
-    fn a_game_that_is_over(costs: &mut Costs) {
-        let mut fixture = World::<PepperFlashHeapWriter>::default()
-            .with_a_game()
-            .that_is_over()
-            .build();
+    /// A written heap whose only game is over: a search that finds nothing.
+    fn a_game_that_is_over<W: WrittenHeap>(costs: &mut Costs, player_prefix: &str) {
+        let mut fixture = World::<W>::default().with_a_game().that_is_over().build();
         let (heap, ranges) = (fixture.written.memory(), fixture.written.ranges());
 
-        for situation in ["game-over/first-search", "game-over/second-search"] {
+        for name in ["first-search", "second-search"] {
+            let situation = format!("{player_prefix}game-over/{name}");
             let found = search(
                 costs,
-                situation,
+                &situation,
                 &heap,
                 (&mut fixture.player, &mut fixture.anchor),
                 &ranges,
@@ -252,8 +263,15 @@ mod situations {
 
     fn measured() -> Costs {
         let mut costs = Costs::default();
-        a_real_game(&mut costs);
-        a_game_that_is_over(&mut costs);
+        a_real_game(&mut costs, "", "main-world", PepperFlash::attached_to);
+        a_game_that_is_over::<PepperFlashHeapWriter>(&mut costs, "");
+        a_real_game(
+            &mut costs,
+            "ruffle-",
+            "ruffle-main-world",
+            Ruffle::attached_to,
+        );
+        a_game_that_is_over::<RuffleHeapWriter>(&mut costs, "ruffle-");
         costs
     }
 
