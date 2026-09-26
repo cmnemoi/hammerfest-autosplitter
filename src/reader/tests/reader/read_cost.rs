@@ -168,7 +168,7 @@ mod situations {
     use crate::replay::Capture;
     use crate::test_heap::given_a_heap;
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
-    use hammerfest_reader::pepper_flash::PepperFlash;
+    use hammerfest_reader::pepper_flash::{PepperFlash, PepperFlashHeap};
     use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";
@@ -182,9 +182,9 @@ mod situations {
         costs: &mut Costs,
         situation: &str,
         memory: &dyn Memory,
-        (player, anchor): (&mut PepperFlash, &mut Anchor),
+        (player, anchor): (&mut PepperFlash, &mut Anchor<PepperFlashHeap>),
         ranges: &[(u64, u64)],
-    ) -> Option<Game> {
+    ) -> Option<Game<PepperFlashHeap>> {
         let metered = Metered::new(memory);
         let (game, cost) = measure(
             &metered,

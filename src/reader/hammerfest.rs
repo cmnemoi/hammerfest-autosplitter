@@ -1,16 +1,17 @@
-//! Resolution of the Hammerfest state inside the Flash plugin process.
+//! The Hammerfest strategy: how to find the game, and how to read it.
 //!
 //! No static pointer path leads to these values. They are not C variables but
 //! properties of ActionScript 2 objects, created at run time by a downloaded
-//! SWF. The anchor is therefore an interned string of the SWF, and everything
-//! else follows from it.
+//! SWF. So the strategy starts from keys the SWF carries, and asks the player
+//! which objects own them. How a player finds them is its own business: see
+//! [`FlashPlayer`] and [`Avm1Heap`].
 //!
 //! ```text
-//! scan "]=[]8" in the heap    `world`, obfuscated name known from hf.map.json
-//!   -> String object          the qword in front that points into the module
-//!                             is the vtable
-//!   -> slots citing the string, scanned over the 8 atom encodings
-//!   -> GameMode table         the one that owns this key
+//! GameManager                 the object that owns `fVersion`
+//!   .current                  -> the GameMode that runs
+//! or, as a fallback,
+//! GameMode                    an object that owns `world`, and whose
+//!                             `manager` names it back as `current`
 //! GameMode.world              -> GameMechanics
 //!   .setName                  -> a known Hammerfest world      check
 //!   .currentId                -> the level
@@ -19,10 +20,9 @@
 
 use alloc::vec::Vec;
 
-use crate::avm1::{Layout, Memory};
-use crate::heap::{Avm1Heap, Object, Slot};
+use crate::avm1::Memory;
+use crate::heap::{Avm1Heap, FlashPlayer, Object, Slot};
 use crate::keys;
-use crate::pepper_flash::{PepperFlash, PepperFlashHeap};
 use crate::scan::{move_region_first, Scan};
 use crate::search_log::SearchLog;
 
@@ -47,8 +47,8 @@ struct Hints {
     end_mode: Slot,
 }
 
-pub struct Game {
-    heap: PepperFlashHeap,
+pub struct Game<H> {
+    heap: H,
     pub game_mode: u64,
     pub set: &'static str,
     hints: Hints,
@@ -65,8 +65,7 @@ pub use hammerfest_core::{EndSequence, Level, State, World};
 /// interned string of a key, and the `GameManager` table. They are checked
 /// again before every use, and the `Anchor` is cleared for every new plugin
 /// process.
-#[derive(Default)]
-pub struct Anchor {
+pub struct Anchor<H> {
     /// The property table of the `GameManager`, and the layout that goes with
     /// it.
     ///
@@ -75,7 +74,7 @@ pub struct Anchor {
     /// every new mode into it). Finding it **during the menus** means we never
     /// scan again: when the game starts, it is at the end of a pointer.
     manager: Option<u64>,
-    layout: Option<Layout>,
+    heap: Option<H>,
     current_hint: Slot,
     /// Has the anchor ever delivered a game?
     ///
@@ -104,7 +103,23 @@ pub struct Anchor {
     sweeps: u32,
 }
 
-impl Anchor {
+// Not derived: a derive would ask the heap for a `Default` it does not need.
+impl<H> Default for Anchor<H> {
+    fn default() -> Self {
+        Self {
+            manager: None,
+            heap: None,
+            current_hint: Slot::default(),
+            manager_proven: false,
+            manager_idle: 0,
+            last_game_mode: None,
+            regions: Vec::new(),
+            sweeps: 0,
+        }
+    }
+}
+
+impl<H> Anchor<H> {
     /// Addresses learned in one process mean nothing in the next one: ASLR
     /// moves them, and the AVM1 heap is built again.
     pub fn reset(&mut self) {
@@ -129,8 +144,11 @@ const FULL_SWEEP: u32 = 8;
 /// on every tick. It returns None if the anchor is not learned yet, if the
 /// GameManager table moved, or if the current mode is not a playable game -- a
 /// menu, for example.
-pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game> {
-    let heap = PepperFlashHeap::new(anchor.layout?);
+pub fn resolve_via_manager<H: Avm1Heap + Copy>(
+    mem: &dyn Memory,
+    anchor: &mut Anchor<H>,
+) -> Option<Game<H>> {
+    let heap = anchor.heap?;
     let manager = Object(anchor.manager?);
     if !heap.is_object(mem, manager)? {
         anchor.manager = None;
@@ -159,13 +177,13 @@ pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game
 ///    loaded, so this search already succeeds in the menus, before any game;
 /// 3. as a last resort, look for a `GameMode` directly by its `world` key.
 ///    This only serves when stage 2 fails.
-pub async fn resolve(
+pub async fn resolve<P: FlashPlayer>(
     mem: &dyn Memory,
-    player: &mut PepperFlash,
-    anchor: &mut Anchor,
+    player: &mut P,
+    anchor: &mut Anchor<P::Heap>,
     ranges: &[(u64, u64)],
     log: &mut dyn SearchLog,
-) -> Option<Game> {
+) -> Option<Game<P::Heap>> {
     if let Some(game) = resolve_via_manager(mem, anchor) {
         return Some(game);
     }
@@ -227,10 +245,9 @@ pub async fn resolve(
             )
             .await
         {
-            cost.log
-                .manager_found(manager.0, heap.layout().profile.name);
+            cost.log.manager_found(manager.0, heap.layout_name());
             player.learn(&heap);
-            anchor.layout = Some(heap.layout());
+            anchor.heap = Some(heap);
             anchor.manager = Some(manager.0);
             anchor.current_hint = Slot::default();
             let game = resolve_via_manager(mem, anchor);
@@ -274,17 +291,25 @@ pub async fn resolve(
         )
         .await?;
 
-    let layout = game.heap.layout();
+    let heap = game.heap;
     cost.log
-        .game_mode_found(game.game_mode, game.set, layout.profile.name);
-    player.learn(&game.heap);
+        .game_mode_found(game.game_mode, game.set, heap.layout_name());
+    player.learn(&heap);
     anchor.last_game_mode = Some(game.game_mode);
-    anchor.layout = Some(layout);
+    anchor.heap = Some(heap);
     // `Mode.manager` leads to the GameManager. Keeping it does not shorten
     // the start of a game -- the objects die with the game, so the anchor does
     // not survive to the next one -- but it makes any new resolution inside
     // the same game free.
-    anchor.manager = layout.child(mem, game.game_mode, keys::MANAGER);
+    anchor.manager = heap
+        .property(
+            mem,
+            Object(game.game_mode),
+            keys::MANAGER,
+            &mut Slot::default(),
+        )
+        .and_then(|manager| heap.object(mem, manager.as_object()?))
+        .map(|manager| manager.0);
     anchor.current_hint = Slot::default();
     cost.outcome("game_via_world");
     Some(game)
@@ -304,11 +329,11 @@ pub async fn resolve(
 /// as the application opens, so long before a game starts. This search has
 /// all the time it needs while the player is still on the loading screens,
 /// and the game that starts next is seen in a few reads.
-fn is_the_game_manager(
+fn is_the_game_manager<H: Avm1Heap>(
     mem: &dyn Memory,
-    mut heap: PepperFlashHeap,
+    mut heap: H,
     manager: Object,
-) -> Option<(PepperFlashHeap, Object)> {
+) -> Option<(H, Object)> {
     let current = heap
         .property(mem, manager, keys::CURRENT, &mut Slot::default())?
         .as_object()?;
@@ -333,10 +358,9 @@ fn is_the_game_manager(
 /// @spec reader::it-is-a-game-mode
 /// @spec reader::a-known-world
 /// @spec reader::a-level-in-range
-fn validate(mem: &dyn Memory, mut heap: PepperFlashHeap, tbl: u64) -> Option<Game> {
+fn validate<H: Avm1Heap>(mem: &dyn Memory, mut heap: H, tbl: u64) -> Option<Game<H>> {
     let game_mode = Object(tbl);
-    let property =
-        |heap: &PepperFlashHeap, object, key| heap.property(mem, object, key, &mut Slot::default());
+    let property = |heap: &H, object, key| heap.property(mem, object, key, &mut Slot::default());
 
     let world = property(&heap, game_mode, keys::WORLD)?.as_object()?;
     let world = heap.object_owning(mem, world, keys::SET_NAME)?;
@@ -359,9 +383,7 @@ fn validate(mem: &dyn Memory, mut heap: PepperFlashHeap, tbl: u64) -> Option<Gam
     // A mode that names no manager at all is not refused here. An orphan game
     // has no manager to ask, and the `gameChrono` below is then the only
     // evidence left.
-    let child = |heap: &PepperFlashHeap, object, key| {
-        heap.object(mem, property(heap, object, key)?.as_object()?)
-    };
+    let child = |heap: &H, object, key| heap.object(mem, property(heap, object, key)?.as_object()?);
     if let Some(manager) = child(&heap, game_mode, keys::MANAGER) {
         if child(&heap, manager, keys::CURRENT) != Some(game_mode) {
             return None;
@@ -389,7 +411,7 @@ fn validate(mem: &dyn Memory, mut heap: PepperFlashHeap, tbl: u64) -> Option<Gam
 
 // -- reading ----------------------------------------------------------------
 
-impl Game {
+impl<H: Avm1Heap + Copy> Game<H> {
     /// The current state, or None if the resolution is no longer valid.
     ///
     /// Everything is read again from GameMode on every call. Keeping the final

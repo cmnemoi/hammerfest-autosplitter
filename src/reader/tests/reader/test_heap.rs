@@ -16,9 +16,12 @@ use hammerfest_core::atom;
 
 use crate::memory_contract::Heap;
 use hammerfest_reader::avm1::{Layout, PROFILES};
-use hammerfest_reader::hammerfest::{resolve, Anchor, Game, State};
+use hammerfest_reader::hammerfest::{resolve, Anchor, State};
 use hammerfest_reader::keys;
-use hammerfest_reader::pepper_flash::{Binary, PepperFlash};
+use hammerfest_reader::pepper_flash::{Binary, PepperFlash, PepperFlashHeap};
+
+/// The game this heap's reader finds.
+type Game = hammerfest_reader::hammerfest::Game<PepperFlashHeap>;
 use hammerfest_reader::search_log::Silent;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
@@ -518,7 +521,7 @@ pub struct Fixture {
     manager: Obj,
     mechanics: Obj,
     chrono: Obj,
-    pub anchor: Anchor,
+    pub anchor: Anchor<PepperFlashHeap>,
     pub player: PepperFlash,
 }
 

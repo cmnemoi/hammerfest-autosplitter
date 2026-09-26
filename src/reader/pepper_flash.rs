@@ -8,7 +8,7 @@ use alloc::{vec, vec::Vec};
 use hammerfest_core::atom;
 
 use crate::avm1::{read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
-use crate::heap::{Avm1Heap, Object, ObjectReference, Slot, StringReference, Value};
+use crate::heap::{Avm1Heap, FlashPlayer, Object, ObjectReference, Slot, StringReference, Value};
 use crate::scan::{
     give_the_tick_back, move_region_first, scan_bytes, scan_bytes_until, scan_u64_any, u64_at,
     Scan, CHUNK, OVERLAP,
@@ -84,6 +84,10 @@ impl Avm1Heap for PepperFlashHeap {
 
     fn is_object(&self, memory: &dyn Memory, object: Object) -> Option<bool> {
         read_u64(memory, object.0).map(|vtable| vtable == self.layout.tbl_vt)
+    }
+
+    fn layout_name(&self) -> &'static str {
+        self.layout.profile.name
     }
 }
 
@@ -266,20 +270,22 @@ impl PepperFlash {
     pub fn recognize(&mut self, mem: &dyn Memory) -> bool {
         self.binary.recognize(mem, self.module)
     }
+}
+
+impl FlashPlayer for PepperFlash {
+    type Heap = PepperFlashHeap;
 
     /// The layout of this heap holds for the binary: the next search starts
     /// from it.
-    pub(crate) fn learn(&mut self, heap: &PepperFlashHeap) {
+    fn learn(&mut self, heap: &PepperFlashHeap) {
         self.binary.learn(&heap.layout());
     }
 
-    /// The first object that owns `key` and that `accept` keeps.
-    ///
     /// The string of the key is looked for in `fresh`, the memory that
     /// changed: that is where the SWF has just created it. The tables that
     /// cite it are looked for in `all`, starting with the region of the
     /// string, since both live in the same AVM1 heap.
-    pub(crate) async fn objects_owning<T>(
+    async fn objects_owning<T>(
         &mut self,
         mem: &dyn Memory,
         key: &str,

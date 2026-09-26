@@ -30,7 +30,7 @@ const READS_PER_TICK: u64 = 128;
 /// The budget decides when to yield to the runtime. Everything that only
 /// measures -- durations, stages, outcome -- goes to `log`, and the host
 /// decides what to do with it.
-pub(crate) struct Scan<'log> {
+pub struct Scan<'log> {
     /// Reads asked of the runtime, and the bytes they carried.
     calls: u64,
     requested: u64,

@@ -8,6 +8,7 @@
 //! See `docs/specs/ruffle-support.md#design`.
 
 use crate::avm1::Memory;
+use crate::scan::Scan;
 
 /// An object whose properties can be read.
 ///
@@ -129,4 +130,34 @@ pub trait Avm1Heap {
     /// Memory is recycled: an object kept from one read to the next must be
     /// checked again before it is trusted.
     fn is_object(&self, memory: &dyn Memory, object: Object) -> Option<bool>;
+
+    /// The name of the layout this heap is read with, for the log.
+    fn layout_name(&self) -> &'static str;
+}
+
+/// A Flash player, as the search sees it: where the objects that own a key
+/// are, and what a search learns for the next one.
+// Every future runs on the one thread of the WebAssembly sandbox, so no
+// caller needs it to be `Send`.
+#[allow(async_fn_in_trait)]
+pub trait FlashPlayer {
+    /// The heap an object found by this player is read with.
+    type Heap: Avm1Heap + Copy;
+
+    /// The first object that owns `key` and that `accept` keeps.
+    ///
+    /// `fresh` is the memory that changed since the last search, `all` every
+    /// region, in the order to sweep them. The player may reorder `all`.
+    async fn objects_owning<T>(
+        &mut self,
+        memory: &dyn Memory,
+        key: &str,
+        fresh: &[(u64, u64)],
+        all: &mut [(u64, u64)],
+        cost: &mut Scan<'_>,
+        accept: impl FnMut(Self::Heap, Object) -> Option<T>,
+    ) -> Option<T>;
+
+    /// A game was read with this heap: the next search may start from it.
+    fn learn(&mut self, heap: &Self::Heap);
 }

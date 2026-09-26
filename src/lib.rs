@@ -36,7 +36,7 @@ use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest_process::ProcessMemory;
 use hammerfest_reader::hammerfest::{self, Game};
-use hammerfest_reader::pepper_flash::PepperFlash;
+use hammerfest_reader::pepper_flash::{PepperFlash, PepperFlashHeap};
 
 asr::async_main!(stable);
 asr::panic_handler!();
@@ -126,10 +126,10 @@ async fn run(
     process: &Process,
     pid: asr::ProcessId,
     player: &mut PepperFlash,
-    anchor: &mut hammerfest::Anchor,
+    anchor: &mut hammerfest::Anchor<PepperFlashHeap>,
     policy: &mut Policy,
 ) {
-    let mut game: Option<Game> = None;
+    let mut game: Option<Game<PepperFlashHeap>> = None;
     // When a full scan is allowed. The rules are in `core::pacing`, with their
     // spec and their tests.
     let mut pacing = Pacing::new();
