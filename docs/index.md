@@ -170,6 +170,7 @@ simply the old ones. Three separate checks guard against that.
 | why there is no fixed address | [About why Flash is hard](concepts/why-flash-is-hard.md) |
 | how a value is packed in 8 bytes | [About AVM1 values](concepts/avm1-values.md) |
 | how to follow a pointer to a property | [About AVM1 objects](concepts/avm1-objects.md) |
+| how Ruffle keeps an object in memory (draft) | [About the Ruffle heap](concepts/ruffle-heap.md) |
 | why the property names are gibberish | [About the obfuscation](concepts/obfuscation.md) |
 | how the game is located, and how fast | [About finding the game](internals/finding-the-game.md) |
 | why a valid read can lie | [About stale memory](internals/stale-memory.md) |
