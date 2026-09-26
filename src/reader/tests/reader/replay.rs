@@ -163,7 +163,8 @@ mod tests {
     use hammerfest_core::{Level, Policy, State, TimerState, World};
 
     use crate::test_heap::block_on;
-    use hammerfest_reader::hammerfest::{resolve, Anchor, Binary};
+    use hammerfest_reader::hammerfest::{resolve, Anchor};
+    use hammerfest_reader::pepper_flash::Binary;
     use hammerfest_reader::search_log::Silent;
 
     /// @spec reader::the-right-layout

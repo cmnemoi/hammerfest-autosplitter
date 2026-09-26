@@ -167,7 +167,8 @@ mod situations {
     use super::*;
     use crate::replay::Capture;
     use crate::test_heap::{given_a_heap, MODULE};
-    use hammerfest_reader::hammerfest::{resolve, Anchor, Binary, Game};
+    use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
+    use hammerfest_reader::pepper_flash::Binary;
     use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";

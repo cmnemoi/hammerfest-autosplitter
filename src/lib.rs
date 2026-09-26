@@ -73,7 +73,7 @@ async fn main() {
     // What one resolution learns and the next one reuses.
     let mut anchor = hammerfest::Anchor::default();
     // What we keep about the binary outlives the plugin process.
-    let mut binary = hammerfest::Binary::default();
+    let mut binary = hammerfest_reader::pepper_flash::Binary::default();
     // The policy crosses processes: a plugin that disappears is part of the
     // story of a game.
     let mut policy = Policy::new();
@@ -125,7 +125,7 @@ async fn run(
     pid: asr::ProcessId,
     module: (u64, u64),
     anchor: &mut hammerfest::Anchor,
-    binary: &mut hammerfest::Binary,
+    binary: &mut hammerfest_reader::pepper_flash::Binary,
     policy: &mut Policy,
 ) {
     let mut game: Option<Game> = None;

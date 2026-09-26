@@ -16,8 +16,9 @@ use hammerfest_core::atom;
 
 use crate::memory_contract::Heap;
 use hammerfest_reader::avm1::{Layout, PROFILES};
-use hammerfest_reader::hammerfest::{resolve, Anchor, Binary, Game, State};
+use hammerfest_reader::hammerfest::{resolve, Anchor, Game, State};
 use hammerfest_reader::keys;
+use hammerfest_reader::pepper_flash::Binary;
 use hammerfest_reader::search_log::Silent;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
