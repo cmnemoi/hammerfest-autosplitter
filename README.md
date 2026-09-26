@@ -28,9 +28,9 @@ run, the autosplitter reads EternalTwin, and says so in its log.
 The autosplitter has been tested on:
 
 - Windows, Eternaltwin 1.0.0
-- Linux x64, Eternalfest Desktop 0.1.0 with Ruffle 0.6.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - macOS ARM, Eternaltwin 0.6.6 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, Eternaltwin 1.0.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
+- Linux x64, [Eternalfest Desktop 0.1.0](https://github.com/cmnemoi/eternalfest-desktop#install) with Ruffle 0.6.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute
 
