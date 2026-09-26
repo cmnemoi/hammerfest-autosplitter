@@ -139,9 +139,7 @@ pub fn read_u64(mem: &dyn Memory, addr: u64) -> Option<u64> {
         return None;
     }
     let mut bytes = [0u8; 8];
-    let result = mem.read_into(addr, &mut bytes);
-    crate::diagnostics::validation_read(8, result.is_some());
-    result?;
+    mem.read_into(addr, &mut bytes)?;
     Some(u64::from_le_bytes(bytes))
 }
 
@@ -168,9 +166,7 @@ impl Layout {
         }
         let mut bytes = [0u8; MAX_KEY * 2];
         let bytes = &mut bytes[..n * 2];
-        let result = mem.read_into(buf, bytes);
-        crate::diagnostics::validation_read(n * 2, result.is_some());
-        result?;
+        mem.read_into(buf, bytes)?;
         let (pairs, _) = bytes.as_chunks::<2>();
         for (unit, pair) in out[..n].iter_mut().zip(pairs) {
             *unit = u16::from_le_bytes(*pair);

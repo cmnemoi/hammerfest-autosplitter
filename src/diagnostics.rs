@@ -32,26 +32,45 @@ static BYTES: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "diagnostics")]
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 
-#[inline]
-pub fn validation_read(_bytes: usize, _ok: bool) {
-    #[cfg(feature = "diagnostics")]
-    {
-        CALLS.fetch_add(1, Ordering::Relaxed);
-        if _ok {
-            BYTES.fetch_add(_bytes as u64, Ordering::Relaxed);
-        } else {
-            FAILURES.fetch_add(1, Ordering::Relaxed);
+/// The memory of the process, with every read counted in the diagnostics
+/// build. In the normal build it only forwards.
+pub struct Counted<'a>(pub &'a asr::Process);
+
+impl crate::avm1::Memory for Counted<'_> {
+    #[inline]
+    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
+        let result = self.0.read_into(address, buf);
+        #[cfg(feature = "diagnostics")]
+        {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            if result.is_some() {
+                BYTES.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            } else {
+                FAILURES.fetch_add(1, Ordering::Relaxed);
+            }
         }
+        result
     }
 }
 
-/// Single reads made outside a scan, to validate candidates.
+/// The search looks for the String object of a key.
+#[inline]
+pub fn string_search(_key: &str, _layout_proven: bool, _cached: bool) {
+    #[cfg(feature = "diagnostics")]
+    asr::print_message(&alloc::format!(
+        "HF_DIAG event=find_string t_us={} key={_key} proven={_layout_proven} cached={_cached}",
+        now_us(),
+    ));
+}
+
+/// Every read of the process so far: calls, bytes, failures.
 ///
-/// They do not go through the scan budget, so the budget does not see them.
-/// Counting them apart is the only way to know if the time goes into the
-/// passes or into the round trips that follow them.
+/// A scan knows its own block reads. The rest are single reads made to
+/// validate candidates, and they do not go through the scan budget. Counting
+/// them apart is the only way to know if the time goes into the passes or
+/// into the round trips that follow them.
 #[cfg(feature = "diagnostics")]
-fn validation_counts() -> [u64; 3] {
+fn read_counts() -> [u64; 3] {
     [
         CALLS.load(Ordering::Relaxed),
         BYTES.load(Ordering::Relaxed),
@@ -170,7 +189,7 @@ impl Default for ScanTrace {
             stage_started: now,
             stage: "ranges",
             outcome: "not_found",
-            validation: validation_counts(),
+            validation: read_counts(),
         }
     }
 }
@@ -184,6 +203,11 @@ impl Default for ScanTrace {
 
 #[cfg(feature = "diagnostics")]
 impl ScanTrace {
+    /// A new attempt starts: its clock and its counts start from here.
+    pub fn restart(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn read(&mut self, bytes: usize, ok: bool) {
         if ok {
             self.bytes += bytes as u64;
@@ -216,7 +240,12 @@ impl ScanTrace {
     /// -- and there are six of them.
     pub fn finish(&mut self, requested: u64, calls: u64) {
         let now = now_us();
-        let validation = validation_counts();
+        let totals = read_counts();
+        let validation = [
+            totals[0] - calls,
+            totals[1] - self.bytes,
+            totals[2] - self.failures,
+        ];
         asr::print_message(&alloc::format!(
             "HF_SCAN t_us={now} outcome={} elapsed_us={} requested_bytes={requested} read_bytes={} calls={calls} failures={} yields={} validation_calls={} validation_bytes={} validation_failures={}",
             self.outcome,
@@ -233,6 +262,8 @@ impl ScanTrace {
 
 #[cfg(not(feature = "diagnostics"))]
 impl ScanTrace {
+    #[inline]
+    pub fn restart(&mut self) {}
     #[inline]
     pub fn read(&mut self, _bytes: usize, _ok: bool) {}
     #[inline]

@@ -162,6 +162,7 @@ mod tests {
     use hammerfest_core::{Level, Policy, State, TimerState, World};
 
     use crate::hammerfest::{resolve, Anchor, Binary};
+    use crate::search_log::Silent;
     use crate::test_heap::block_on;
 
     /// @spec reader::the-right-layout
@@ -178,6 +179,7 @@ mod tests {
             &mut Anchor::default(),
             &mut Binary::default(),
             &capture.ranges(),
+            &mut Silent,
         ));
 
         let mut game = found.expect("the reader found no game in a real heap");
@@ -213,6 +215,7 @@ mod tests {
             &mut Anchor::default(),
             &mut Binary::default(),
             &capture.ranges(),
+            &mut Silent,
         ))
         .expect("the reader found no game in a real heap");
         let state = game.read(&capture).expect("the reader read no state");
@@ -246,6 +249,7 @@ mod tests {
             &mut Anchor::default(),
             &mut Binary::default(),
             &capture.ranges(),
+            &mut Silent,
         ));
         let Some(mut game) = found else {
             return false;

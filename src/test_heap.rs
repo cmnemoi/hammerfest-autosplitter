@@ -18,6 +18,7 @@ use crate::avm1::{Layout, PROFILES};
 use crate::hammerfest::{resolve, Anchor, Binary, Game, State};
 use crate::keys;
 use crate::memory_contract::Heap;
+use crate::search_log::Silent;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
 /// looks at this range, and it only compares.
@@ -585,6 +586,7 @@ pub fn when_we_look_for_the_game(f: &mut Fixture) -> Option<Game> {
         &mut f.anchor,
         &mut f.binary,
         &ranges,
+        &mut Silent,
     ))
 }
 

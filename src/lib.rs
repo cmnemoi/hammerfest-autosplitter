@@ -31,6 +31,8 @@ mod avm1;
 mod diagnostics;
 mod hammerfest;
 mod plugin;
+mod runtime_log;
+mod search_log;
 
 /// The runtime symbols, defined so that `cargo test` can link.
 #[cfg(test)]
@@ -162,6 +164,9 @@ async fn run(
     #[cfg(feature = "diagnostics")]
     let mut last_loop = diagnostics::now_us();
 
+    // Every read goes through here, so the diagnostics build can count them.
+    let memory = diagnostics::Counted(process);
+
     while process.is_open() {
         #[cfg(feature = "diagnostics")]
         {
@@ -179,7 +184,7 @@ async fn run(
             // The fast path follows `GameManager.current`. It is a few reads,
             // so we can try it every tick. The full scan only runs to learn
             // the anchor, or when the anchor has moved.
-            game = hammerfest::resolve_via_manager(process, anchor);
+            game = hammerfest::resolve_via_manager(&memory, anchor);
 
             if game.is_none() {
                 // A heap that grows in one step is the SWF creating its
@@ -201,7 +206,15 @@ async fn run(
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
                     let all = ranges.map_or_else(|| plugin::heap_ranges(process), |rs| rs.to_vec());
-                    game = hammerfest::resolve(process, module, anchor, binary, &all).await;
+                    game = hammerfest::resolve(
+                        &memory,
+                        module,
+                        anchor,
+                        binary,
+                        &all,
+                        &mut runtime_log::RuntimeLog::default(),
+                    )
+                    .await;
                     if game.is_none() {
                         pacing.scan_failed();
                         #[cfg(feature = "diagnostics")]
@@ -218,7 +231,7 @@ async fn run(
             }
         }
 
-        let read = game.as_mut().and_then(|g| g.read(process));
+        let read = game.as_mut().and_then(|g| g.read(&memory));
         #[cfg(feature = "diagnostics")]
         {
             let signature = read

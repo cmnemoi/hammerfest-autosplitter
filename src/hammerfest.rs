@@ -21,6 +21,7 @@ use alloc::{vec, vec::Vec};
 
 use crate::avm1::{self, read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
 use crate::keys;
+use crate::search_log::SearchLog;
 
 /// Size of a read block. The heap is about a hundred MiB. At 64 KiB that was
 /// a good thousand runtime calls per pass, and each call costs far more than
@@ -43,10 +44,9 @@ const MAX_LEVEL: i64 = 256;
 /// What the scan must count in order to steer itself, and nothing more.
 ///
 /// The budget decides when to yield to the runtime. Everything that only
-/// measures -- durations, stages, outcome -- lives in `trace`, which does not
-/// exist in the normal build.
-#[derive(Default)]
-struct Scan {
+/// measures -- durations, stages, outcome -- goes to `log`, and the host
+/// decides what to do with it.
+struct Scan<'log> {
     /// Reads asked of the runtime, and the bytes they carried.
     calls: u64,
     requested: u64,
@@ -54,20 +54,33 @@ struct Scan {
     last_yield_requested: u64,
     #[cfg(feature = "scan-budget")]
     last_yield_calls: u64,
-    trace: crate::diagnostics::ScanTrace,
+    log: &'log mut dyn SearchLog,
 }
 
-impl Scan {
+impl<'log> Scan<'log> {
+    fn new(log: &'log mut dyn SearchLog) -> Self {
+        log.search_started();
+        Self {
+            calls: 0,
+            requested: 0,
+            #[cfg(feature = "scan-budget")]
+            last_yield_requested: 0,
+            #[cfg(feature = "scan-budget")]
+            last_yield_calls: 0,
+            log,
+        }
+    }
+
     fn read_block(&mut self, mem: &dyn Memory, base: u64, buf: &mut [u8]) -> bool {
         self.calls += 1;
         self.requested += buf.len() as u64;
         let ok = mem.read_into(base, buf).is_some();
-        self.trace.read(buf.len(), ok);
+        self.log.block_read(buf.len(), ok);
         ok
     }
 
     fn paused(&mut self) {
-        self.trace.paused();
+        self.log.tick_given_back();
         #[cfg(feature = "scan-budget")]
         {
             self.last_yield_requested = self.requested;
@@ -92,23 +105,21 @@ impl Scan {
         }
     }
 
-    /// Marks the current stage. Without the `diagnostics` feature, it does
-    /// nothing.
+    /// Marks the current stage, for the log.
     fn stage(&mut self, next: &'static str) {
-        self.trace.stage(next, self.requested, self.calls);
+        self.log.stage(next, self.requested, self.calls);
     }
 
-    /// The outcome of the attempt, for the trace. Without the feature, it
-    /// does nothing.
+    /// The outcome of the attempt, for the log.
     fn outcome(&mut self, outcome: &'static str) {
-        self.trace.outcome(outcome);
+        self.log.outcome(outcome);
     }
 }
 
-impl Drop for Scan {
+impl Drop for Scan<'_> {
     fn drop(&mut self) {
-        self.trace.stage("done", self.requested, self.calls);
-        self.trace.finish(self.requested, self.calls);
+        self.log.stage("done", self.requested, self.calls);
+        self.log.search_finished(self.requested, self.calls);
     }
 }
 
@@ -168,7 +179,7 @@ async fn scan_bytes(
     pat: &[u8],
     align: usize,
     limit: usize,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
 ) -> Vec<u64> {
     let mut out = Vec::new();
     let mut buf = vec![0u8; CHUNK];
@@ -218,7 +229,7 @@ async fn scan_bytes_until(
     ranges: &[(u64, u64)],
     pat: &[u8],
     align: usize,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64, &[u8]) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
@@ -259,7 +270,7 @@ async fn scan_u64_any(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
     values: &[u64],
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
@@ -316,7 +327,7 @@ async fn scan_atoms(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
     ptr: u64,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
     let bytes = ptr.to_le_bytes();
@@ -587,12 +598,13 @@ pub async fn resolve(
     anchor: &mut Anchor,
     binary: &mut Binary,
     ranges: &[(u64, u64)],
+    log: &mut dyn SearchLog,
 ) -> Option<Game> {
     if let Some(game) = resolve_via_manager(mem, anchor) {
         return Some(game);
     }
 
-    let mut cost = Scan::default();
+    let mut cost = Scan::new(log);
     let all = ranges.to_vec();
     if all.is_empty() {
         return None;
@@ -641,10 +653,7 @@ pub async fn resolve(
         if let Some((layout, tbl)) =
             scan_for_manager(mem, module, &ranges, &mut full, anchor, binary, &mut cost).await
         {
-            asr::print_message(&alloc::format!(
-                "Hammerfest: GameManager 0x{tbl:x}, layout {}",
-                layout.profile.name,
-            ));
+            cost.log.manager_found(tbl, layout.profile.name);
             binary.learn(&layout);
             anchor.layout = Some(layout);
             anchor.manager = Some(tbl);
@@ -670,7 +679,7 @@ pub async fn resolve(
         }
         // Silent for a long time and never proven: the anchor may be the
         // problem itself. We drop it and search again.
-        asr::print_message("Hammerfest: silent anchor, searching again");
+        cost.log.silent_anchor_dropped();
         anchor.manager = None;
         anchor.manager_idle = 0;
         return None;
@@ -706,12 +715,8 @@ pub async fn resolve(
     )
     .await?;
 
-    asr::print_message(&alloc::format!(
-        "Hammerfest: GameMode 0x{:x}, world {}, layout {}",
-        game.game_mode,
-        game.set,
-        game.layout.profile.name,
-    ));
+    cost.log
+        .game_mode_found(game.game_mode, game.set, game.layout.profile.name);
     binary.learn(&game.layout);
     anchor.last_game_mode = Some(game.game_mode);
     anchor.layout = Some(game.layout);
@@ -744,7 +749,7 @@ async fn scan_for_manager(
     ranges: &mut [(u64, u64)],
     anchor: &mut Anchor,
     binary: &mut Binary,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
 ) -> Option<(Layout, u64)> {
     // The string is only searched in what changed -- that is where the SWF
     // has just created it. The tables that cite it, on the other hand, are
@@ -809,16 +814,11 @@ async fn find_string(
     key: &str,
     cache: &mut Option<u64>,
     binary: &Binary,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
 ) -> Option<(Layout, u64)> {
     let units = key.encode_utf16().count() as u64;
-    #[cfg(feature = "diagnostics")]
-    asr::print_message(&alloc::format!(
-        "HF_DIAG event=find_string t_us={} key={key} proven={} cached={}",
-        crate::diagnostics::now_us(),
-        binary.proven(),
-        cache.is_some()
-    ));
+    cost.log
+        .string_search(key, binary.proven(), cache.is_some());
     if let Some(so) = *cache {
         if let Some(layout) = string_layout_at(mem, module, so, key, units) {
             return Some((layout, so));
@@ -905,7 +905,7 @@ async fn scan_tables<T>(
     layout: Layout,
     strobj: u64,
     key: &str,
-    cost: &mut Scan,
+    cost: &mut Scan<'_>,
     mut accept: impl FnMut(Layout, u64) -> Option<T>,
 ) -> Option<T> {
     let mut layout = layout;
@@ -1191,6 +1191,7 @@ mod tests {
     // every other test of this layer is written against the heap builder in
     // `test_heap`.
     use crate::memory_contract::Heap;
+    use crate::search_log::Silent;
     use crate::test_heap::block_on;
 
     /** @spec reader.find::nothing-in-the-menus */
@@ -1202,6 +1203,7 @@ mod tests {
             &mut Anchor::default(),
             &mut Binary::default(),
             &[],
+            &mut Silent,
         ));
 
         assert!(found.is_none());

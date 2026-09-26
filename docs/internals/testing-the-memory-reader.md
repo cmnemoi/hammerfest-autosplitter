@@ -178,8 +178,9 @@ tie to the runtime that the trait does not cover.
 
 Three of the four exist only to let the adapter suite build a `Process` and
 serve it bytes. The reader's tests never reach them, because the reader is
-served a `Memory` of its own. `runtime_print_message` is the fourth, and it
-must return, because the reader prints while it searches.
+served a `Memory` of its own. `runtime_print_message` is the fourth. The
+reader no longer prints: it tells a `SearchLog`, and the tests give it one that
+ignores everything. The stubs go when the reader leaves the wasm crate.
 
 ---
 

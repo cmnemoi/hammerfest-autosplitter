@@ -167,6 +167,7 @@ mod situations {
     use super::*;
     use crate::hammerfest::{resolve, Anchor, Binary, Game};
     use crate::replay::Capture;
+    use crate::search_log::Silent;
     use crate::test_heap::{given_a_heap, MODULE};
 
     const BASELINE: &str = "fixtures/read-cost.txt";
@@ -185,7 +186,10 @@ mod situations {
         ranges: &[(u64, u64)],
     ) -> Option<Game> {
         let metered = Metered::new(memory);
-        let (game, cost) = measure(&metered, resolve(&metered, module, anchor, binary, ranges));
+        let (game, cost) = measure(
+            &metered,
+            resolve(&metered, module, anchor, binary, ranges, &mut Silent),
+        );
         costs.record(situation, cost);
         game
     }
