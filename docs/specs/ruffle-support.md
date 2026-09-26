@@ -105,6 +105,92 @@ says.
 
 ---
 
+## Design
+
+Decided on 2026-09-26, with the code and the spike in view.
+
+### The seam is the object graph
+
+A trait, `Avm1Heap`, answers two questions: which objects own a key, found by
+a sweep that yields its candidates one by one and stops when the caller keeps
+one; and what a property of an object holds. `PepperFlashHeap` and
+`RuffleHeap` implement it.
+
+The Hammerfest strategy exists once, above it: the `GameManager` first,
+`world` as a fallback, the validation of a candidate, the reading of the
+`State`. It is generic over the heap, so it costs nothing at run time. An
+`enum Runtime` picks the heap once per attached process, and gives the process
+names and the ordered list of regions to sweep.
+
+**Refused: one `resolve` and one `read` per runtime.** Simpler to write, and
+the strategy would exist twice.
+
+### One value, for both players
+
+```rust
+enum Value { Undefined, Null, Bool(bool), Number(f64), String(..), Object(..) }
+```
+
+No integer variant: Ruffle has none, and a Pepper Flash integer is exact in an
+f64 up to 2^53. A level is read as a number, and kept only when it is whole
+and in bounds. A string is compared by the heap, with no allocation.
+
+### State: the strategy's, and each heap's
+
+`Anchor` keeps what the strategy learns: the `GameManager`, whether it was
+proven, how long it stayed silent, the regions already seen. Each heap keeps
+its own: the Pepper Flash layout, its string caches and slot hints; whatever
+`RuffleHeap` needs.
+
+### Every read is checked, and a doubt reads nothing
+
+The game can change an object while we read it, and Ruffle reallocates the
+entries of a map when it grows. No lock is possible from outside. So every
+read is validated, the key of a Ruffle entry by its hash, the key of a Pepper
+Flash slot by its string, and a doubt gives `None`. The policy of `core`
+confirms a level on two reads in a row, so one wrong read never splits.
+
+### One Ruffle layout, strictly checked
+
+Only 0.6.0 under Linux is known. The reader checks it strictly: the vtable
+says 8 and 160, the hash of an entry is the FNV of its key. Profiles come with
+a second real layout, as the Pepper Flash ones did.
+
+### Which process, which regions
+
+Pepper Flash is looked for first, then Ruffle. A runner must start one game,
+in one player. The README says so, and the log says when the module sees
+several candidates.
+
+Ruffle under Linux: `[heap]` first, through `get_module_range("[heap]")`, then
+the anonymous regions. **The `PATH` filter of Pepper Flash must not apply**:
+LiveSplit sets `PATH` on `[heap]`, and the whole game lives there. Ruffle
+under Windows: every private RW region, until a capture says better.
+
+### Tests: one scenario, several drivers
+
+The scenarios of the reader are a DSL, and the synthetic Pepper Flash heap is
+its first driver. A synthetic Ruffle heap is the second. A macro writes each
+scenario once and makes one test per driver, so a red names the player.
+
+Seventeen scenarios run on both. Two stay on Pepper Flash, because they are
+its own traps: another Flash build, and a key that is not a String object.
+
+The Ruffle driver writes with its own offsets, never the reader's. The replay
+of `fixtures/replay/ruffle-main-world` is the only test that checks the
+reader's offsets against bytes Ruffle wrote, as `main-world` does for Pepper
+Flash.
+
+The read cost baseline gains six situations: four on the Ruffle fixture, two
+on the synthetic Ruffle heap.
+
+### Step 5 keeps every read
+
+Extracting `PepperFlashHeap` is a pure refactoring: the baseline does not
+move. A saving comes after, in a commit of its own, with its baseline.
+
+---
+
 ## Order
 
 Each step stays green, and the bench measures it.
