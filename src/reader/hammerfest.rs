@@ -19,8 +19,10 @@
 
 use alloc::{vec, vec::Vec};
 
-use crate::avm1::{self, read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
+use crate::avm1::{read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
+use crate::heap::{Avm1Heap, Object, Slot};
 use crate::keys;
+use crate::pepper_flash::PepperFlashHeap;
 use crate::search_log::SearchLog;
 
 /// Size of a read block. The heap is about a hundred MiB. At 64 KiB that was
@@ -123,27 +125,27 @@ impl Drop for Scan<'_> {
     }
 }
 
-/// Entry indexes kept from one read to the next, always checked again.
+/// Where each property sat at the last read, always checked again.
 #[derive(Default)]
 struct Hints {
-    world: u64,
-    chrono: u64,
-    current_id: u64,
-    previous_id: u64,
-    set_name: u64,
-    dim: u64,
-    game_over: u64,
-    frame: u64,
-    game: u64,
-    halted: u64,
-    stop: u64,
-    lock: u64,
-    duration: u64,
-    end_mode: u64,
+    world: Slot,
+    chrono: Slot,
+    current_id: Slot,
+    previous_id: Slot,
+    set_name: Slot,
+    dim: Slot,
+    game_over: Slot,
+    frame: Slot,
+    game: Slot,
+    halted: Slot,
+    stop: Slot,
+    lock: Slot,
+    duration: Slot,
+    end_mode: Slot,
 }
 
 pub struct Game {
-    pub layout: Layout,
+    heap: PepperFlashHeap,
     pub game_mode: u64,
     pub set: &'static str,
     hints: Hints,
@@ -390,7 +392,7 @@ pub struct Anchor {
     /// scan again: when the game starts, it is at the end of a pointer.
     manager: Option<u64>,
     layout: Option<Layout>,
-    current_hint: u64,
+    current_hint: Slot,
     /// Has the anchor ever delivered a game?
     ///
     /// While it has not, the fallback scan stays allowed. A wrong anchor -- or
@@ -561,21 +563,20 @@ const FULL_SWEEP: u32 = 8;
 /// GameManager table moved, or if the current mode is not a playable game -- a
 /// menu, for example.
 pub fn resolve_via_manager(mem: &dyn Memory, anchor: &mut Anchor) -> Option<Game> {
-    let layout = anchor.layout?;
-    let manager = anchor.manager?;
-    if read_u64(mem, manager)? != layout.tbl_vt {
+    let heap = PepperFlashHeap::new(anchor.layout?);
+    let manager = Object(anchor.manager?);
+    if !heap.is_object(mem, manager)? {
         anchor.manager = None;
         return None;
     }
     // No more `current`: this is not the GameManager any more, the table must
     // have moved. Dropping the anchor starts a scan instead of staying blind.
-    let Some(current) = layout.get_cached(mem, manager, keys::CURRENT, &mut anchor.current_hint)
-    else {
+    let Some(current) = heap.property(mem, manager, keys::CURRENT, &mut anchor.current_hint) else {
         anchor.manager = None;
         return None;
     };
-    let tbl = layout.table_of(mem, current)?;
-    let game = validate(mem, layout, tbl)?;
+    let tbl = heap.object(mem, current.as_object()?)?.0;
+    let game = validate(mem, heap, tbl)?;
     anchor.last_game_mode = Some(tbl);
     anchor.manager_proven = true;
     anchor.manager_idle = 0;
@@ -656,7 +657,7 @@ pub async fn resolve(
             binary.learn(&layout);
             anchor.layout = Some(layout);
             anchor.manager = Some(tbl);
-            anchor.current_hint = 0;
+            anchor.current_hint = Slot::default();
             let game = resolve_via_manager(mem, anchor);
             cost.outcome(if game.is_some() {
                 "game_via_manager"
@@ -710,21 +711,22 @@ pub async fn resolve(
         strobj,
         keys::WORLD,
         &mut cost,
-        |l, t| validate(mem, l, t),
+        |l, t| validate(mem, PepperFlashHeap::new(l), t),
     )
     .await?;
 
+    let layout = game.heap.layout();
     cost.log
-        .game_mode_found(game.game_mode, game.set, game.layout.profile.name);
-    binary.learn(&game.layout);
+        .game_mode_found(game.game_mode, game.set, layout.profile.name);
+    binary.learn(&layout);
     anchor.last_game_mode = Some(game.game_mode);
-    anchor.layout = Some(game.layout);
+    anchor.layout = Some(layout);
     // `Mode.manager` leads to the GameManager. Keeping it does not shorten
     // the start of a game -- the objects die with the game, so the anchor does
     // not survive to the next one -- but it makes any new resolution inside
     // the same game free.
-    anchor.manager = game.layout.child(mem, game.game_mode, keys::MANAGER);
-    anchor.current_hint = 0;
+    anchor.manager = layout.child(mem, game.game_mode, keys::MANAGER);
+    anchor.current_hint = Slot::default();
     cost.outcome("game_via_world");
     Some(game)
 }
@@ -986,17 +988,21 @@ fn string_layout_at(
 /// @spec reader::it-is-a-game-mode
 /// @spec reader::a-known-world
 /// @spec reader::a-level-in-range
-fn validate(mem: &dyn Memory, mut layout: Layout, tbl: u64) -> Option<Game> {
-    let world_atom = layout.get(mem, tbl, keys::WORLD)?;
-    let wtbl = layout.derive_so_tbl(mem, world_atom, keys::SET_NAME)?;
+fn validate(mem: &dyn Memory, mut heap: PepperFlashHeap, tbl: u64) -> Option<Game> {
+    let game_mode = Object(tbl);
+    let property =
+        |heap: &PepperFlashHeap, object, key| heap.property(mem, object, key, &mut Slot::default());
 
-    let set_atom = layout.get(mem, wtbl, keys::SET_NAME)?;
+    let world = property(&heap, game_mode, keys::WORLD)?.as_object()?;
+    let world = heap.object_owning(mem, world, keys::SET_NAME)?;
+
+    let set_name = property(&heap, world, keys::SET_NAME)?.as_string()?;
     let set = keys::WORLDS
         .iter()
-        .find(|(obf, _)| layout.string_eq(mem, set_atom & !7, obf))
+        .find(|(obf, _)| heap.string_is(mem, set_name, obf))
         .map(|&(_, clear)| clear)?;
 
-    let level = layout.get_int(mem, wtbl, keys::CURRENT_ID)?;
+    let level = property(&heap, world, keys::CURRENT_ID)?.as_whole_number()?;
     if !(0..MAX_LEVEL).contains(&level) {
         return None;
     }
@@ -1008,27 +1014,28 @@ fn validate(mem: &dyn Memory, mut layout: Layout, tbl: u64) -> Option<Game> {
     // A mode that names no manager at all is not refused here. An orphan game
     // has no manager to ask, and the `gameChrono` below is then the only
     // evidence left.
-    if let Some(manager) = layout.child(mem, tbl, keys::MANAGER) {
-        if layout.child(mem, manager, keys::CURRENT) != Some(tbl) {
+    let child = |heap: &PepperFlashHeap, object, key| {
+        heap.object(mem, property(heap, object, key)?.as_object()?)
+    };
+    if let Some(manager) = child(&heap, game_mode, keys::MANAGER) {
+        if child(&heap, manager, keys::CURRENT) != Some(game_mode) {
             return None;
         }
     }
 
-    let chrono = layout.child(mem, tbl, keys::GAME_CHRONO)?;
-    layout.get_int(mem, chrono, keys::FRAME_TIMER)?;
+    let chrono = child(&heap, game_mode, keys::GAME_CHRONO)?;
+    property(&heap, chrono, keys::FRAME_TIMER)?.as_whole_number()?;
 
     // A GameMode already in game over is a finished GameMode. Holding on to
     // it would read a game that is over instead of waiting for the next one.
-    if layout
-        .get(mem, tbl, keys::FL_GAME_OVER)
-        .and_then(avm1::as_bool)
+    if property(&heap, game_mode, keys::FL_GAME_OVER).and_then(|value| value.as_bool())
         == Some(true)
     {
         return None;
     }
 
     Some(Game {
-        layout,
+        heap,
         game_mode: tbl,
         set,
         hints: Hints::default(),
@@ -1052,12 +1059,12 @@ impl Game {
     /// @spec reader::a-known-world
     /// @spec reader::a-level-in-range
     pub fn read(&mut self, mem: &dyn Memory) -> Option<State> {
-        // Read before we borrow `self.layout`: `chrono_ms` needs all of
-        // `self`.
         let (chrono_ms, frame_timer) = self.chrono(mem)?;
-        let l = &self.layout;
-        let world_atom = l.get_cached(mem, self.game_mode, keys::WORLD, &mut self.hints.world)?;
-        let world = l.table_of(mem, world_atom)?;
+        let heap = self.heap;
+        let hints = &mut self.hints;
+        let game_mode = Object(self.game_mode);
+        let world = heap.property(mem, game_mode, keys::WORLD, &mut hints.world)?;
+        let world = heap.object(mem, world.as_object()?)?;
 
         // The world must always be a known world. That is what detects that
         // we now read recycled memory.
@@ -1066,24 +1073,23 @@ impl Game {
         // belongs to. Both come from this one object, so they always agree.
         // `GameMode.currentDim` does not: it changes two seconds before
         // `world` does, on the way into a dimension.
-        let set_atom = l.get_cached(mem, world, keys::SET_NAME, &mut self.hints.set_name)?;
+        let set_name = heap
+            .property(mem, world, keys::SET_NAME, &mut hints.set_name)?
+            .as_string()?;
         let set = keys::WORLDS
             .iter()
-            .find(|(obf, _)| l.string_eq(mem, set_atom & !7, obf))
+            .find(|(obf, _)| heap.string_is(mem, set_name, obf))
             .and_then(|&(_, clear)| World::from_set_name(clear))?;
 
-        let level = avm1::as_int(l.get_cached(
-            mem,
-            world,
-            keys::CURRENT_ID,
-            &mut self.hints.current_id,
-        )?)?;
+        let level = heap
+            .property(mem, world, keys::CURRENT_ID, &mut hints.current_id)?
+            .as_whole_number()?;
         if !(0..MAX_LEVEL).contains(&level) {
             return None;
         }
-        let previous = l
-            .get_cached(mem, world, keys::PREVIOUS_ID, &mut self.hints.previous_id)
-            .and_then(avm1::as_int)
+        let previous = heap
+            .property(mem, world, keys::PREVIOUS_ID, &mut hints.previous_id)
+            .and_then(|value| value.as_whole_number())
             .unwrap_or(-1);
 
         Some(State {
@@ -1093,36 +1099,26 @@ impl Game {
             frame_timer,
             // `fl_lock` is true during the black screen before level 0. Its
             // fall is the official start of the run.
-            locked: l
-                .get_cached(mem, self.game_mode, keys::FL_LOCK, &mut self.hints.lock)
-                .and_then(avm1::as_bool)
+            locked: heap
+                .property(mem, game_mode, keys::FL_LOCK, &mut hints.lock)
+                .and_then(|value| value.as_bool())
                 .unwrap_or(false),
             // Required, like the level and the clock: this is what dates the
             // start of the run. Reading it as zero by default would set the
             // origin at the instant of the resolution, so a timer short by all
             // the delay of the scan -- and silently so. Better to declare the
             // read invalid and scan again.
-            duration_ms: hammerfest_core::duration_ms(avm1::as_number(
-                mem,
-                l.get_cached(
-                    mem,
-                    self.game_mode,
-                    keys::DURATION,
-                    &mut self.hints.duration,
-                )?,
-            )?),
-            dim: l
-                .get_cached(mem, self.game_mode, keys::CURRENT_DIM, &mut self.hints.dim)
-                .and_then(avm1::as_int)
+            duration_ms: hammerfest_core::duration_ms(
+                heap.property(mem, game_mode, keys::DURATION, &mut hints.duration)?
+                    .as_number()?,
+            ),
+            dim: heap
+                .property(mem, game_mode, keys::CURRENT_DIM, &mut hints.dim)
+                .and_then(|value| value.as_whole_number())
                 .unwrap_or(0),
-            game_over: l
-                .get_cached(
-                    mem,
-                    self.game_mode,
-                    keys::FL_GAME_OVER,
-                    &mut self.hints.game_over,
-                )
-                .and_then(avm1::as_bool)
+            game_over: heap
+                .property(mem, game_mode, keys::FL_GAME_OVER, &mut hints.game_over)
+                .and_then(|value| value.as_bool())
                 .unwrap_or(false),
             // The end of the run. `GameMode.endModeTimer` is a Float that the
             // elevator script raises to fourteen seconds of cycles, and no
@@ -1132,14 +1128,9 @@ impl Game {
             // Absent or unreadable, the sequence has not started. A run that
             // does not end by itself is a nuisance; a run that ends by
             // accident is a lost run.
-            end_sequence: l
-                .get_cached(
-                    mem,
-                    self.game_mode,
-                    keys::END_MODE_TIMER,
-                    &mut self.hints.end_mode,
-                )
-                .and_then(|atom| avm1::as_number(mem, atom))
+            end_sequence: heap
+                .property(mem, game_mode, keys::END_MODE_TIMER, &mut hints.end_mode)
+                .and_then(|value| value.as_number())
                 .map_or(EndSequence::NONE, EndSequence::from_cycles),
         })
     }
@@ -1153,32 +1144,36 @@ impl Game {
     /// }
     /// ```
     fn chrono(&mut self, mem: &dyn Memory) -> Option<(i64, i64)> {
-        let l = &self.layout;
-        let chrono = l.child_cached(
+        let heap = self.heap;
+        let hints = &mut self.hints;
+        let chrono = heap.property(
             mem,
-            self.game_mode,
+            Object(self.game_mode),
             keys::GAME_CHRONO,
-            &mut self.hints.chrono,
+            &mut hints.chrono,
         )?;
+        let chrono = heap.object(mem, chrono.as_object()?)?;
 
-        let frame =
-            avm1::as_int(l.get_cached(mem, chrono, keys::FRAME_TIMER, &mut self.hints.frame)?)?;
+        let frame = heap
+            .property(mem, chrono, keys::FRAME_TIMER, &mut hints.frame)?
+            .as_whole_number()?;
 
-        let stopped = l
-            .get_cached(mem, chrono, keys::FL_STOP, &mut self.hints.stop)
-            .and_then(avm1::as_bool)
+        let stopped = heap
+            .property(mem, chrono, keys::FL_STOP, &mut hints.stop)
+            .and_then(|value| value.as_bool())
             .unwrap_or(false);
         if stopped {
-            if let Some(halted) = l
-                .get_cached(mem, chrono, keys::HALTED_TIMER, &mut self.hints.halted)
-                .and_then(avm1::as_int)
+            if let Some(halted) = heap
+                .property(mem, chrono, keys::HALTED_TIMER, &mut hints.halted)
+                .and_then(|value| value.as_whole_number())
             {
                 return Some((halted, frame));
             }
         }
 
-        let game =
-            avm1::as_int(l.get_cached(mem, chrono, keys::GAME_TIMER, &mut self.hints.game)?)?;
+        let game = heap
+            .property(mem, chrono, keys::GAME_TIMER, &mut hints.game)?
+            .as_whole_number()?;
         Some((frame - game, frame))
     }
 }

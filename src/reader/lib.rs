@@ -12,6 +12,8 @@ extern crate alloc;
 
 pub mod avm1;
 pub mod hammerfest;
+pub mod heap;
+pub mod pepper_flash;
 pub mod search_log;
 
 /// Obfuscated property names, taken from `vendor/hf.map.json` by build.rs.
