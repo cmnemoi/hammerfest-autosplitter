@@ -26,8 +26,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      # The same name the git hook calls, so the two cannot drift apart.
-      - run: mise run ci
+      # What the git hook runs as `mise run ci`, in three steps, so that a red
+      # says which one failed.
+      - run: mise run check
+      - run: mise run test:unit
+      - run: mise run test:slow
       # Coverage is measured here and not in the hook: it is a second,
       # instrumented build of everything, and a hook has to stay cheap.
       - run: mise run coverage

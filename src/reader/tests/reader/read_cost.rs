@@ -278,6 +278,7 @@ mod situations {
     /// @spec cost::any-change-fails
     /// @spec cost::a-missing-measure-fails
     #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn the_reader_costs_what_the_baseline_says() {
         let measured = measured();
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

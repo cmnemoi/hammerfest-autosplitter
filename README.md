@@ -38,7 +38,8 @@ You need [mise](https://mise.jdx.dev) to interact with this repository.
 
 ```sh
 mise run build    # Build the autosplitter for Livesplit
-mise run test     # Run autosplitter tests
+mise run test:unit  # Run the fast tests, in about a second
+mise run test     # Run every test, the replays of real captures included
 mise run check    # Check for code issues
 ```
 

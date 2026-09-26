@@ -170,6 +170,7 @@ mod tests {
 
     /// @spec reader::the-right-layout
     #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_capture() {
         let Some(capture) = Capture::load("main-world") else {
             println!("no capture in fixtures/replay/main-world, test skipped");
@@ -204,6 +205,7 @@ mod tests {
     /// @spec ruffle.replay::the-main-world
     /// @spec ruffle::a-real-game-is-read
     #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn reads_a_real_game_out_of_a_ruffle_capture() {
         let capture = Capture::load("ruffle-main-world")
             .expect("the capture fixtures/replay/ruffle-main-world is missing");
@@ -233,6 +235,7 @@ mod tests {
     ///
     /// @spec crossing::one-split-per-crossing
     #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
     fn a_real_game_that_crosses_a_level_splits() {
         let Some(capture) = Capture::load("main-world") else {
             println!("no capture in fixtures/replay/main-world, test skipped");
