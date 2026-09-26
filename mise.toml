@@ -132,6 +132,10 @@ run = "cargo run --release --manifest-path src/harness/Cargo.toml --target-dir t
 description = "Show the level and the clock of a game running in Ruffle, on Linux"
 run = "uv run python scripts/ruffle_state.py"
 
+[tasks.ruffle-web-state]
+description = "Show the level of a game running in Ruffle, in a Firefox tab, on Linux"
+run = "uv run --group analysis python scripts/ruffle_web_state.py"
+
 [tasks.capture-ruffle]
 description = "Record the memory of a live Ruffle as a fixture, on Linux"
 run = "uv run python scripts/capture_ruffle.py"
