@@ -12,3 +12,9 @@ ruffle-real-game/first-read 43 reads 44653 bytes 0 yields
 ruffle-real-game/first-search 1334 reads 419456651 bytes 49 yields
 ruffle-real-game/next-read 30 reads 1085 bytes 0 yields
 ruffle-real-game/second-search 37 reads 28989 bytes 0 yields
+ruffle-web-game-over/first-search 34 reads 5710 bytes 0 yields
+ruffle-web-game-over/second-search 0 reads 0 bytes 0 yields
+ruffle-web-real-game/first-read 43 reads 31261 bytes 0 yields
+ruffle-web-real-game/first-search 227 reads 180911427 bytes 21 yields
+ruffle-web-real-game/next-read 30 reads 701 bytes 0 yields
+ruffle-web-real-game/second-search 37 reads 20321 bytes 0 yields

@@ -59,6 +59,9 @@ pub struct Capture {
     bytes: Vec<u8>,
     regions: Vec<Region>,
     pub module: (u64, u64),
+    /// The base and the size of the linear memory, for a capture of Ruffle in
+    /// a browser. Every pointer in it is an offset from that base.
+    pub linear: Option<(u64, u64)>,
     says: Says,
     /// Regions that must read as zeros, whatever the file holds.
     ///
@@ -68,19 +71,28 @@ pub struct Capture {
 }
 
 impl Memory for Capture {
+    /// A read may run across regions that follow each other: the trimming
+    /// cut one mapping into runs of pages kept and emptied, and the process
+    /// served them as one. A gap between two regions still refuses the read.
     fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
         let end = address.checked_add(buf.len() as u64)?;
-        let region = self
-            .regions
-            .iter()
-            .find(|r| address >= r.base && end <= r.base + r.size)?;
-        match region.offset {
-            _ if self.masked.borrow().contains(&region.base) => buf.fill(0),
-            None => buf.fill(0),
-            Some(offset) => {
-                let at = offset + (address - region.base) as usize;
-                buf.copy_from_slice(self.bytes.get(at..at + buf.len())?);
+        let mut at = address;
+        while at < end {
+            let region = self
+                .regions
+                .iter()
+                .find(|r| at >= r.base && at < r.base + r.size)?;
+            let upto = end.min(region.base + region.size);
+            let piece = &mut buf[(at - address) as usize..(upto - address) as usize];
+            match region.offset {
+                _ if self.masked.borrow().contains(&region.base) => piece.fill(0),
+                None => piece.fill(0),
+                Some(offset) => {
+                    let from = offset + (at - region.base) as usize;
+                    piece.copy_from_slice(self.bytes.get(from..from + piece.len())?);
+                }
             }
+            at = upto;
         }
         Some(())
     }
@@ -103,6 +115,7 @@ impl Capture {
 
         let mut regions = Vec::new();
         let mut module = (0, 0);
+        let mut linear = None;
         let mut says = Says {
             level: -1,
             set: String::new(),
@@ -114,6 +127,9 @@ impl Capture {
             match word.next() {
                 Some("plugin") => {
                     module = (hex(word.next()?)?, hex(word.next()?)?);
+                }
+                Some("linear") => {
+                    linear = Some((hex(word.next()?)?, word.next()?.parse().ok()?));
                 }
                 Some("state") => {
                     for field in word {
@@ -144,6 +160,7 @@ impl Capture {
             bytes,
             regions,
             module,
+            linear,
             says,
             masked: RefCell::new(Vec::new()),
         })
@@ -164,8 +181,9 @@ mod tests {
 
     use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
+    use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::PepperFlash;
-    use hammerfest_reader::ruffle::Ruffle;
+    use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
 
     /// @spec reader::the-right-layout
@@ -221,6 +239,36 @@ mod tests {
         let mut game = found.expect("the reader found no game in a real Ruffle heap");
         let state = game.read(&capture).expect("the reader read no state");
 
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /// The same, on the bytes Ruffle 0.6.0 wrote in a Firefox tab.
+    ///
+    /// @spec browser.replay::the-main-world
+    /// @spec browser::a-real-game-is-read
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_firefox_capture() {
+        let capture = Capture::load("ruffle-web-main-world")
+            .expect("the capture fixtures/replay/ruffle-web-main-world is missing");
+        let (base, size) = capture.linear.expect("the capture names no linear memory");
+        let linear = LinearMemory::new(&capture, base, size);
+        let build = RuffleBuild::recognised_in(&linear).expect("no known build of Ruffle");
+
+        let found = block_on(resolve(
+            &linear,
+            &mut Ruffle::in_browser(build),
+            &mut Anchor::default(),
+            &[linear.range()],
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real Firefox capture");
+        let state = game.read(&linear).expect("the reader read no state");
+
+        assert_eq!(build, RuffleBuild::Extensions, "build");
         assert_eq!(game.set, capture.says.set, "world");
         assert_eq!(state.level.id, capture.says.level, "level");
         assert_eq!(state.dim, capture.says.dim, "dimension");

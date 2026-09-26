@@ -19,6 +19,7 @@ from that base.
 
 Usage:
     uv run --group analysis python scripts/capture_ruffle_web.py --name ruffle-web-main-world
+    ... --name ruffle-web-main-world --from-capture     trim again, with no game
 """
 import argparse
 import gzip
@@ -94,7 +95,17 @@ def pages_of_the_game(linear, build, game_mode):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", required=True)
+    parser.add_argument("--from-capture", action="store_true",
+                        help="trim again the whole capture already in fixtures/<name>, with no game")
     arguments = parser.parse_args()
+
+    if arguments.from_capture:
+        directory = ROOT / "fixtures" / arguments.name
+        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+        with gzip.open(directory / "heap.bin.gz", "rb") as stream:
+            data = stream.read()
+        trim(arguments.name, int(metadata["linear"]["base"], 16), metadata["build"], data)
+        return
 
     for pid in web.processes():
         process = ruffle_state.Process(pid)
@@ -124,7 +135,11 @@ def capture(name, base, build, data):
     metadata = {"player": "ruffle-web", "build": build, "linear": {"base": hex(base), "size": len(data)},
                 "note": "The game runs during a capture. No clock in it is exact."}
     (directory / "metadata.json").write_text(json.dumps(metadata, indent=1), encoding="utf-8")
+    trim(name, base, build, data)
 
+
+def trim(name, base, build, data):
+    whole = game_state(Snapshot(data), build)
     reading = Snapshot(data)
     kept = pages_of_the_game(reading, build, whole[0])
     trimmed = game_state(Snapshot(data, kept), build)

@@ -167,12 +167,13 @@ mod situations {
     use super::*;
     use crate::pepper_flash_heap::PepperFlashHeapWriter;
     use crate::replay::Capture;
-    use crate::ruffle_heap::RuffleDesktopHeap;
+    use crate::ruffle_heap::{RuffleDesktopHeap, RuffleWebHeap};
     use crate::scenarios::{World, WrittenHeap};
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
     use hammerfest_reader::heap::FlashPlayer;
+    use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::PepperFlash;
-    use hammerfest_reader::ruffle::Ruffle;
+    use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";
@@ -200,47 +201,53 @@ mod situations {
 
     /// A real game, from its capture: two searches, then two reads.
     ///
-    /// `player` names the situations: `real-game/...` for Pepper Flash, which
-    /// came first, and `ruffle-real-game/...` for Ruffle.
+    /// `player_prefix` names the situations: `real-game/...` for Pepper
+    /// Flash, which came first, `ruffle-real-game/...` for Ruffle.
     fn a_real_game<P: FlashPlayer>(
         costs: &mut Costs,
         player_prefix: &str,
-        capture_name: &str,
-        attach: impl FnOnce((u64, u64)) -> P,
+        memory: &dyn Memory,
+        ranges: &[(u64, u64)],
+        mut player: P,
     ) {
-        let capture = Capture::load(capture_name).unwrap_or_else(|| {
-            panic!("the capture fixtures/replay/{capture_name} is missing, so its cost cannot be measured")
-        });
-        let (mut player, mut anchor) = (attach(capture.module), Anchor::default());
-        let ranges = capture.ranges();
+        let mut anchor = Anchor::default();
         let situation = |name: &str| format!("{player_prefix}real-game/{name}");
 
         let first = search(
             costs,
             &situation("first-search"),
-            &capture,
+            memory,
             (&mut player, &mut anchor),
-            &ranges,
+            ranges,
         );
         let second = search(
             costs,
             &situation("second-search"),
-            &capture,
+            memory,
             (&mut player, &mut anchor),
-            &ranges,
+            ranges,
         );
         assert!(
             first.is_some(),
-            "the first search found no game in {capture_name}"
+            "the first search found no {player_prefix}game"
         );
         let mut game = second.expect("the second search found no game in a real heap");
 
         for name in ["first-read", "next-read"] {
-            let metered = Metered::new(&capture);
+            let metered = Metered::new(memory);
             let (state, cost) = measure(&metered, async { game.read(&metered) });
-            assert!(state.is_some(), "{name} read no state in {capture_name}");
+            assert!(
+                state.is_some(),
+                "{name} read no state in a {player_prefix}game"
+            );
             costs.record(&situation(name), cost);
         }
+    }
+
+    fn a_capture(name: &str) -> Capture {
+        Capture::load(name).unwrap_or_else(|| {
+            panic!("the capture fixtures/replay/{name} is missing, so its cost cannot be measured")
+        })
     }
 
     /// A written heap whose only game is over: a search that finds nothing.
@@ -263,15 +270,35 @@ mod situations {
 
     fn measured() -> Costs {
         let mut costs = Costs::default();
-        a_real_game(&mut costs, "", "main-world", PepperFlash::attached_to);
-        a_game_that_is_over::<PepperFlashHeapWriter>(&mut costs, "");
+        let pepper_flash = a_capture("main-world");
+        let player = PepperFlash::attached_to(pepper_flash.module);
         a_real_game(
             &mut costs,
-            "ruffle-",
-            "ruffle-main-world",
-            Ruffle::attached_to,
+            "",
+            &pepper_flash,
+            &pepper_flash.ranges(),
+            player,
         );
+        a_game_that_is_over::<PepperFlashHeapWriter>(&mut costs, "");
+
+        let ruffle = a_capture("ruffle-main-world");
+        let player = Ruffle::attached_to(ruffle.module);
+        a_real_game(&mut costs, "ruffle-", &ruffle, &ruffle.ranges(), player);
         a_game_that_is_over::<RuffleDesktopHeap>(&mut costs, "ruffle-");
+
+        let firefox = a_capture("ruffle-web-main-world");
+        let (base, size) = firefox.linear.expect("the capture names no linear memory");
+        let linear = LinearMemory::new(&firefox, base, size);
+        let build = RuffleBuild::recognised_in(&linear).expect("no known build of Ruffle");
+        let player = Ruffle::in_browser(build);
+        a_real_game(
+            &mut costs,
+            "ruffle-web-",
+            &linear,
+            &[linear.range()],
+            player,
+        );
+        a_game_that_is_over::<RuffleWebHeap>(&mut costs, "ruffle-web-");
         costs
     }
 
