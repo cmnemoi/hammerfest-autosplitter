@@ -67,6 +67,10 @@ The steps, in order:
    and Windows are left;
 8. the rest of the object redesign, and the cost of the first Ruffle search:
    it reads 419 MB of a real capture, and the whole game lives in `[heap]`.
+9. ~~Adobe's Flash projector under Linux~~: done, with the Pepper Flash
+   reader, see [Flash projector support](docs/specs/flash-projector-support.md).
+   The projector under Windows is left: it is a 32-bit program, and the
+   reader reads eight-byte atoms and pointers only.
 
 ### Before any step
 

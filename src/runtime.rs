@@ -12,7 +12,11 @@ use crate::plugin;
 pub enum Runtime {
     /// The Pepper Flash plugin, inside EternalTwin.
     PepperFlash,
-    /// Ruffle desktop, as Eternalfest Desktop starts it.
+    /// Adobe's Flash projector under Linux, as Eternalfest Desktop starts it.
+    /// Its AVM1 is the one of Pepper Flash.
+    FlashProjector,
+    /// Ruffle desktop, as Eternalfest Desktop starts it when the projector is
+    /// missing.
     Ruffle,
     /// Ruffle in a Firefox tab: a linear memory at `base`, whose reservation
     /// reaches `span` bytes. Every address the reader asks for is an offset
@@ -25,6 +29,7 @@ impl Runtime {
     pub fn name(self) -> &'static str {
         match self {
             Runtime::PepperFlash => "the Flash plugin of EternalTwin",
+            Runtime::FlashProjector => "the Flash projector",
             Runtime::Ruffle => "Ruffle",
             Runtime::RuffleWeb { .. } => "Ruffle in Firefox",
         }
@@ -34,7 +39,7 @@ impl Runtime {
     /// them.
     pub fn heap_ranges(self, process: &Process) -> Vec<(u64, u64)> {
         match self {
-            Runtime::PepperFlash => plugin::heap_ranges(process),
+            Runtime::PepperFlash | Runtime::FlashProjector => plugin::heap_ranges(process),
             Runtime::Ruffle => plugin::ruffle_heap_ranges(process),
             // Its committed part, as blocks of offsets.
             Runtime::RuffleWeb { base, .. } => plugin::committed_end(process, base)
@@ -46,7 +51,7 @@ impl Runtime {
     /// Total committed bytes in the heap of this player.
     pub fn heap_size(self, process: &Process) -> u64 {
         match self {
-            Runtime::PepperFlash => plugin::heap_size(process),
+            Runtime::PepperFlash | Runtime::FlashProjector => plugin::heap_size(process),
             Runtime::Ruffle | Runtime::RuffleWeb { .. } => self
                 .heap_ranges(process)
                 .iter()

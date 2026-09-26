@@ -80,6 +80,7 @@ async fn main() {
     let mut rejected = alloc::vec::Vec::new();
     // What each player keeps about its binary outlives its process.
     let mut pepper_flash = PepperFlash::default();
+    let mut flash_projector = PepperFlash::default();
     let mut ruffle = Ruffle::default();
     // Ticks left before the Firefox tabs are looked at again.
     let mut ticks_before_the_tabs = 0;
@@ -126,7 +127,21 @@ async fn main() {
             )
             .await;
             asr::print_message("Hammerfest: the Flash plugin of EternalTwin closed");
-        } else if let Some((process, module, pid)) = plugin::attach_ruffle() {
+        } else if let Some((process, module, pid)) =
+            plugin::attach_by_executable(plugin::FLASH_PROJECTOR)
+        {
+            announce_attached(Runtime::FlashProjector);
+            flash_projector.attach(module);
+            run(
+                &process,
+                pid,
+                Runtime::FlashProjector,
+                &mut flash_projector,
+                &mut policy,
+            )
+            .await;
+            asr::print_message("Hammerfest: the Flash projector closed");
+        } else if let Some((process, module, pid)) = plugin::attach_by_executable(plugin::RUFFLE) {
             announce_attached(Runtime::Ruffle);
             ruffle.attach(module);
             run(&process, pid, Runtime::Ruffle, &mut ruffle, &mut policy).await;

@@ -6,6 +6,7 @@
 extern crate alloc;
 
 mod browser;
+mod executable;
 mod memory_contract;
 mod pepper_flash_heap;
 mod read_cost;

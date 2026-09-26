@@ -183,6 +183,7 @@ simply the old ones. Three separate checks guard against that.
 | when the loop may scan again | [Resolution pacing](specs/resolution-pacing.md) |
 | what the reader costs, to the read | [Read cost](specs/read-cost.md) |
 | why and how Ruffle will be read | [Ruffle support](specs/ruffle-support.md) |
+| why and how Adobe's Flash projector is read | [Flash projector support](specs/flash-projector-support.md) |
 | what we send the timer, and in what order | [Timer commands](specs/timer-commands.md) |
 | how that is proved, and in what order | [About testing the memory reader](internals/testing-the-memory-reader.md) |
 | to read a live game yourself | [Read a live game](how-to/read-a-live-game.md) |

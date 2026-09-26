@@ -6,6 +6,7 @@
 use alloc::vec::Vec;
 use asr::{Process, ProcessId};
 use hammerfest_process::ProcessMemory;
+use hammerfest_reader::elf;
 use hammerfest_reader::linear_memory::LinearMemory;
 use hammerfest_reader::ruffle::RuffleBuild;
 
@@ -151,13 +152,26 @@ pub fn count_running(names: &[&str]) -> usize {
         .sum()
 }
 
-/// A Ruffle desktop process, the range of its executable, and its pid.
-pub fn attach_ruffle() -> Option<(Process, (u64, u64), ProcessId)> {
-    RUFFLE.iter().find_map(|name| {
+/// Adobe's Flash projector under Linux. Its executable is its module.
+///
+/// The Windows projector, `flashplayer.exe`, is not looked for: it is a 32-bit
+/// program, and the reader reads atoms and pointers of eight bytes.
+pub const FLASH_PROJECTOR: &[&str] = &["flashplayer"];
+
+/// A process of a player whose executable is its module -- Ruffle desktop or
+/// the Flash projector --, the range of that executable, and its pid.
+///
+/// The runtime sums the sizes of the mappings of a module, and the projector
+/// leaves a gap between its code and its data. So its ELF header says where it
+/// ends, when there is one to read.
+pub fn attach_by_executable(names: &[&str]) -> Option<(Process, (u64, u64), ProcessId)> {
+    names.iter().find_map(|name| {
         Process::list_by_name(name)?.into_iter().find_map(|pid| {
             let process = Process::attach_by_pid(pid)?;
             let (address, size) = process.get_module_range(name).ok()?;
-            let module = (address.value(), address.value() + size);
+            let base = address.value();
+            let module =
+                elf::loaded_image(&ProcessMemory(&process), base).unwrap_or((base, base + size));
             Some((process, module, pid))
         })
     })

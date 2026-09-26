@@ -11,6 +11,7 @@
 extern crate alloc;
 
 pub mod avm1;
+pub mod elf;
 pub mod hammerfest;
 pub mod heap;
 pub mod linear_memory;
