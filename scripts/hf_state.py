@@ -14,14 +14,17 @@ The resolution chain, with no hard coded address:
     GameMode["8qkdA"]             -> gameChrono: Chrono
     Chrono[...]                   -> fl_stop ? haltedTimer : frameTimer-gameTimer
 
-The Flash projector carries the same AVM1: under Linux its executable is the
-module, and `--pid` names it.
+The Flash projector carries the same AVM1: its executable is the module, and
+`--pid` names it. The Windows one is a 32-bit program, in words of four bytes:
+`--words 4`, under Wine too.
 
 Usage:
     hf_state.py                   one reading
     hf_state.py --watch           follows the level transitions
     hf_state.py --dump            prints GameMode, world and Chrono in full
     hf_state.py --pid 1234        in this process: a projector, say
+    hf_state.py --pid 1234 --words 4
+                                  in the Windows projector
     hf_state.py --capture fixtures/linux-pepper-flash
                                   in a capture, with no game running
 """
@@ -65,6 +68,8 @@ K_END_MODE = hfmap.obf("endModeTimer")
 K_SCRIPT_ENGINE = hfmap.obf("scriptEngine")
 K_ELEVATOR_OPEN = hfmap.obf("fl_elevatorOpen")
 
+FOUR_GIB = 1 << 32
+
 SECOND = 32          # Data.SECOND: game cycles per second
 MAX_LEVEL = 256      # plausibility bound for currentId
 END_MODE_CYCLES = SECOND * 14   # Data.SECOND*14, the value case 4 writes
@@ -79,23 +84,32 @@ class Hammerfest:
     again, which costs microseconds and cannot go stale in silence.
     """
 
-    def __init__(self, memory):
+    def __init__(self, memory, word=8):
         self.p = memory
         self.pid = memory.pid
+        self.word = word
         m = self.p.module(PLUGIN)
         if m is None:
             raise RuntimeError("no Flash player in pid %d" % self.pid)
         self.base, self.end, self.plugin_path = m
-        self.heaps = self.p.regions()
-        self.av = avm1.Avm1(self.p, (self.base, self.end), self.heaps)
+        self.heaps = self.heap_regions()
+        self.av = avm1.Avm1(self.p, (self.base, self.end), self.heaps, word)
         self.gm = None
         self.set_name = None
+
+    def heap_regions(self):
+        """The private writable regions. A 32-bit program points nowhere past
+        4 GiB, and Wine keeps its own 64-bit memory up there."""
+        regions = self.p.regions()
+        if self.word == 4:
+            regions = [(start, min(end, FOUR_GIB)) for start, end in regions if start < FOUR_GIB]
+        return regions
 
     # -- resolution --------------------------------------------------------
     def resolve(self, verbose=False):
         """Finds the GameMode table. Costs one full heap scan."""
         log = print if verbose else (lambda *_: None)
-        self.heaps = self.p.regions()
+        self.heaps = self.heap_regions()
         self.av.heaps = self.heaps
         self.av._key_atoms.clear()
 
@@ -200,7 +214,7 @@ class Hammerfest:
                   % (addr, label, self.av.tag(atom) or 0, self.av.describe(atom)))
 
 
-def attach(pid=None, verbose=True, capture=None):
+def attach(pid=None, verbose=True, capture=None, word=8):
     if capture:
         memory = procmem.Recorded(capture)
     else:
@@ -208,7 +222,7 @@ def attach(pid=None, verbose=True, capture=None):
         if not pids:
             return None
         memory = platform_memory.Proc(pids[0])
-    hf = Hammerfest(memory)
+    hf = Hammerfest(memory, word)
     if verbose:
         print("pid            %d" % hf.pid)
         print("plugin         %s" % hf.plugin_path)
@@ -250,9 +264,11 @@ def main():
     ap.add_argument("--dump", action="store_true")
     ap.add_argument("--interval", type=float, default=0.03)
     ap.add_argument("--capture", help="a capture directory, read instead of a process")
+    ap.add_argument("--words", type=int, choices=(4, 8), default=8,
+                    help="the width of a pointer: 4 for the Windows projector")
     a = ap.parse_args()
 
-    hf = attach(a.pid, capture=a.capture)
+    hf = attach(a.pid, capture=a.capture, word=a.words)
     if hf is None:
         sys.exit("\nnot resolved: does a Flash player run, and are you in a "
                  "game?")
@@ -280,7 +296,7 @@ def main():
     stalled = 0
     while True:
         if hf is None:
-            hf = attach(a.pid, verbose=False)
+            hf = attach(a.pid, verbose=False, capture=a.capture, word=a.words)
             if hf is None:
                 time.sleep(1)
                 continue

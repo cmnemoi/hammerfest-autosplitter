@@ -42,6 +42,8 @@ Usage:
     capture_heap.py --raw                 no compression, to measure the cost
     capture_heap.py --level 6             smaller, and slower to take
     capture_heap.py --pid 1234            this process: a projector, say
+    capture_heap.py --pid 1234 --words 4  the Windows projector, a 32-bit
+                                          program, under Wine too
 """
 import argparse
 import datetime
@@ -177,6 +179,8 @@ def main():
                          "Binary::recognize reads those bytes; the layout "
                          "seed and the module range test need the range "
                          "alone, which metadata.json always carries.")
+    ap.add_argument("--words", type=int, choices=(4, 8), default=8,
+                    help="the width of a pointer: 4 for the Windows projector")
     args = ap.parse_args()
 
     pids = [args.pid] if args.pid else platform_memory.flash_pids(hf_state.PLUGIN)
@@ -199,10 +203,12 @@ def main():
 
     # Resolve before we read, so that the fixture says what it holds. The
     # process is opened read only, so this changes nothing in the game.
-    hf = hf_state.attach(proc.pid, verbose=False)
+    hf = hf_state.attach(proc.pid, verbose=False, word=args.words)
     before = snapshot(hf)
 
-    info = proc.region_info()
+    # A 32-bit program points nowhere past 4 GiB: the rest is Wine's.
+    info = [r for r in proc.region_info()
+            if args.words == 8 or r["end"] <= hf_state.FOUR_GIB]
     raw_total = sum(r["size"] for r in info)
     print("heap           %d regions, %.1f MiB"
           % (len(info), raw_total / MIB), file=sys.stderr)

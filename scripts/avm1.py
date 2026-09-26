@@ -34,6 +34,11 @@ the heap:
                                 the entries
       -> the value offset       a vote: the offset where all atoms are valid
 
+A 32-bit build -- the Windows projector -- has the same objects, measured
+under Wine: every offset of the Linux column, counted in words of four bytes
+instead of eight. So every candidate below is counted in words, and `word`
+says how wide one is.
+
 Atom encoding, measured on this process:
 
     tag 0   signed integer        value = atom >> 3, arithmetic
@@ -45,12 +50,15 @@ Atom encoding, measured on this process:
 """
 import struct
 
-STRIDE_CANDS = tuple(range(0x08, 0x41, 0x08))
-VAL_DELTA_CANDS = (-0x10, -0x08, 0x08, 0x10)
-STR_BUF_CANDS = (0x08, 0x10, 0x18, 0x20, 0x00)
-STR_LEN_CANDS = tuple(range(0x08, 0x80, 8))
-SO_TBL_CANDS = tuple(range(0x08, 0x80, 8))
-TBL_CAP_CANDS = (0x08, 0x10, 0x18)
+# The candidates, in words.
+STRIDE_CANDS = tuple(range(1, 9))
+VAL_DELTA_CANDS = (-2, -1, 1, 2)
+STR_BUF_CANDS = (1, 2, 3, 4, 0)
+STR_LEN_CANDS = tuple(range(1, 16))
+SO_TBL_CANDS = tuple(range(1, 16))
+TBL_CAP_CANDS = (1, 2, 3)
+# How far in front of its first key a table header may sit.
+TBL_KEYS_WORDS = 32
 
 MAX_TABLE_CAP = 1 << 16
 MAX_STRING_LEN = 512
@@ -93,23 +101,32 @@ class Layout:
 class Avm1:
     """An AVM1 view of a process, once the layout is derived."""
 
-    def __init__(self, proc, module, heaps=None):
+    def __init__(self, proc, module, heaps=None, word=8):
         self.p = proc
+        self.word = word
         self.lo, self.hi = module
         self.heaps = proc.regions() if heaps is None else heaps
         self.L = Layout(module[0])
         self._key_atoms = {}
 
     # -- primitives --------------------------------------------------------
+    def w(self, addr):
+        """The word at `addr`: a pointer, a length, a capacity or an atom."""
+        return self.p.u64(addr) if self.word == 8 else self.p.u32(addr)
+
+    def offsets(self, words):
+        """Candidates counted in words, as byte offsets."""
+        return tuple(n * self.word for n in words)
+
     def in_module(self, v):
         return v is not None and self.lo <= v < self.hi
 
     def string_at(self, addr):
         """Decodes the String object at `addr`, or None if it is not one."""
         L = self.L
-        if addr is None or self.p.u64(addr) != L.str_vt:
+        if addr is None or self.w(addr) != L.str_vt:
             return None
-        buf, n = self.p.u64(addr + L.str_buf), self.p.u64(addr + L.str_len)
+        buf, n = self.w(addr + L.str_buf), self.w(addr + L.str_len)
         if not buf or n is None or n > MAX_STRING_LEN:
             return None
         b = self.p.read(buf, n * 2)
@@ -122,19 +139,19 @@ class Avm1:
 
     def key_at(self, addr):
         """The name of the key stored at `addr`, or None."""
-        return self.string_at((self.p.u64(addr) or 0) & ~7)
+        return self.string_at((self.w(addr) or 0) & ~7)
 
     # -- atom decoding -----------------------------------------------------
     @staticmethod
     def tag(atom):
         return None if atom is None else atom & 7
 
-    @staticmethod
-    def as_int(atom, bound=1 << 31):
+    def as_int(self, atom, bound=1 << 31):
         """Atom -> signed integer, or None if it is not a plausible one."""
         if atom is None or atom & 7:
             return None
-        v = atom - (1 << 64) if atom >> 63 else atom
+        bits = 8 * self.word
+        v = atom - (1 << bits) if atom >> (bits - 1) else atom
         v >>= 3                      # arithmetic shift: negatives work
         return v if -bound < v < bound else None
 
@@ -174,7 +191,7 @@ class Avm1:
         if tag == TAG_STRING:
             return self.string_at(atom & ~7) is not None
         if tag in (TAG_OBJECT, TAG_NATIVE):
-            return self.in_module(self.p.u64(atom & ~7))
+            return self.in_module(self.w(atom & ~7))
         if tag == TAG_INT:
             return self.as_int(atom) is not None
         return False
@@ -197,7 +214,7 @@ class Avm1:
 
     # -- tables ------------------------------------------------------------
     def capacity(self, tbl):
-        cap = self.p.u64(tbl + self.L.tbl_cap)
+        cap = self.w(tbl + self.L.tbl_cap)
         return cap if cap and 0 < cap <= MAX_TABLE_CAP else None
 
     def entries(self, tbl):
@@ -210,7 +227,7 @@ class Avm1:
             k = tbl + L.tbl_keys + i * L.tbl_stride
             name = self.key_at(k)
             if name is not None:
-                out.append((name, self.p.u64(k + L.tbl_value), k))
+                out.append((name, self.w(k + L.tbl_value), k))
         return out
 
     def slot(self, tbl, key):
@@ -226,7 +243,7 @@ class Avm1:
         want = self._key_atoms.get(key)
         for i in range(cap):
             k = tbl + L.tbl_keys + i * L.tbl_stride
-            raw = self.p.u64(k)
+            raw = self.w(k)
             if not raw:
                 continue
             if want is not None:
@@ -239,7 +256,7 @@ class Avm1:
 
     def get(self, tbl, key):
         s = self.slot(tbl, key)
-        return None if s is None else self.p.u64(s)
+        return None if s is None else self.w(s)
 
     def table_of(self, atom):
         """Object atom -> its property table, or None."""
@@ -247,10 +264,10 @@ class Avm1:
                 or atom & 7 not in (TAG_OBJECT, TAG_NATIVE, TAG_INT)):
             return None
         so = atom & ~7
-        if not self.in_module(self.p.u64(so)):
+        if not self.in_module(self.w(so)):
             return None
-        t = self.p.u64(so + self.L.so_tbl)
-        return t if t and self.p.u64(t) == self.L.tbl_vt else None
+        t = self.w(so + self.L.so_tbl)
+        return t if t and self.w(t) == self.L.tbl_vt else None
 
     def child(self, tbl, key):
         """Shortcut: the table of the object stored under `key`."""
@@ -272,7 +289,7 @@ class Avm1:
                self.L.str_buf, self.L.str_len))
 
         tables = []
-        for ks in self.p.scan_tagged(strobj, regions=self.heaps):
+        for ks in self.p.scan_tagged(strobj, regions=self.heaps, word=self.word):
             if self.key_at(ks) != anchor:
                 continue
             t = self._derive_table(ks)
@@ -286,14 +303,14 @@ class Avm1:
         """Finds the String object of `text` and derives the String layout."""
         pat = text.encode("utf-16-le")
         for buf in self.p.scan(pat, align=2, regions=self.heaps):
-            for ref in self.p.scan(struct.pack("<Q", buf), align=8,
+            for ref in self.p.scan(buf.to_bytes(self.word, "little"), align=self.word,
                                    regions=self.heaps):
-                for ob in STR_BUF_CANDS:
-                    so, vt = ref - ob, self.p.u64(ref - ob)
+                for ob in self.offsets(STR_BUF_CANDS):
+                    so, vt = ref - ob, self.w(ref - ob)
                     if not self.in_module(vt):
                         continue
-                    for ol in STR_LEN_CANDS:
-                        if self.p.u64(so + ol) != len(text):
+                    for ol in self.offsets(STR_LEN_CANDS):
+                        if self.w(so + ol) != len(text):
                             continue
                         self.L.str_vt, self.L.str_buf, self.L.str_len = vt, ob, ol
                         if self.string_at(so) == text:
@@ -319,15 +336,15 @@ class Avm1:
         while self.key_at(first + n * stride) is not None:
             n += 1
 
-        for back in range(8, 0x101, 8):
+        for back in self.offsets(range(1, TBL_KEYS_WORDS + 1)):
             t = first - back
-            if not self.in_module(self.p.u64(t)):
+            if not self.in_module(self.w(t)):
                 continue
-            for co in TBL_CAP_CANDS:
-                cap = self.p.u64(t + co)
+            for co in self.offsets(TBL_CAP_CANDS):
+                cap = self.w(t + co)
                 if cap is None or not (n <= cap <= MAX_TABLE_CAP):
                     continue
-                self.L.tbl_vt, self.L.tbl_cap = self.p.u64(t), co
+                self.L.tbl_vt, self.L.tbl_cap = self.w(t), co
                 self.L.tbl_keys, self.L.tbl_stride = back, stride
                 if self._derive_value_offset(t):
                     return t
@@ -340,11 +357,11 @@ class Avm1:
         while self.key_at(first - L.tbl_stride) is not None:
             first -= L.tbl_stride
         t = first - L.tbl_keys
-        return t if self.p.u64(t) == L.tbl_vt and self.capacity(t) else None
+        return t if self.w(t) == L.tbl_vt and self.capacity(t) else None
 
     def _measure_stride(self, keyslot):
         """The stride is the smallest gap where both neighbours are keys too."""
-        for d in STRIDE_CANDS:
+        for d in self.offsets(STRIDE_CANDS):
             if (self.key_at(keyslot + d) is not None
                     and self.key_at(keyslot + 2 * d) is not None):
                 return d
@@ -353,13 +370,17 @@ class Avm1:
     def _derive_value_offset(self, tbl):
         """A vote: the right offset is where atoms are valid AND varied.
 
-        Validity alone is not enough. An entry holds an unused qword that is
+        Validity alone is not enough. An entry holds an unused word that is
         always zero, and zero is a perfectly valid integer atom. So that
         column scores perfectly while holding nothing. The diversity test is
         what rejects it, and nothing else.
+
+        Nor is diversity. A column of keys is valid and varied: in 32 bits,
+        every pointer reads as a plausible integer. So a column that holds
+        keys is set aside first.
         """
         best, best_score = None, 0
-        for d in VAL_DELTA_CANDS:
+        for d in self.offsets(VAL_DELTA_CANDS):
             self.L.tbl_value = d
             ents = self.entries(tbl)
             if not ents:
@@ -367,6 +388,12 @@ class Avm1:
             vals = [v for _, v, _ in ents]
             diversity = len(set(vals)) / len(vals)
             if diversity < 0.25:
+                continue
+            # The keys of the next or the previous entry are well formed too:
+            # in 32 bits, a pointer to a String reads as a plausible integer.
+            # A column of keys is not a column of values.
+            keys = sum(1 for _, _, k in ents if self.key_at(k + d) is not None)
+            if keys > len(ents) / 2:
                 continue
             score = sum(1 for v in vals if self.well_formed(v)) / len(vals)
             # The column of the next entry holds the same values, shifted by
@@ -386,12 +413,12 @@ class Avm1:
         constraint whenever we have one.
         """
         so = (atom or 0) & ~7
-        vt = self.p.u64(so)
+        vt = self.w(so)
         if not self.in_module(vt):
             return None
-        for x in SO_TBL_CANDS:
-            t = self.p.u64(so + x)
-            if not t or self.p.u64(t) != self.L.tbl_vt or not self.capacity(t):
+        for x in self.offsets(SO_TBL_CANDS):
+            t = self.w(so + x)
+            if not t or self.w(t) != self.L.tbl_vt or not self.capacity(t):
                 continue
             if expect_key is not None and self.slot(t, expect_key) is None:
                 continue
