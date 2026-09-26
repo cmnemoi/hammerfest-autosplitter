@@ -146,15 +146,11 @@ pub(crate) async fn scan_bytes(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let mut i = 0;
-                while i + pat.len() <= n {
-                    if &buf[i..i + pat.len()] == pat {
-                        out.push(base + i as u64);
-                        if out.len() >= limit {
-                            return out;
-                        }
+                for i in occurrences(&buf[..n], pat, align) {
+                    out.push(base + i as u64);
+                    if out.len() >= limit {
+                        return out;
                     }
-                    i += align;
                 }
             }
             if n <= OVERLAP {
@@ -196,12 +192,10 @@ pub(crate) async fn scan_bytes_until(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let mut i = 0;
-                while i + pat.len() <= n {
-                    if &buf[i..i + pat.len()] == pat && on_hit(base + i as u64, &buf[i..n]) {
+                for i in occurrences(&buf[..n], pat, align) {
+                    if on_hit(base + i as u64, &buf[i..n]) {
                         return;
                     }
-                    i += align;
                 }
             }
             if n <= OVERLAP {
@@ -237,22 +231,13 @@ pub(crate) async fn scan_u64_any(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let mut i = 0;
-                while i + 8 <= n {
-                    let v = u64::from_le_bytes([
-                        buf[i],
-                        buf[i + 1],
-                        buf[i + 2],
-                        buf[i + 3],
-                        buf[i + 4],
-                        buf[i + 5],
-                        buf[i + 6],
-                        buf[i + 7],
-                    ]);
-                    if values.contains(&v) && on_hit(base + i as u64) {
+                let (words, _) = buf[..n].as_chunks::<8>();
+                for (index, word) in words.iter().enumerate() {
+                    if values.contains(&u64::from_le_bytes(*word))
+                        && on_hit(base + index as u64 * 8)
+                    {
                         return;
                     }
-                    i += 8;
                 }
             }
             if n <= OVERLAP {
@@ -326,6 +311,49 @@ pub(crate) async fn scan_words_between(
             }
         }
     }
+}
+
+/// The aligned offsets of `block` where `pattern` starts, in order.
+///
+/// Its first unit -- two bytes, or eight -- is compared in a tight loop, and
+/// the whole pattern only where that unit matches. A comparison of the whole
+/// pattern at every offset was most of the time of a sweep.
+fn occurrences<'a>(
+    block: &'a [u8],
+    pattern: &'a [u8],
+    align: usize,
+) -> impl Iterator<Item = usize> + 'a {
+    let fits = move |offset: &usize| block.get(*offset..*offset + pattern.len()) == Some(pattern);
+    let by_two = (align == 2 && pattern.len() >= 2).then(|| {
+        let first = u16::from_le_bytes([pattern[0], pattern[1]]);
+        block
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, unit)| {
+                (u16::from_le_bytes(*unit) == first).then_some(index * 2)
+            })
+    });
+    let by_eight = (align == 8 && pattern.len() >= 8).then(|| {
+        let first = u64::from_le_bytes(pattern[..8].try_into().unwrap_or_default());
+        block
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, unit)| {
+                (u64::from_le_bytes(*unit) == first).then_some(index * 8)
+            })
+    });
+    let anything_else =
+        (by_two.is_none() && by_eight.is_none()).then(|| (0..block.len()).step_by(align.max(1)));
+    by_two
+        .into_iter()
+        .flatten()
+        .chain(by_eight.into_iter().flatten())
+        .chain(anything_else.into_iter().flatten())
+        .filter(fits)
 }
 
 /// The offsets of the aligned words of `block` whose value lies between `low`

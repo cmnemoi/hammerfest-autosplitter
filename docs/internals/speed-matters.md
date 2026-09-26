@@ -127,3 +127,27 @@ next thing worth measuring away. To compare two builds again:
 ```sh
 mise run e2e -- 120 before.wasm target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
 ```
+
+---
+
+## The first search, in processor time
+
+The reads are held by the baseline. The time the processor spends on them is
+measured by hand, on the real captures:
+
+```sh
+cargo test --release -p hammerfest-reader times_the_first_search -- --ignored --nocapture
+```
+
+On 2026-09-26, once the sweeps of Pepper Flash compared the first unit of a
+pattern in a tight loop, as those of Ruffle already did, and the whole
+pattern only where it matched:
+
+| player | before | after |
+| --- | --- | --- |
+| Pepper Flash | 22.2 ms | 6.0 ms |
+| Ruffle desktop | 32.5 ms | 33.2 ms |
+| Ruffle in Firefox | 24.8 ms | 25.2 ms |
+
+The reads did not change. Ruffle was already swept in a tight loop; its
+numbers moved only by the noise of the machine.

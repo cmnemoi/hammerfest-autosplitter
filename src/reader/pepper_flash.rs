@@ -504,8 +504,6 @@ async fn scan_atoms(
     cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64) -> bool,
 ) {
-    let bytes = ptr.to_le_bytes();
-    let (lo, tail) = (bytes[0], &bytes[1..]);
     let mut buf = vec![0u8; CHUNK];
     let mut chunks = 0usize;
 
@@ -514,12 +512,12 @@ async fn scan_atoms(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let mut i = 0;
-                while i + 8 <= n {
-                    if buf[i] & !7 == lo && &buf[i + 1..i + 8] == tail && on_hit(base + i as u64) {
+                let (words, _) = buf[..n].as_chunks::<8>();
+                for (index, word) in words.iter().enumerate() {
+                    // An atom is the pointer, with its tag in the three low bits.
+                    if u64::from_le_bytes(*word) & !7 == ptr && on_hit(base + index as u64 * 8) {
                         return;
                     }
-                    i += 8;
                 }
             }
             if n <= OVERLAP {
