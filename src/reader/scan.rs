@@ -281,34 +281,38 @@ pub(crate) fn move_region_first(ranges: &mut [(u64, u64)], addr: u64) {
     }
 }
 
-/// Walks every aligned word of `width` bytes, 4 or 8, with the word that
-/// follows it when the block holds it, and calls `on_word` on each. Returning
-/// `true` stops the sweep.
+/// Walks the aligned words of `width` bytes, 4 or 8, whose value lies in
+/// `values`, and calls `on_word` on each, with the word that follows it when
+/// the block holds it. Returning `true` stops the sweep.
 ///
-/// For a search that cannot say in advance which value it looks for: a
-/// pointer into a range, and the length beside it.
-pub(crate) async fn scan_words(
+/// For a search that cannot say in advance which value it looks for, only
+/// where it lies: a pointer into a range, and the length beside it. The test
+/// on the range is the whole of the work for almost every word, so it runs in
+/// a tight loop, and `on_word` is called for the few that pass it.
+pub(crate) async fn scan_words_between(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
     width: usize,
+    values: core::ops::RangeInclusive<u64>,
     cost: &mut Scan<'_>,
     mut on_word: impl FnMut(u64, u64, Option<u64>) -> bool,
 ) {
     let mut buf = vec![0u8; CHUNK];
     let mut chunks = 0usize;
+    let (low, high) = (*values.start(), *values.end());
 
     for &(start, end) in ranges {
         let mut base = start;
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let mut i = 0;
-                while i + width <= n {
-                    let value = word_at(&buf[..n], i, width).unwrap_or(0);
-                    if on_word(base + i as u64, value, word_at(&buf[..n], i + width, width)) {
+                let block = &buf[..n];
+                let hits = matching_words(block, width, low, high);
+                for i in hits {
+                    let value = word_at(block, i, width).unwrap_or(0);
+                    if on_word(base + i as u64, value, word_at(block, i + width, width)) {
                         return;
                     }
-                    i += width;
                 }
             }
             if n <= OVERLAP {
@@ -322,6 +326,34 @@ pub(crate) async fn scan_words(
             }
         }
     }
+}
+
+/// The offsets of the aligned words of `block` whose value lies between `low`
+/// and `high`.
+fn matching_words(
+    block: &[u8],
+    width: usize,
+    low: u64,
+    high: u64,
+) -> impl Iterator<Item = usize> + '_ {
+    let (words4, _) = block.as_chunks::<4>();
+    let (words8, _) = block.as_chunks::<8>();
+    let fours = (width == 4).then(|| {
+        words4.iter().enumerate().filter_map(move |(index, word)| {
+            let value = u32::from_le_bytes(*word) as u64;
+            (low <= value && value <= high).then_some(index * 4)
+        })
+    });
+    let eights = (width == 8).then(|| {
+        words8.iter().enumerate().filter_map(move |(index, word)| {
+            let value = u64::from_le_bytes(*word);
+            (low <= value && value <= high).then_some(index * 8)
+        })
+    });
+    fours
+        .into_iter()
+        .flatten()
+        .chain(eights.into_iter().flatten())
 }
 
 /// A little endian word of `width` bytes, 4 or 8, if it fits in the buffer.

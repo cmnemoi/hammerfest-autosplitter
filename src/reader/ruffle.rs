@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 
 use crate::avm1::Memory;
 use crate::heap::{Avm1Heap, FlashPlayer, Object, ObjectReference, Slot, StringReference, Value};
-use crate::scan::{scan_words, word_at, Scan};
+use crate::scan::{scan_words_between, word_at, Scan};
 
 /// Where Ruffle puts what the reader reads, for one target.
 #[derive(Copy, Clone, Debug)]
@@ -477,14 +477,22 @@ impl FlashPlayer for Ruffle {
 
         cost.stage("key_entries");
         let mut entries: Vec<u64> = Vec::new();
-        scan_words(memory, fresh, layout.word, cost, |address, value, _| {
-            let entry = address.wrapping_sub(layout.entry_hash as u64);
-            // Two blocks overlap, so a hit can come twice.
-            if value == hash && !entries.contains(&entry) && self.is_entry_of(memory, entry, key) {
-                entries.push(entry);
-            }
-            false
-        })
+        let only_the_hash = hash..=hash;
+        scan_words_between(
+            memory,
+            fresh,
+            layout.word,
+            only_the_hash,
+            cost,
+            |address, _, _| {
+                let entry = address.wrapping_sub(layout.entry_hash as u64);
+                // Two blocks overlap, so a hit can come twice.
+                if !entries.contains(&entry) && self.is_entry_of(memory, entry, key) {
+                    entries.push(entry);
+                }
+                false
+            },
+        )
         .await;
         let (Some(&lowest), Some(&highest)) = (entries.iter().min(), entries.iter().max()) else {
             return None;
@@ -500,10 +508,14 @@ impl FlashPlayer for Ruffle {
         let mut tried: Vec<u64> = Vec::new();
         let mut found = None;
         let pointer_offset = layout.entries + layout.word as u64;
-        scan_words(
+        // The pointer to the entries lies at most the longest map below the
+        // lowest entry, and never above the highest.
+        let pointers = lowest.saturating_sub(MAX_ENTRIES * entry_size)..=highest;
+        scan_words_between(
             memory,
             all,
             layout.word,
+            pointers,
             cost,
             |address, pointer, length| {
                 let Some(length) = length else {
