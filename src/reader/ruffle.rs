@@ -105,6 +105,80 @@ impl RuffleLayout {
     }
 }
 
+/// A build of Ruffle web, as the stores ship it.
+///
+/// Ruffle ships two: one for browsers that know the extensions of wasm, one
+/// for the others. They share a layout, and their statics sit at different
+/// offsets of the linear memory.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RuffleBuild {
+    /// Ruffle web 0.6.0 for current browsers: `e4ba64aa...`.
+    Extensions,
+    /// Ruffle web 0.6.0 for the others: `adabc169...`.
+    Mvp,
+}
+
+/// Where a build keeps a vtable, and the four words it holds there: its
+/// alignment, its size, and two indexes in the table of functions.
+struct KnownVtable {
+    offset: u64,
+    words: [u32; 4],
+}
+
+impl RuffleBuild {
+    const ALL: [RuffleBuild; 2] = [RuffleBuild::Extensions, RuffleBuild::Mvp];
+
+    /// The vtables of an AVM1 object and of a string, as this build keeps
+    /// them. Read in the released `.wasm`: `docs/concepts/ruffle-web-heap.md`.
+    fn vtables(self) -> [KnownVtable; 2] {
+        match self {
+            RuffleBuild::Extensions => [
+                KnownVtable {
+                    offset: 0x2C69A0,
+                    words: [4, 80, 4417, 4418],
+                },
+                KnownVtable {
+                    offset: 0x315F30,
+                    words: [4, 20, 6388, 6389],
+                },
+            ],
+            RuffleBuild::Mvp => [
+                KnownVtable {
+                    offset: 0x253890,
+                    words: [4, 80, 2923, 2924],
+                },
+                KnownVtable {
+                    offset: 0x316310,
+                    words: [4, 20, 6373, 6374],
+                },
+            ],
+        }
+    }
+
+    /// The build whose vtables sit where it puts them, in this linear memory.
+    ///
+    /// @spec browser::proven-by-a-known-build
+    pub fn recognised_in(linear: &dyn Memory) -> Option<RuffleBuild> {
+        Self::ALL.into_iter().find(|build| {
+            build.vtables().iter().all(|vtable| {
+                let mut bytes = [0u8; 16];
+                linear.read_into(vtable.offset, &mut bytes).is_some()
+                    && bytes
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|word| u32::from_le_bytes(*word))
+                        .eq(vtable.words)
+            })
+        })
+    }
+
+    /// The offset of the vtable every AVM1 object of this build carries.
+    fn object_vtable(self) -> u64 {
+        self.vtables()[0].offset
+    }
+}
+
 /// The collector keeps flags in the low bits of a vtable.
 const GC_FLAGS: u64 = 0xF;
 /// More entries than any Hammerfest object holds. A larger length is not a
@@ -327,6 +401,18 @@ impl Ruffle {
         self.layout = DESKTOP;
         self.statics = module;
         self.object_vtable = None;
+    }
+
+    /// Ruffle in a browser, whose linear memory holds this build.
+    ///
+    /// The build names the vtable of an AVM1 object, so no object has to
+    /// prove it first.
+    pub fn in_browser(build: RuffleBuild) -> Self {
+        Self {
+            layout: WEB,
+            statics: (0, 0),
+            object_vtable: Some(build.object_vtable()),
+        }
     }
 
     /// The vtable of the object at `object`, when it is the vtable of an AVM1

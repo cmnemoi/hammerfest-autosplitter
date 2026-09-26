@@ -40,7 +40,7 @@ impl Memory for Heap {
 }
 
 #[path = "../contract/memory.rs"]
-mod contract;
+pub mod contract;
 
 use contract::{cases, contents, BASE, LEN};
 

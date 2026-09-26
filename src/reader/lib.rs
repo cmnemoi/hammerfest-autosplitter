@@ -13,6 +13,7 @@ extern crate alloc;
 pub mod avm1;
 pub mod hammerfest;
 pub mod heap;
+pub mod linear_memory;
 pub mod pepper_flash;
 pub mod ruffle;
 mod scan;
