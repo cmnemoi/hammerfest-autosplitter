@@ -135,6 +135,7 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.read::rejects-a-missing-chrono` | a game whose `gameChrono` cannot be read | nothing is read |
 | `reader.read::the-halted-clock-when-stopped` | a game whose `fl_stop` is true | the clock comes from `haltedTimer` |
 | `reader.read::a-property-that-moved-slot` | a game whose `world` property changed slot between two readings | the value read is still right |
+| `reader.replay::linux-pepper-flash` | the capture of a game at level 7 of `xml_adventure`, in EternalTwin under Linux | the game is found, at level 7, in `xml_adventure`, dimension 0 |
 
 A behaviour counts as covered when its id appears in three places: this page, a
 test, and the code that implements it.

@@ -217,6 +217,33 @@ mod tests {
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }
 
+    /// The same, on the bytes Pepper Flash wrote in EternalTwin under Linux:
+    /// the other table geometry, `linux-x64`.
+    ///
+    /// @spec reader.replay::linux-pepper-flash
+    /// @spec reader::the-right-layout
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_linux_pepper_flash_capture() {
+        let capture = Capture::load("linux-pepper-flash")
+            .expect("the capture fixtures/replay/linux-pepper-flash is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut PepperFlash::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real Linux heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
     /// The same, on the bytes Ruffle 0.6.0 wrote under Linux.
     ///
     /// The capture is committed, so a missing one is a failure and not a skip.

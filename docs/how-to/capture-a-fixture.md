@@ -18,7 +18,7 @@ every push.
 | OS \ player | Pepper Flash (EternalTwin) | Flash projector | Ruffle desktop | Ruffle in a browser |
 | --- | --- | --- | --- | --- |
 | Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | `windows-ruffle-wine`, under Wine | missing |
-| Linux | missing | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
+| Linux | `linux-pepper-flash` | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
 | macOS | missing: needs a Mac | not shipped | missing: needs a Mac | missing: needs a Mac |
 
 A missing cell is a platform the net does not hold yet.

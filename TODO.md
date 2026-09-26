@@ -75,6 +75,12 @@ The steps, in order:
    [Flash projector support](docs/specs/flash-projector-support.md). The
    Windows projector was read under Wine: a check on a real Windows is left.
 
+10. a start dated late in EternalTwin under Linux. Measured on 2026-09-26
+    with `mise run e2e`, 1.2.0 and the build after it side by side on one
+    game: both found the `GameManager` on the same tick, and dated the start
+    609 and 634 ms after level 0, where the check asks for 50 ms. So it is
+    not a regression, and it is not understood yet.
+
 ### Before any step
 
 The net is posed, and something other than memory runs it. `mise run ci` is
