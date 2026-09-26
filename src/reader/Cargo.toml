@@ -1,0 +1,27 @@
+[package]
+name = "hammerfest-reader"
+version = "0.3.0"
+edition = "2021"
+
+# Not `asr`: that is what makes this crate testable. The ASR runtime symbols
+# exist only inside the WebAssembly sandbox, so the reader asks for bytes
+# through its own `Memory` trait, and the module adapts the process to it.
+[dependencies]
+hammerfest-core = { path = "../core" }
+
+# Only the replay test reads this.
+[dev-dependencies]
+flate2 = "1"
+
+[features]
+# On in the module that ships, so on here: the read cost baseline measures
+# what ships.
+default = ["scan-budget"]
+# Experiment: recognise the measured player before the first game.
+known-flash = []
+# Limits the pauses caused by small regions.
+scan-budget = []
+
+# The sources sit beside this file, like the core's.
+[lib]
+path = "lib.rs"

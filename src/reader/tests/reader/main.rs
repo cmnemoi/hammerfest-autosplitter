@@ -1,0 +1,11 @@
+//! The reader's tests, in one test binary.
+//!
+//! The reader is served bytes and nothing else, so everything here runs
+//! outside the WebAssembly sandbox, with no stub of the runtime.
+
+extern crate alloc;
+
+mod memory_contract;
+mod read_cost;
+mod replay;
+mod test_heap;

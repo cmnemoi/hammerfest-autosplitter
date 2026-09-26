@@ -115,7 +115,7 @@ The game already carries the discriminator. `fVersion` is a property the
 `GameMode` constructor sets, and no other object holds it.
 
 Today the code uses only the *name* of that property, as a search anchor. See
-`src/hammerfest.rs:746`. It never reads the value.
+`src/reader/hammerfest.rs:746`. It never reads the value.
 
 Two versions in one `.wasm` would need two tables emitted by `build.rs`, and
 one read of the `fVersion` value to choose between them. About thirty lines.

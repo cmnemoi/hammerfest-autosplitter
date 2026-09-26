@@ -55,7 +55,7 @@ PROC_NAMES = ("Eternaltwin.exe", "etwin.exe")
 PLUGIN = r"pepflashplayer\.dll|libpepflashplayer\.so|PepperFlashPlayer"
 
 # The GameManager anchor: `fVersion` is set by its constructor and no other
-# class carries it. See src/hammerfest.rs, the same resolution chain.
+# class carries it. See src/reader/hammerfest.rs, the same resolution chain.
 K_F_VERSION = hfmap.obf("fVersion")
 K_CURRENT = hfmap.obf("current")
 K_MANAGER = hfmap.obf("manager")

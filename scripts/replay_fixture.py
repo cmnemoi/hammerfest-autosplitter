@@ -9,7 +9,7 @@ So this script writes two files instead:
     heap.bin.gz  the bytes of the regions that are kept, concatenated
     index.txt    the plugin range, the state the game was in, the region map
 
-`index.txt` is read by `src/replay.rs` with `split_whitespace`, and nothing
+`index.txt` is read by `src/reader/tests/reader/replay.rs` with `split_whitespace`, and nothing
 else. The bytes are gzipped at level 9: the file is written once and read
 often, so the slowest level is the right one. It buys a third over level 1.
 

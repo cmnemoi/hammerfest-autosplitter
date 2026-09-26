@@ -140,14 +140,20 @@ simply the old ones. Three separate checks guard against that.
 | `src/core/pacing.rs` | when the loop may scan the whole heap again |
 | `src/core/command.rs` | what one tick sends the timer, in order |
 | `src/lib.rs` | the main loop, and talking to LiveSplit |
-| `src/hammerfest.rs` | finding the process, scanning, reading the game |
-| `src/avm1.rs` | the AVM1 object model, measured at run time |
+| `src/plugin.rs` | finding the plugin process, and the ranges of its heap |
+| `src/process_memory.rs` | the process, as the reader asks for it |
+| `src/runtime_log.rs` | what the search says, written to the LiveSplit log |
 | `src/diagnostics.rs` | everything that measures. Absent from the normal build. |
-| `build.rs` | turns the obfuscated names into Rust constants |
-| `src/asr_stubs.rs` | 28 runtime symbols, so `cargo test` can link. Tests only. |
-| `src/memory_contract.rs` | the contract of `avm1::Memory`, run against both implementations |
-| `src/test_heap.rs` | a synthetic AVM1 heap, written byte by byte. Tests only. |
-| `src/replay.rs` | a real capture, replayed. The only test served Flash bytes. |
+| `build.rs` | the version of the module, with its commit |
+| `src/reader/` | the reader, a crate with no `asr` |
+| `src/reader/hammerfest.rs` | scanning the heap, reading the game |
+| `src/reader/avm1.rs` | the AVM1 object model, measured at run time |
+| `src/reader/search_log.rs` | what a search tells whoever listens |
+| `src/reader/build.rs` | turns the obfuscated names into Rust constants |
+| `src/reader/tests/reader/memory_contract.rs` | the contract of `avm1::Memory`, and the test heap held to it |
+| `src/reader/tests/reader/test_heap.rs` | a synthetic AVM1 heap, written byte by byte |
+| `src/reader/tests/reader/replay.rs` | a real capture, replayed. The only test served Flash bytes. |
+| `src/reader/tests/reader/read_cost.rs` | what the reader costs, held to a baseline |
 | `scripts/` | reading and capturing memory, in Python |
 
 ---

@@ -152,4 +152,4 @@ necessary.
 | `MANAGER_IDLE_LIMIT` | 30 | silent attempts before an unproven anchor is dropped |
 | `MAX_LEVEL` | 256 | the plausibility bound on a level |
 
-The code is `src/hammerfest.rs`, `resolve` and `resolve_via_manager`.
+The code is `src/reader/hammerfest.rs`, `resolve` and `resolve_via_manager`.

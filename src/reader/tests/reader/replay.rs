@@ -23,7 +23,7 @@ use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 use std::{fs, io::Read, path::PathBuf, println};
 
-use crate::avm1::Memory;
+use hammerfest_reader::avm1::Memory;
 
 /// A `0x...` address, as `index.txt` writes it.
 fn hex(word: &str) -> Option<u64> {
@@ -90,6 +90,7 @@ impl Capture {
     /// Loads the capture of that name, or nothing when it is not there.
     pub fn load(name: &str) -> Option<Self> {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
             .join("fixtures")
             .join("replay")
             .join(name);
@@ -161,9 +162,9 @@ mod tests {
     use super::*;
     use hammerfest_core::{Level, Policy, State, TimerState, World};
 
-    use crate::hammerfest::{resolve, Anchor, Binary};
-    use crate::search_log::Silent;
     use crate::test_heap::block_on;
+    use hammerfest_reader::hammerfest::{resolve, Anchor, Binary};
+    use hammerfest_reader::search_log::Silent;
 
     /// @spec reader::the-right-layout
     #[test]
@@ -273,7 +274,7 @@ mod tests {
     /// It is not a test. Run it when a new capture has to be trimmed:
     ///
     /// ```sh
-    /// cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+    /// cargo test -p hammerfest-reader smallest -- --ignored --nocapture
     /// ```
     #[test]
     #[ignore = "a tool, not a test: it trims a new capture"]

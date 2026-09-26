@@ -462,7 +462,6 @@ impl Binary {
     ///
     /// `reader.find::nothing-on-another-flash-build` needs this state: a
     /// reader that has proven one build, and a heap written by another.
-    #[cfg(test)]
     pub fn proven_with(layout: Layout) -> Self {
         Self {
             layout: Some(layout),
@@ -1181,31 +1180,5 @@ impl Game {
         let game =
             avm1::as_int(l.get_cached(mem, chrono, keys::GAME_TIMER, &mut self.hints.game)?)?;
         Some((frame - game, frame))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{resolve, Anchor, Binary};
-    // The heap is held to the contract of `Memory` in `memory_contract`, and
-    // every other test of this layer is written against the heap builder in
-    // `test_heap`.
-    use crate::memory_contract::Heap;
-    use crate::search_log::Silent;
-    use crate::test_heap::block_on;
-
-    /** @spec reader.find::nothing-in-the-menus */
-    #[test]
-    fn finds_nothing_in_an_empty_heap() {
-        let found = block_on(resolve(
-            &Heap::default(),
-            (0x1000, 0x1000),
-            &mut Anchor::default(),
-            &mut Binary::default(),
-            &[],
-            &mut Silent,
-        ));
-
-        assert!(found.is_none());
     }
 }

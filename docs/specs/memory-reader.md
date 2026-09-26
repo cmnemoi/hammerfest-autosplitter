@@ -177,7 +177,7 @@ from `keys::`. It therefore cannot see a `MEASURED` seed or an obfuscation
 table that is wrong for the binary and the SWF in use.
 
 One test does see it, and it is the only one served bytes a Flash player wrote:
-`src/replay.rs` replays a capture of a real game. Change one name in
+`src/reader/tests/reader/replay.rs` replays a capture of a real game. Change one name in
 `vendor/hf.map.json` and it is the only test that reddens.
 
 **The number of situations above.** Seventeen is where the search stopped, not

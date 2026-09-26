@@ -18,8 +18,6 @@
 //! The vtables are not hard coded. They are found at run time, from a string
 //! we know the SWF contains.
 
-use asr::{Address, Process};
-
 // Atom decoding lives in the core, where it is tested.
 use hammerfest_core::atom;
 pub use hammerfest_core::atom::{as_bool, as_int};
@@ -34,19 +32,12 @@ pub use hammerfest_core::atom::{as_bool, as_int};
 /// it. The caller then has no partially true buffer to mistake for a value,
 /// which is what `reader::refuses-rather-than-defaults` asks for.
 ///
-/// `crate::memory_contract` states that in four tests and runs them against
-/// every implementation, so the test heap and the adapter below cannot drift
-/// apart.
+/// `tests/reader/memory_contract.rs` states that in four tests, and holds the
+/// test heap to them.
 ///
 /// @spec reader::refuses-rather-than-defaults
 pub trait Memory {
     fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()>;
-}
-
-impl Memory for Process {
-    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
-        self.read_into_slice(Address::new(address), buf).ok()
-    }
 }
 
 /// Atom -> number, integer or float.

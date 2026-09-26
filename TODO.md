@@ -12,9 +12,9 @@ This page is the one place that says where that stands. Start here.
 | layer | lines | tests | spec |
 | --- | --- | --- | --- |
 | `src/core/` the decisions | 1 760 | 71 | 10 of 10 rules traced |
-| `src/avm1.rs`, `src/hammerfest.rs` the reader | 1 612 | 20 | 18 of 18 criteria, 6 of 6 rules |
+| `src/reader/avm1.rs`, `src/reader/hammerfest.rs` the reader | 1 612 | 20 | 18 of 18 criteria, 6 of 6 rules |
 | `src/lib.rs` the loop | 311 | 0 | the pacing left, and is tested |
-| `src/asr_stubs.rs`, `src/memory_contract.rs`, `src/test_heap.rs`, `src/replay.rs` the scaffolding | 1 586 | 10 | the contract of `Memory` |
+| `src/reader/tests/reader/` the scaffolding | 1 586 | 10 | the contract of `Memory` |
 
 Those figures were true on 2026-09-22. Recompute them rather than trust them:
 
@@ -27,7 +27,7 @@ Both layers can be refactored today. The reader is held by a synthetic heap
 that a test writes byte by byte, and by the eighteen situations of
 [the reader spec](docs/specs/memory-reader.md#acceptance-criteria).
 
-One test is served bytes a Flash player wrote: `src/replay.rs` replays a
+One test is served bytes a Flash player wrote: `src/reader/tests/reader/replay.rs` replays a
 trimmed capture of a real game, 2.5 MiB in git. It is the only test that can
 see a `MEASURED` seed or an obfuscation table that no longer matches what
 ships.
@@ -52,7 +52,8 @@ reads the heap of Ruffle as it reads the heap of Pepper Flash, behind one
 The steps, in order:
 
 1. ~~the bench, in the CI~~: done, see [Read cost](docs/specs/read-cost.md);
-2. the reader leaves the wasm crate, and `asr_stubs` goes;
+2. ~~the reader leaves the wasm crate, and `asr_stubs` goes~~: done, see
+   `src/reader/`;
 3. the Ruffle spike, beside steps 1 and 2;
 4. design `Avm1Heap` and `Runtime`;
 5. extract `Avm1Heap` from the Pepper Flash reader;

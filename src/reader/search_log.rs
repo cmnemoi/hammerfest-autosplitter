@@ -38,8 +38,6 @@ pub trait SearchLog {
 }
 
 /// A listener that ignores everything.
-#[cfg(test)]
 pub struct Silent;
 
-#[cfg(test)]
 impl SearchLog for Silent {}

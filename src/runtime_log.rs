@@ -5,7 +5,7 @@
 //! [`ScanTrace`] holds nothing without the `diagnostics` feature.
 
 use crate::diagnostics::{self, ScanTrace};
-use crate::search_log::SearchLog;
+use hammerfest_reader::search_log::SearchLog;
 
 #[derive(Default)]
 pub struct RuntimeLog {

@@ -14,11 +14,11 @@ use alloc::{string::String, vec, vec::Vec};
 
 use hammerfest_core::atom;
 
-use crate::avm1::{Layout, PROFILES};
-use crate::hammerfest::{resolve, Anchor, Binary, Game, State};
-use crate::keys;
 use crate::memory_contract::Heap;
-use crate::search_log::Silent;
+use hammerfest_reader::avm1::{Layout, PROFILES};
+use hammerfest_reader::hammerfest::{resolve, Anchor, Binary, Game, State};
+use hammerfest_reader::keys;
+use hammerfest_reader::search_log::Silent;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
 /// looks at this range, and it only compares.
@@ -685,6 +685,21 @@ pub fn block_on<F: core::future::Future>(f: F) -> F::Output {
 }
 
 // -- the tests ---------------------------------------------------------------
+
+/** @spec reader.find::nothing-in-the-menus */
+#[test]
+fn finds_nothing_in_an_empty_heap() {
+    let found = block_on(resolve(
+        &Heap::default(),
+        (0x1000, 0x1000),
+        &mut Anchor::default(),
+        &mut Binary::default(),
+        &[],
+        &mut Silent,
+    ));
+
+    assert!(found.is_none());
+}
 
 /** @spec reader.find::a-game-and-its-manager */
 #[test]

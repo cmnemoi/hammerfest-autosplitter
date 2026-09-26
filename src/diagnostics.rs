@@ -32,24 +32,17 @@ static BYTES: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "diagnostics")]
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 
-/// The memory of the process, with every read counted in the diagnostics
-/// build. In the normal build it only forwards.
-pub struct Counted<'a>(pub &'a asr::Process);
-
-impl crate::avm1::Memory for Counted<'_> {
-    #[inline]
-    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
-        let result = self.0.read_into(address, buf);
-        #[cfg(feature = "diagnostics")]
-        {
-            CALLS.fetch_add(1, Ordering::Relaxed);
-            if result.is_some() {
-                BYTES.fetch_add(buf.len() as u64, Ordering::Relaxed);
-            } else {
-                FAILURES.fetch_add(1, Ordering::Relaxed);
-            }
+/// Counts one read of the process, in the diagnostics build.
+#[inline]
+pub fn count_read(_bytes: usize, _succeeded: bool) {
+    #[cfg(feature = "diagnostics")]
+    {
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        if _succeeded {
+            BYTES.fetch_add(_bytes as u64, Ordering::Relaxed);
+        } else {
+            FAILURES.fetch_add(1, Ordering::Relaxed);
         }
-        result
     }
 }
 

@@ -18,7 +18,7 @@ use std::{
     vec::Vec,
 };
 
-use crate::avm1::Memory;
+use hammerfest_reader::avm1::Memory;
 
 /// @spec cost::counted-not-timed
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -165,10 +165,10 @@ mod situations {
     use std::{env, fs, path::PathBuf};
 
     use super::*;
-    use crate::hammerfest::{resolve, Anchor, Binary, Game};
     use crate::replay::Capture;
-    use crate::search_log::Silent;
     use crate::test_heap::{given_a_heap, MODULE};
+    use hammerfest_reader::hammerfest::{resolve, Anchor, Binary, Game};
+    use hammerfest_reader::search_log::Silent;
 
     const BASELINE: &str = "fixtures/read-cost.txt";
     const HEADER: &str = "\
@@ -260,7 +260,9 @@ mod situations {
     #[test]
     fn the_reader_costs_what_the_baseline_says() {
         let measured = measured();
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(BASELINE);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(BASELINE);
         if env::var_os("READ_COST_UPDATE").is_some() {
             fs::write(&path, format!("{HEADER}{}", measured.render()))
                 .expect("the baseline could not be written");
@@ -382,6 +384,18 @@ mod tests {
         assert_eq!(cost, a_cost(2, 24, 0));
     }
 
+    /// Pending once, as the reader is when it lets a tick pass.
+    fn a_tick_given_back() -> impl Future<Output = ()> {
+        let mut given_back = false;
+        core::future::poll_fn(move |_| {
+            if core::mem::replace(&mut given_back, true) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
+
     /** @spec cost.count::every-yield */
     #[test]
     fn counts_every_tick_given_back() {
@@ -390,7 +404,7 @@ mod tests {
 
         let ((), cost) = measure(&metered, async {
             for _ in 0..3 {
-                asr::future::next_tick().await;
+                a_tick_given_back().await;
             }
         });
 

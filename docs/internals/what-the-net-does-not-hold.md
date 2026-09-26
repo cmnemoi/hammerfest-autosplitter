@@ -23,6 +23,11 @@ in `core` and held by [the timer commands spec](../specs/timer-commands.md).
 What is left in `src/lib.rs` is `send`, one match arm per command, and each arm
 is one call. A reader can check it against `asr::timer` in a minute.
 
+The adapter that reads the process, `ProcessMemory`, is on the same side of
+that boundary. It is four lines: forward the address and the buffer, and turn
+a failure into `None`. A test used to run it against stubs of the runtime, and
+the stubs went when the reader left the wasm crate.
+
 The rest is the five-minute check before a session.
 
 ## Finding the process stays outside
@@ -56,7 +61,7 @@ says.
 
 **They are not untested either, in the direction that matters.**
 `metadata.json` carries what the Python read at capture time, and
-`src/replay.rs` checks the Rust against it on every run. The two implementations
+`src/reader/tests/reader/replay.rs` checks the Rust against it on every run. The two implementations
 share no constant, so their agreement is worth something.
 
 A pytest suite for them would need a Python fixture replayer and a test

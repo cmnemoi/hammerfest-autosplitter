@@ -111,13 +111,13 @@ memory](../internals/stale-memory.md).
 
 ## Make one a test
 
-A capture can be replayed by `src/replay.rs`, which is the only test served
+A capture can be replayed by `src/reader/tests/reader/replay.rs`, which is the only test served
 bytes a Flash player wrote. That needs two files, and neither JSON nor gzip in
 the crate:
 
 ```sh
 mise run replay-fixture -- my-capture
-cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+cargo test -p hammerfest-reader smallest -- --ignored --nocapture
 mise run replay-fixture -- my-capture --keep <the addresses it printed>
 ```
 

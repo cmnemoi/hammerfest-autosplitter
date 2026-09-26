@@ -27,38 +27,15 @@ extern crate alloc;
 #[global_allocator]
 static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
-mod avm1;
 mod diagnostics;
-mod hammerfest;
 mod plugin;
+mod process_memory;
 mod runtime_log;
-mod search_log;
-
-/// The runtime symbols, defined so that `cargo test` can link.
-#[cfg(test)]
-mod asr_stubs;
-/// The contract of `avm1::Memory`, and the implementations held to it.
-#[cfg(test)]
-mod memory_contract;
-/// What the reader costs, held to a baseline.
-#[cfg(test)]
-mod read_cost;
-/// The bytes of a real game, replayed.
-#[cfg(test)]
-mod replay;
-/// The synthetic heap the reader's tests are served.
-#[cfg(test)]
-mod test_heap;
-
-/// Obfuscated property names, taken from `vendor/hf.map.json` by build.rs.
-mod keys {
-    include!(concat!(env!("OUT_DIR"), "/keys.rs"));
-}
 
 use asr::{future::next_tick, time::Duration, timer, Process};
 use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
-use hammerfest::Game;
+use hammerfest_reader::hammerfest::{self, Game};
 
 asr::async_main!(stable);
 asr::panic_handler!();
@@ -126,7 +103,8 @@ async fn main() {
                 anchor.reset();
                 #[cfg(feature = "known-flash")]
                 {
-                    let matched = binary.recognize(&process, module);
+                    let matched =
+                        binary.recognize(&process_memory::ProcessMemory(&process), module);
                     asr::print_message(&alloc::format!(
                         "HF_DIAG event=binary_profile t_us={} matched={matched}",
                         diagnostics::now_us()
@@ -165,7 +143,7 @@ async fn run(
     let mut last_loop = diagnostics::now_us();
 
     // Every read goes through here, so the diagnostics build can count them.
-    let memory = diagnostics::Counted(process);
+    let memory = process_memory::ProcessMemory(process);
 
     while process.is_open() {
         #[cfg(feature = "diagnostics")]

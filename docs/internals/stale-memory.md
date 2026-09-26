@@ -84,4 +84,4 @@ first". We check a hint before every use, and never trust it on its own.
 
 The proofs are in section 7 of
 [reverse-engineering.md](../reverse-engineering.md). The code is
-`src/hammerfest.rs`, `validate` and `Game::read`.
+`src/reader/hammerfest.rs`, `validate` and `Game::read`.

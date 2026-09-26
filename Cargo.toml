@@ -1,24 +1,19 @@
 [workspace]
-members = ["src/core"]
+members = ["src/core", "src/reader"]
 
 [package]
 name = "hammerfest-autosplitter"
 version = "1.0.0"
 edition = "2021"
 
-# Only the replay test reads this. A dev-dependency never reaches the `.wasm`:
-# `cargo build --target wasm32-unknown-unknown` does not build it.
-[dev-dependencies]
-flate2 = "1"
-
 [features]
 default = ["scan-budget"]
 # Detailed traces and A/B comparison. The normal module refreshes the map.
 diagnostics = []
 # Experiment: recognise the measured player before the first game.
-known-flash = []
+known-flash = ["hammerfest-reader/known-flash"]
 # Limits the pauses caused by small regions; on in the normal module.
-scan-budget = []
+scan-budget = ["hammerfest-reader/scan-budget"]
 
 [dependencies]
 asr = { git = "https://github.com/LiveSplit/asr", rev = "89d55ab07198da6fd75cab1ea1a6825b4240b343", features = [
@@ -29,6 +24,8 @@ asr = { git = "https://github.com/LiveSplit/asr", rev = "89d55ab07198da6fd75cab1
 dlmalloc = { version = "0.2.4", features = ["global"] }
 # The core, with no runtime and no memory access: it carries the tests.
 hammerfest-core = { path = "src/core" }
+# The reader, with no runtime either. Its features follow the ones above.
+hammerfest-reader = { path = "src/reader", default-features = false }
 
 [lib]
 crate-type = ["cdylib"]

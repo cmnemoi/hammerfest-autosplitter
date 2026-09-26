@@ -49,7 +49,7 @@ names the build. `Hammerfest: GameManager 0x…` means the anchor was found, and
 `Hammerfest: GameMode 0x…` means the fallback search found the game.
 
 **Suspect the constants last.** If `mise run test` was green, then
-`src/replay.rs` replayed a real capture, and `MEASURED` and
+`src/reader/tests/reader/replay.rs` replayed a real capture, and `MEASURED` and
 `vendor/hf.map.json` still decode bytes a Flash player wrote. They are not the
 problem unless the player itself was updated. See
 [the reader test page](../internals/testing-the-memory-reader.md).

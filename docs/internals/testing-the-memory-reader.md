@@ -75,7 +75,7 @@ The reader makes four kinds of raw read: a `u64`, the UTF-16 buffer of a
 String, a scan block, and the PE headers behind the `known-flash` feature. All
 four say "give me these bytes".
 
-So the contract is one method, in `src/avm1.rs`:
+So the contract is one method, in `src/reader/avm1.rs`:
 
 ```rust
 pub trait Memory {
@@ -118,7 +118,7 @@ A trait we own moves the guessing out of the tests. It does not stop the fake
 and the adapter drifting apart. If they answer differently, the reader's tests
 prove nothing about production.
 
-So `src/memory_contract.rs` states the contract as four questions, and runs
+So `src/reader/tests/reader/memory_contract.rs` states the contract as four questions, and runs
 them against both implementations.
 
 ```text
@@ -143,6 +143,11 @@ runtime may write part of it and then fail. The adapter must still answer
 cannot.
 
 ### What the adapter run proves, and what it does not
+
+> **Gone since 2026-09-26.** The reader left the wasm crate, and the stubs
+> went with it. The adapter is now `ProcessMemory`, in `src/process_memory.rs`,
+> and no test crosses into the runtime. The two sections below tell what the
+> run used to prove, so that nobody believes it still does.
 
 It proves the three lines forward the address and the length unchanged, and
 turn a failure into `None`.
@@ -221,7 +226,7 @@ the reader follows its own rules. They cannot prove that `MEASURED`,
 `vendor/hf.map.json` and the layout derivation still match the player and the
 SWF that ship, because nothing in them comes from Flash.
 
-One test does. `src/replay.rs` replays a capture taken from a running game.
+One test does. `src/reader/tests/reader/replay.rs` replays a capture taken from a running game.
 
 ### What it costs, measured and not guessed
 
@@ -243,7 +248,7 @@ region we should have kept turns the test red, never green.
 It is a tool and not a test, so it is `#[ignore]`d:
 
 ```sh
-cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+cargo test -p hammerfest-reader smallest -- --ignored --nocapture
 ```
 
 ### What it buys, and the mutation that shows it
@@ -295,7 +300,7 @@ fixture carries no JSON.
 ```sh
 mise run capture-heap -- --name my-capture
 mise run replay-fixture -- my-capture
-cargo test -p hammerfest-autosplitter smallest -- --ignored --nocapture
+cargo test -p hammerfest-reader smallest -- --ignored --nocapture
 mise run replay-fixture -- my-capture --keep <the addresses it printed>
 ```
 
@@ -303,7 +308,7 @@ mise run replay-fixture -- my-capture --keep <the addresses it printed>
 
 ## The DSL
 
-It lives in `src/test_heap.rs`, with the builder and the seventeen tests.
+It lives in `src/reader/tests/reader/test_heap.rs`, with the builder and the seventeen tests.
 Three phases, and each one has a name.
 
 ```rust
@@ -390,7 +395,7 @@ tests still pass.
 
 ### Step 2, the builder and the rest. Done
 
-`src/test_heap.rs` writes a synthetic heap byte by byte, and the sixteen
+`src/reader/tests/reader/test_heap.rs` writes a synthetic heap byte by byte, and the sixteen
 remaining situations are written against it.
 
 | covered | against |

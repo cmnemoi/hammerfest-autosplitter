@@ -52,7 +52,7 @@ description = "Measure the line coverage of the code that ships"
 #
 # `src/lib.rs` stays in, at zero percent. The loop is deliberately outside the
 # net, and a number that hides that decision is worth nothing.
-run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(test_heap|memory_contract|replay|read_cost|asr_stubs)[.]rs$"'
+run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(test_heap|memory_contract|replay|read_cost|main)[.]rs$"'
 
 [tasks.ci]
 description = "Everything that must pass before a change leaves the machine"
@@ -74,7 +74,7 @@ run = "cargo fmt --all --check"
 description = "Write what the reader costs now as the new baseline"
 # The test that holds the baseline writes it instead of comparing, when this
 # variable is set. See docs/specs/read-cost.md.
-run = "cargo test -p hammerfest-autosplitter the_reader_costs_what_the_baseline_says"
+run = "cargo test -p hammerfest-reader the_reader_costs_what_the_baseline_says"
 env = { READ_COST_UPDATE = "1" }
 
 [tasks.spec-coverage]
