@@ -211,14 +211,16 @@ pub(crate) async fn scan_bytes_until(
     }
 }
 
-/// Scans the aligned qwords whose value is one of `values`.
+/// Scans the aligned words of `width` bytes, 4 or 8, whose value is one of
+/// `values`.
 ///
 /// One pass for all candidates, and not one pass per candidate. Looking for
 /// what points at eight addresses cost eight re-reads of the heap, that is
 /// seven hundred MiB per failed attempt.
-pub(crate) async fn scan_u64_any(
+pub(crate) async fn scan_words_any(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
+    width: usize,
     values: &[u64],
     cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64) -> bool,
@@ -231,11 +233,8 @@ pub(crate) async fn scan_u64_any(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let (words, _) = buf[..n].as_chunks::<8>();
-                for (index, word) in words.iter().enumerate() {
-                    if values.contains(&u64::from_le_bytes(*word))
-                        && on_hit(base + index as u64 * 8)
-                    {
+                for offset in words_where(&buf[..n], width, |word| values.contains(&word)) {
+                    if on_hit(base + offset as u64) {
                         return;
                     }
                 }
@@ -253,10 +252,33 @@ pub(crate) async fn scan_u64_any(
     }
 }
 
-/// A qword read from a local buffer, if the offset fits inside it.
-pub(crate) fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
-    let raw = buf.get(off..off + 8)?;
-    Some(u64::from_le_bytes(<[u8; 8]>::try_from(raw).ok()?))
+/// The offsets of the aligned words of `width` bytes, 4 or 8, of `block`
+/// whose value passes `test`, in order.
+///
+/// The test is the whole of the work for almost every word, so it runs in a
+/// tight loop over words of the right width.
+pub(crate) fn words_where<'a>(
+    block: &'a [u8],
+    width: usize,
+    test: impl Fn(u64) -> bool + Copy + 'a,
+) -> impl Iterator<Item = usize> + 'a {
+    let (fours, _) = block.as_chunks::<4>();
+    let (eights, _) = block.as_chunks::<8>();
+    let four_bytes = (width == 4).then(|| {
+        fours.iter().enumerate().filter_map(move |(index, word)| {
+            test(u64::from(u32::from_le_bytes(*word))).then_some(index * 4)
+        })
+    });
+    let eight_bytes = (width == 8).then(|| {
+        eights
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, word)| test(u64::from_le_bytes(*word)).then_some(index * 8))
+    });
+    four_bytes
+        .into_iter()
+        .flatten()
+        .chain(eight_bytes.into_iter().flatten())
 }
 
 /// Moves the region that holds `addr` to the front, if it is there.
@@ -292,7 +314,7 @@ pub(crate) async fn scan_words_between(
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
                 let block = &buf[..n];
-                let hits = matching_words(block, width, low, high);
+                let hits = words_where(block, width, |value| low <= value && value <= high);
                 for i in hits {
                     let value = word_at(block, i, width).unwrap_or(0);
                     if on_word(base + i as u64, value, word_at(block, i + width, width)) {
@@ -354,34 +376,6 @@ fn occurrences<'a>(
         .chain(by_eight.into_iter().flatten())
         .chain(anything_else.into_iter().flatten())
         .filter(fits)
-}
-
-/// The offsets of the aligned words of `block` whose value lies between `low`
-/// and `high`.
-fn matching_words(
-    block: &[u8],
-    width: usize,
-    low: u64,
-    high: u64,
-) -> impl Iterator<Item = usize> + '_ {
-    let (words4, _) = block.as_chunks::<4>();
-    let (words8, _) = block.as_chunks::<8>();
-    let fours = (width == 4).then(|| {
-        words4.iter().enumerate().filter_map(move |(index, word)| {
-            let value = u32::from_le_bytes(*word) as u64;
-            (low <= value && value <= high).then_some(index * 4)
-        })
-    });
-    let eights = (width == 8).then(|| {
-        words8.iter().enumerate().filter_map(move |(index, word)| {
-            let value = u64::from_le_bytes(*word);
-            (low <= value && value <= high).then_some(index * 8)
-        })
-    });
-    fours
-        .into_iter()
-        .flatten()
-        .chain(eights.into_iter().flatten())
 }
 
 /// A little endian word of `width` bytes, 4 or 8, if it fits in the buffer.

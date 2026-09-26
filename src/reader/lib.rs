@@ -15,6 +15,7 @@ pub mod elf;
 pub mod hammerfest;
 pub mod heap;
 pub mod linear_memory;
+pub mod pe;
 pub mod pepper_flash;
 pub mod ruffle;
 mod scan;

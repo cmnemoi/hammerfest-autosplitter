@@ -180,6 +180,7 @@ mod tests {
     use hammerfest_core::{Level, Policy, State, TimerState, World};
 
     use crate::scenarios::block_on;
+    use hammerfest_reader::avm1::Word;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::PepperFlash;
@@ -265,6 +266,36 @@ mod tests {
         ));
 
         let mut game = found.expect("the reader found no game in a real projector heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /// The same, on the bytes the Windows projector 32.0.0.465 wrote under
+    /// Wine. It is a 32-bit program: its pointers and its atoms are words of
+    /// four bytes.
+    ///
+    /// @spec projector.replay::the-windows-main-world
+    /// @spec projector::words-of-four-bytes
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_32_bit_flash_projector_capture() {
+        let capture = Capture::load("projector-win32-main-world")
+            .expect("the capture fixtures/replay/projector-win32-main-world is missing");
+        let mut player = PepperFlash::with_words(Word::Four);
+        player.attach(capture.module);
+
+        let found = block_on(resolve(
+            &capture,
+            &mut player,
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real 32-bit heap");
         let state = game.read(&capture).expect("the reader read no state");
 
         assert_eq!(game.set, capture.says.set, "world");
@@ -408,11 +439,13 @@ mod tests {
     }
 
     /// Does the reader still find the game when those regions read as zeros?
-    fn still_finds_the_game(capture: &Capture, masked: &[u64]) -> bool {
+    fn still_finds_the_game(capture: &Capture, word: Word, masked: &[u64]) -> bool {
         capture.masked.replace(masked.to_vec());
+        let mut player = PepperFlash::with_words(word);
+        player.attach(capture.module);
         let found = block_on(resolve(
             capture,
-            &mut PepperFlash::attached_to(capture.module),
+            &mut player,
             &mut Anchor::default(),
             &capture.ranges(),
             &mut Silent,
@@ -442,17 +475,22 @@ mod tests {
     /// cargo test -p hammerfest-reader smallest -- --ignored --nocapture
     /// ```
     ///
-    /// It trims `main-world`, or the capture `HF_CAPTURE` names.
+    /// It trims `main-world`, or the capture `HF_CAPTURE` names. A capture of
+    /// a 32-bit build says `HF_WORD_BYTES=4`.
     #[test]
     #[ignore = "a tool, not a test: it trims a new capture"]
     fn smallest_set_of_regions() {
         let name = std::env::var("HF_CAPTURE").unwrap_or_else(|_| String::from("main-world"));
+        let word = match std::env::var("HF_WORD_BYTES").as_deref() {
+            Ok("4") => Word::Four,
+            _ => Word::Eight,
+        };
         let Some(capture) = Capture::load(&name) else {
             println!("no capture in fixtures/replay/{name}");
             return;
         };
         assert!(
-            still_finds_the_game(&capture, &[]),
+            still_finds_the_game(&capture, word, &[]),
             "the game is not there to begin with"
         );
 
@@ -463,7 +501,7 @@ mod tests {
         let mut masked: Vec<u64> = Vec::new();
         for (_, base) in order {
             masked.push(base);
-            if !still_finds_the_game(&capture, &masked) {
+            if !still_finds_the_game(&capture, word, &masked) {
                 masked.pop();
             }
         }

@@ -6,8 +6,8 @@
 //! the scenarios         below: what the reader must find, and read
 //! the DSL               `given_a_heap`, `when_we_look_for_the_game`, `then_...`
 //! the drivers           a heap written in the bytes of one player:
-//!                       `pepper_flash_heap.rs`, `ruffle_heap.rs` (desktop
-//!                       and browser)
+//!                       `pepper_flash_heap.rs` (64 and 32 bits),
+//!                       `ruffle_heap.rs` (desktop and browser)
 //! ```
 //!
 //! A scenario never names a player. [`scenario!`] writes it once per driver,
@@ -23,7 +23,7 @@ use hammerfest_reader::heap::FlashPlayer;
 use hammerfest_reader::search_log::Silent;
 
 use crate::memory_contract::Heap;
-use crate::pepper_flash_heap::PepperFlashHeapWriter;
+use crate::pepper_flash_heap::{PepperFlashHeapWriter, ThirtyTwoBitHeapWriter};
 use crate::ruffle_heap::{RuffleDesktopHeap, RuffleWebHeap};
 
 // -- the drivers -------------------------------------------------------------
@@ -81,6 +81,15 @@ macro_rules! scenario {
                 // An item and not a `let`: macro hygiene hides a local
                 // binding from the body, and not an item.
                 fn given_a_heap() -> World<PepperFlashHeapWriter> {
+                    World::default()
+                }
+                $body
+            }
+
+            $(#[$meta])*
+            #[test]
+            fn flash_32_bits() {
+                fn given_a_heap() -> World<ThirtyTwoBitHeapWriter> {
                     World::default()
                 }
                 $body
@@ -665,42 +674,67 @@ scenario! {
     }
 }
 
-// -- the scenarios of Pepper Flash alone -------------------------------------
+// -- the scenarios of Flash Player alone ------------------------------------
 
-/// A heap in the bytes of Pepper Flash, for the traps only that player sets.
-fn given_a_pepper_flash_heap() -> World<PepperFlashHeapWriter> {
-    World::default()
+/// Writes a scenario of Flash Player alone once per width: Pepper Flash, and
+/// the 32-bit Windows projector.
+macro_rules! flash_scenario {
+    ($(#[$meta:meta])* fn $name:ident() $body:block) => {
+        mod $name {
+            use super::*;
+
+            $(#[$meta])*
+            #[test]
+            fn pepper_flash() {
+                fn given_a_flash_heap() -> World<PepperFlashHeapWriter> {
+                    World::default()
+                }
+                $body
+            }
+
+            $(#[$meta])*
+            #[test]
+            fn flash_32_bits() {
+                fn given_a_flash_heap() -> World<ThirtyTwoBitHeapWriter> {
+                    World::default()
+                }
+                $body
+            }
+        }
+    };
 }
 
-/// Pepper Flash only: the String vtable of another build of the plugin sits
-/// elsewhere in its module. Ruffle has no such seed to go stale.
-/** @spec reader.find::nothing-on-another-flash-build */
-#[test]
-fn finds_nothing_in_a_heap_written_by_another_flash_build() {
-    let mut heap = given_a_pepper_flash_heap()
-        .with_a_manager_and_a_game()
-        .written_by_another_flash_build()
-        .build();
+flash_scenario! {
+    /// Flash only: the String vtable of another build of the player sits
+    /// elsewhere in its module. Ruffle has no such seed to go stale.
+    /** @spec reader.find::nothing-on-another-flash-build */
+    fn finds_nothing_in_a_heap_written_by_another_flash_build() {
+        let mut heap = given_a_flash_heap()
+            .with_a_manager_and_a_game()
+            .written_by_another_flash_build()
+            .build();
 
-    let found = when_we_look_for_the_game(&mut heap);
+        let found = when_we_look_for_the_game(&mut heap);
 
-    then_nothing_is_found(found);
+        then_nothing_is_found(found);
+    }
 }
 
-/// Pepper Flash only: its tables are found by walking back from a key, and
-/// the Linux player puts a key that is not a String object in the way. A
-/// Ruffle map is found from its own header.
-/** @spec reader.find::a-key-that-is-not-a-string */
-#[test]
-fn finds_a_game_when_a_key_is_not_a_string() {
-    let mut heap = given_a_pepper_flash_heap()
-        .with_a_manager_and_a_game()
-        .with_a_key_that_is_not_a_string_first()
-        .build();
+flash_scenario! {
+    /// Flash only: its tables are found by walking back from a key, and the
+    /// Linux player puts a key that is not a String object in the way. A
+    /// Ruffle map is found from its own header.
+    /** @spec reader.find::a-key-that-is-not-a-string */
+    fn finds_a_game_when_a_key_is_not_a_string() {
+        let mut heap = given_a_flash_heap()
+            .with_a_manager_and_a_game()
+            .with_a_key_that_is_not_a_string_first()
+            .build();
 
-    let found = when_we_look_for_the_game(&mut heap);
+        let found = when_we_look_for_the_game(&mut heap);
 
-    then_the_game_is_found(&heap, found);
+        then_the_game_is_found(&heap, found);
+    }
 }
 
 // -- the scenarios of Ruffle alone -------------------------------------------

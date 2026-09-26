@@ -7,11 +7,11 @@ use alloc::{vec, vec::Vec};
 
 use hammerfest_core::atom;
 
-use crate::avm1::{read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
+use crate::avm1::{read_u64, Layout, Memory, Word, PROFILES};
 use crate::heap::{Avm1Heap, FlashPlayer, Object, ObjectReference, Slot, StringReference, Value};
 use crate::scan::{
-    give_the_tick_back, move_region_first, scan_bytes, scan_bytes_until, scan_u64_any, u64_at,
-    Scan, CHUNK, OVERLAP,
+    give_the_tick_back, move_region_first, scan_bytes, scan_bytes_until, scan_words_any,
+    words_where, Scan, CHUNK, OVERLAP,
 };
 
 /// A Pepper Flash heap, read with one layout.
@@ -83,7 +83,10 @@ impl Avm1Heap for PepperFlashHeap {
     }
 
     fn is_object(&self, memory: &dyn Memory, object: Object) -> Option<bool> {
-        read_u64(memory, object.0).map(|vtable| vtable == self.layout.tbl_vt)
+        self.layout
+            .word
+            .read(memory, object.0)
+            .map(|vtable| vtable == self.layout.tbl_vt)
     }
 
     fn layout_name(&self) -> &'static str {
@@ -129,6 +132,7 @@ const MEASURED: Layout = Layout {
     tbl_vt: 0x174a460,
     profile: PROFILES[0],
     so_tbl: 0x30,
+    word: Word::Eight,
 };
 
 impl Binary {
@@ -182,9 +186,12 @@ impl Binary {
         true
     }
 
-    /// The layout, rebased on the module of this process.
-    pub(crate) fn layout(&self, module: (u64, u64)) -> Option<Layout> {
-        let mut l = self.layout.unwrap_or(MEASURED);
+    /// The layout, rebased on the module of this process. The seed was
+    /// measured on a 64-bit build, so a build of another width has none
+    /// until it has read something.
+    pub(crate) fn layout(&self, module: (u64, u64), word: Word) -> Option<Layout> {
+        let seed = (word == MEASURED.word).then_some(MEASURED);
+        let mut l = self.layout.or(seed)?;
         l.str_vt += module.0;
         l.tbl_vt += module.0;
         l.module = module;
@@ -219,6 +226,7 @@ impl Binary {
 #[derive(Default)]
 pub struct PepperFlash {
     module: (u64, u64),
+    word: Word,
     binary: Binary,
     key_strings: KeyStrings,
 }
@@ -241,11 +249,18 @@ impl KeyStrings {
 }
 
 impl PepperFlash {
-    pub fn new(binary: Binary) -> Self {
+    pub fn new(word: Word, binary: Binary) -> Self {
         Self {
+            word,
             binary,
             ..Self::default()
         }
+    }
+
+    /// A build whose pointers and atoms are words of that width, and about
+    /// which nothing is known yet.
+    pub fn with_words(word: Word) -> Self {
+        Self::new(word, Binary::default())
     }
 
     /// A plugin process whose module sits at `module`, and a binary about
@@ -295,16 +310,7 @@ impl FlashPlayer for PepperFlash {
         mut accept: impl FnMut(PepperFlashHeap, Object) -> Option<T>,
     ) -> Option<T> {
         cost.stage("key_string");
-        let (layout, string) = find_string(
-            mem,
-            self.module,
-            fresh,
-            key,
-            self.key_strings.of(key),
-            &self.binary,
-            cost,
-        )
-        .await?;
+        let (layout, string) = self.find_string(mem, fresh, key, cost).await?;
         move_region_first(all, string);
 
         cost.stage("key_tables");
@@ -315,95 +321,101 @@ impl FlashPlayer for PepperFlash {
     }
 }
 
-/// Finds the interned String object of a key, and the String layout with it.
-///
-/// The cache saves two full scans per attempt: these objects come from the
-/// constant pool of the SWF, so they live as long as the plugin. It is checked
-/// again by decoding the string, never assumed valid.
-async fn find_string(
-    mem: &dyn Memory,
-    module: (u64, u64),
-    ranges: &[(u64, u64)],
-    key: &str,
-    cache: &mut Option<u64>,
-    binary: &Binary,
-    cost: &mut Scan<'_>,
-) -> Option<(Layout, u64)> {
-    let units = key.encode_utf16().count() as u64;
-    cost.log
-        .string_search(key, binary.proven(), cache.is_some());
-    if let Some(so) = *cache {
-        if let Some(layout) = string_layout_at(mem, module, so, key, units) {
-            return Some((layout, so));
+impl PepperFlash {
+    /// Finds the interned String object of a key, and the String layout with
+    /// it.
+    ///
+    /// The cache saves two full scans per attempt: these objects come from the
+    /// constant pool of the SWF, so they live as long as the plugin. It is
+    /// checked again by decoding the string, never assumed valid.
+    async fn find_string(
+        &mut self,
+        mem: &dyn Memory,
+        ranges: &[(u64, u64)],
+        key: &str,
+        cost: &mut Scan<'_>,
+    ) -> Option<(Layout, u64)> {
+        let (module, word, binary) = (self.module, self.word, self.binary);
+        let cache = self.key_strings.of(key);
+        let units = key.encode_utf16().count() as u64;
+        cost.log
+            .string_search(key, binary.proven(), cache.is_some());
+        if let Some(so) = *cache {
+            if let Some(layout) = string_layout_at(mem, module, word, so, key, units) {
+                return Some((layout, so));
+            }
+            *cache = None;
         }
-        *cache = None;
-    }
 
-    // Known vtable: one pass is enough, over the object headers.
-    if let Some(seed) = binary.layout(module) {
-        cost.stage("string_seed");
-        let mut found = None;
-        scan_bytes_until(
-            mem,
-            ranges,
-            &seed.str_vt.to_le_bytes(),
-            8,
-            cost,
-            |so, rest| {
-                // The length first, and from the buffer when it fits there. It
-                // rejects almost every String object, and the string itself is
-                // only read back for the rare survivors.
-                let len = u64_at(rest, seed.str_len as usize)
-                    .or_else(|| read_u64(mem, so + seed.str_len));
-                if len == Some(units) && seed.string_eq(mem, so, key) {
-                    found = Some(so);
-                    return true;
-                }
-                false
-            },
-        )
-        .await;
-        if let Some(so) = found {
-            *cache = Some(so);
-            return Some((seed, so));
-        }
-        if binary.proven() {
-            // The vtable is the right one and the string is not there: it
-            // does not exist yet. The SWF has not created it, and no other
-            // search will make it appear.
-            return None;
-        }
-    }
-
-    // Fallback: the vtable is not known, or the seed does not hold for this
-    // binary. Two passes, no more -- the bytes of the key first, then one
-    // single pass for all the candidates at once.
-    let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
-    cost.stage("string_bytes");
-    let buffers = scan_bytes(mem, ranges, &needle, 2, 8, cost).await;
-    if buffers.is_empty() {
-        return None;
-    }
-
-    let mut found = None;
-    cost.stage("string_references");
-    scan_u64_any(mem, ranges, &buffers, cost, |slot| {
-        for buf_off in STR_BUF_CANDIDATES {
-            let Some(so) = slot.checked_sub(buf_off) else {
-                continue;
-            };
-            if let Some(layout) = string_layout_at(mem, module, so, key, units) {
-                found = Some((layout, so));
-                return true;
+        // Known vtable: one pass is enough, over the object headers.
+        if let Some(seed) = binary.layout(module, word) {
+            cost.stage("string_seed");
+            let mut found = None;
+            let width = word.bytes() as usize;
+            scan_bytes_until(
+                mem,
+                ranges,
+                &seed.str_vt.to_le_bytes()[..width],
+                width,
+                cost,
+                |so, rest| {
+                    // The length first, and from the buffer when it fits there. It
+                    // rejects almost every String object, and the string itself is
+                    // only read back for the rare survivors.
+                    let len = word
+                        .in_buffer(rest, seed.str_len as usize)
+                        .or_else(|| word.read(mem, so + seed.str_len));
+                    if len == Some(units) && seed.string_eq(mem, so, key) {
+                        found = Some(so);
+                        return true;
+                    }
+                    false
+                },
+            )
+            .await;
+            if let Some(so) = found {
+                *cache = Some(so);
+                return Some((seed, so));
+            }
+            if binary.proven() {
+                // The vtable is the right one and the string is not there: it
+                // does not exist yet. The SWF has not created it, and no other
+                // search will make it appear.
+                return None;
             }
         }
-        false
-    })
-    .await;
-    if let Some((_, so)) = found {
-        *cache = Some(so);
+
+        // Fallback: the vtable is not known, or the seed does not hold for this
+        // binary. Two passes, no more -- the bytes of the key first, then one
+        // single pass for all the candidates at once.
+        let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+        cost.stage("string_bytes");
+        let buffers = scan_bytes(mem, ranges, &needle, 2, 8, cost).await;
+        if buffers.is_empty() {
+            return None;
+        }
+
+        let mut found = None;
+        cost.stage("string_references");
+        let width = word.bytes() as usize;
+        scan_words_any(mem, ranges, width, &buffers, cost, |slot| {
+            for buf_off in word.string_buffer_candidates() {
+                let Some(so) = slot.checked_sub(buf_off) else {
+                    continue;
+                };
+                if let Some(layout) = string_layout_at(mem, module, word, so, key, units) {
+                    found = Some((layout, so));
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        if let Some((_, so)) = found {
+            *cache = Some(so);
+        }
+        found
     }
-    found
 }
 
 /// Scans the tables that own `key` and returns the first one `accept` keeps.
@@ -423,8 +435,8 @@ async fn scan_tables<T>(
 ) -> Option<T> {
     let mut layout = layout;
     let mut result = None;
-    scan_atoms(mem, ranges, strobj, cost, |slot| {
-        for &profile in PROFILES {
+    scan_atoms(mem, ranges, layout.word, strobj, cost, |slot| {
+        for &profile in layout.word.profiles() {
             layout.profile = profile;
             layout.tbl_vt = 0;
             layout.so_tbl = 0;
@@ -449,38 +461,41 @@ async fn scan_tables<T>(
 ///
 /// @spec reader::the-right-layout
 ///
-/// Three independent constraints: the leading qword points into the module (it
-/// is the vtable), one qword holds the expected length, and the string decoded
+/// Three independent constraints: the leading word points into the module (it
+/// is the vtable), one word holds the expected length, and the string decoded
 /// that way is the one we look for.
 fn string_layout_at(
     mem: &dyn Memory,
     module: (u64, u64),
+    word: Word,
     so: u64,
     key: &str,
     units: u64,
 ) -> Option<Layout> {
-    let vt = read_u64(mem, so)?;
+    const MAX_LENGTH_WORDS: u64 = 16;
+    let vt = word.read(mem, so)?;
     if vt < module.0 || vt >= module.1 {
         return None;
     }
-    for buf_off in STR_BUF_CANDIDATES {
-        let mut len_off = 0x08;
-        while len_off < 0x80 {
-            if read_u64(mem, so + len_off) == Some(units) {
+    for buf_off in word.string_buffer_candidates() {
+        let mut len_off = word.bytes();
+        while len_off < MAX_LENGTH_WORDS * word.bytes() {
+            if word.read(mem, so + len_off) == Some(units) {
                 let layout = Layout {
                     module,
                     str_vt: vt,
                     str_buf: buf_off,
                     str_len: len_off,
                     tbl_vt: 0,
-                    profile: PROFILES[0],
+                    profile: word.profiles()[0],
                     so_tbl: 0,
+                    word,
                 };
                 if layout.string_eq(mem, so, key) {
                     return Some(layout);
                 }
             }
-            len_off += 8;
+            len_off += word.bytes();
         }
     }
     None
@@ -489,9 +504,8 @@ fn string_layout_at(
 /// Scans the slots that hold an atom pointing at `ptr`, whatever its tag, and
 /// calls `on_hit` on each one. Returning `true` stops the scan.
 ///
-/// An atom is `(value << 3) | tag`. The 8 variants differ only in the 3 low
-/// bits of the first byte. So we walk the aligned positions, compare the 7
-/// high bytes, then the first byte with the tag masked off.
+/// An atom is `(value << 3) | tag`: the pointer, with its tag in the three low
+/// bits of its word.
 ///
 /// Hits are delivered as they come, rather than collected. There are only
 /// about ten citations in the whole heap, so waiting for the end of the scan
@@ -500,6 +514,7 @@ fn string_layout_at(
 async fn scan_atoms(
     mem: &dyn Memory,
     ranges: &[(u64, u64)],
+    word: Word,
     ptr: u64,
     cost: &mut Scan<'_>,
     mut on_hit: impl FnMut(u64) -> bool,
@@ -512,10 +527,9 @@ async fn scan_atoms(
         while base < end {
             let n = core::cmp::min(CHUNK as u64, end - base) as usize;
             if cost.read_block(mem, base, &mut buf[..n]) {
-                let (words, _) = buf[..n].as_chunks::<8>();
-                for (index, word) in words.iter().enumerate() {
-                    // An atom is the pointer, with its tag in the three low bits.
-                    if u64::from_le_bytes(*word) & !7 == ptr && on_hit(base + index as u64 * 8) {
+                let width = word.bytes() as usize;
+                for offset in words_where(&buf[..n], width, |atom| atom & !7 == ptr) {
+                    if on_hit(base + offset as u64) {
                         return;
                     }
                 }

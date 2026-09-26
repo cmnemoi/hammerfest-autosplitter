@@ -1,5 +1,6 @@
 //! The Pepper Flash driver: a world, written byte by byte as Pepper Flash
-//! would write it.
+//! would write it, in words of eight bytes, or as the 32-bit Windows projector
+//! would, in words of four.
 //!
 //! The reader is given bytes and nothing else. So a scenario describes a
 //! world, this driver writes the bytes Pepper Flash would write, and the
@@ -18,7 +19,7 @@ use hammerfest_core::atom;
 
 use crate::memory_contract::Heap;
 use crate::scenarios::{World, WrittenHeap};
-use hammerfest_reader::avm1::{Layout, PROFILES};
+use hammerfest_reader::avm1::{Layout, Word, PROFILES, PROFILES_32_BITS};
 use hammerfest_reader::keys;
 use hammerfest_reader::pepper_flash::{Binary, PepperFlash};
 
@@ -29,44 +30,88 @@ pub const MODULE: (u64, u64) = (0x4000_0000, 0x4010_0000);
 /// Where the heap sits.
 const HEAP_BASE: u64 = 0x1000_0000;
 
-/// The layout this module writes. The reader derives its own, and it must land
-/// on these numbers.
+/// The layout this module writes, for one width of word. The reader derives
+/// its own, and it must land on these numbers.
 ///
-/// The table geometry is the one `avm1::PROFILES` calls `windows-x64`. That
-/// one is shared of necessity: the reader tries two geometries and no third,
-/// so a heap written in a third could not be read at all. Every other offset
-/// here is free, and differs from `MEASURED`.
-mod layout {
-    use super::MODULE;
-
+/// The table geometry is one of `avm1::PROFILES` or `avm1::PROFILES_32_BITS`,
+/// and the capacity sits right after the vtable. Those are shared of
+/// necessity: the reader tries these geometries and no other, so a heap
+/// written in another could not be read at all. Every other offset here is
+/// free, and differs from what was measured on a real player.
+struct DriverLayout {
+    word: Word,
     /// String object: vtable, buffer pointer, length in UTF-16 units.
-    pub const STR_VT: u64 = MODULE.0 + 0x120;
-    pub const STR_BUF: u64 = 0x08;
-    pub const STR_LEN: u64 = 0x10;
-    pub const STR_SIZE: usize = 0x18;
-
+    str_vt: u64,
+    str_buf: u64,
+    str_len: u64,
+    str_size: usize,
     /// ScriptObject: vtable, then the property table.
-    pub const SO_VT: u64 = MODULE.0 + 0x200;
-    pub const SO_TBL: u64 = 0x30;
-    pub const SO_SIZE: usize = 0x38;
-
-    /// The same vtable on another build of the plugin. The binary is not the
+    so_vt: u64,
+    so_tbl: u64,
+    so_size: usize,
+    /// The same vtable on another build of the player. The binary is not the
     /// same one, so its classes are not at the same place.
-    pub const OTHER_STR_VT: u64 = MODULE.0 + 0x900;
-
+    other_str_vt: u64,
     /// Property table: vtable, capacity, then the entries.
-    pub const TBL_VT: u64 = MODULE.0 + 0x340;
-    pub const TBL_CAPACITY: u64 = 0x08;
-    /// Offset of the first key. One entry is (value, pad, key).
-    pub const KEYS: u64 = 0x58;
-    pub const STRIDE: u64 = 24;
-    pub const VALUE: i64 = -0x10;
+    tbl_vt: u64,
+    /// Offset of the first key.
+    keys: u64,
+    stride: u64,
+    value: i64,
 }
+
+impl DriverLayout {
+    const fn of(word_bytes: u64) -> &'static DriverLayout {
+        match word_bytes {
+            4 => &FOUR_BYTES,
+            _ => &EIGHT_BYTES,
+        }
+    }
+
+    fn capacity(&self) -> u64 {
+        self.word.bytes()
+    }
+}
+
+/// One entry is (value, pad, key): the geometry `windows-x64`.
+const EIGHT_BYTES: DriverLayout = DriverLayout {
+    word: Word::Eight,
+    str_vt: MODULE.0 + 0x120,
+    str_buf: 0x08,
+    str_len: 0x10,
+    str_size: 0x18,
+    so_vt: MODULE.0 + 0x200,
+    so_tbl: 0x30,
+    so_size: 0x38,
+    other_str_vt: MODULE.0 + 0x900,
+    tbl_vt: MODULE.0 + 0x340,
+    keys: 0x58,
+    stride: 24,
+    value: -0x10,
+};
+
+/// One entry is (value, key): the geometry `windows-x86`.
+const FOUR_BYTES: DriverLayout = DriverLayout {
+    word: Word::Four,
+    str_vt: MODULE.0 + 0x160,
+    str_buf: 0x08,
+    str_len: 0x0c,
+    str_size: 0x10,
+    so_vt: MODULE.0 + 0x240,
+    so_tbl: 0x14,
+    so_size: 0x18,
+    other_str_vt: MODULE.0 + 0x980,
+    tbl_vt: MODULE.0 + 0x380,
+    keys: 0x10,
+    stride: 8,
+    value: -0x04,
+};
 
 // -- writing the bytes -------------------------------------------------------
 
 /// A bump allocator over one region, and the strings already interned.
 struct Bytes {
+    layout: &'static DriverLayout,
     data: Vec<u8>,
     interned: Vec<(String, u64)>,
     /// The String vtable this heap was written with. Another Flash build puts
@@ -91,8 +136,9 @@ impl Obj {
 }
 
 impl Bytes {
-    fn new(str_vt: u64) -> Self {
+    fn new(layout: &'static DriverLayout, str_vt: u64) -> Self {
         Self {
+            layout,
             // Address zero means "no address" to the reader, so nothing is
             // ever written at the very start of the region.
             data: vec![0u8; 8],
@@ -112,23 +158,29 @@ impl Bytes {
         addr
     }
 
+    /// Writes one word. A negative integer keeps its low bytes, as the player
+    /// writes it: -1 is `0xfffffff8` in four bytes.
     fn put(&mut self, addr: u64, value: u64) {
+        let width = self.layout.word.bytes() as usize;
         let at = (addr - HEAP_BASE) as usize;
-        self.data[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        self.data[at..at + width].copy_from_slice(&value.to_le_bytes()[..width]);
     }
 
     fn get(&self, addr: u64) -> u64 {
+        let width = self.layout.word.bytes() as usize;
         let at = (addr - HEAP_BASE) as usize;
-        u64::from_le_bytes(self.data[at..at + 8].try_into().unwrap())
+        let mut bytes = [0u8; 8];
+        bytes[..width].copy_from_slice(&self.data[at..at + width]);
+        u64::from_le_bytes(bytes)
     }
 
     /// Writes another value under a key the object already carries.
     fn replace(&mut self, o: &Obj, key: &str, value: u64) {
         let wanted = self.string(key);
         for i in 0..o.next {
-            let key_addr = o.tbl + layout::KEYS + i * layout::STRIDE;
+            let key_addr = o.tbl + self.layout.keys + i * self.layout.stride;
             if self.get(key_addr) == wanted {
-                self.put((key_addr as i64 + layout::VALUE) as u64, value);
+                self.put((key_addr as i64 + self.layout.value) as u64, value);
                 return;
             }
         }
@@ -142,12 +194,12 @@ impl Bytes {
     /// move under it.
     fn swap_entries(&mut self, o: &Obj, a: u64, b: u64) {
         let (ka, kb) = (
-            o.tbl + layout::KEYS + a * layout::STRIDE,
-            o.tbl + layout::KEYS + b * layout::STRIDE,
+            o.tbl + self.layout.keys + a * self.layout.stride,
+            o.tbl + self.layout.keys + b * self.layout.stride,
         );
         let (va, vb) = (
-            (ka as i64 + layout::VALUE) as u64,
-            (kb as i64 + layout::VALUE) as u64,
+            (ka as i64 + self.layout.value) as u64,
+            (kb as i64 + self.layout.value) as u64,
         );
         let (key_a, key_b) = (self.get(ka), self.get(kb));
         let (value_a, value_b) = (self.get(va), self.get(vb));
@@ -169,10 +221,10 @@ impl Bytes {
             let at = (buf - HEAP_BASE) as usize + i * 2;
             self.data[at..at + 2].copy_from_slice(&unit.to_le_bytes());
         }
-        let so = self.alloc(layout::STR_SIZE);
+        let so = self.alloc(self.layout.str_size);
         self.put(so, self.str_vt);
-        self.put(so + layout::STR_BUF, buf);
-        self.put(so + layout::STR_LEN, units.len() as u64);
+        self.put(so + self.layout.str_buf, buf);
+        self.put(so + self.layout.str_len, units.len() as u64);
         self.interned.push((String::from(s), so));
         so
     }
@@ -182,41 +234,43 @@ impl Bytes {
         self.intern(s) | atom::TAG_STRING
     }
 
-    /// A float, which does not fit inside an atom and so lives beside it.
+    /// A float, which does not fit inside an atom and so lives beside it, in
+    /// eight bytes whatever the width of a word.
     fn double(&mut self, v: f64) -> u64 {
         let addr = self.alloc(8);
-        self.put(addr, v.to_bits());
+        let at = (addr - HEAP_BASE) as usize;
+        self.data[at..at + 8].copy_from_slice(&v.to_bits().to_le_bytes());
         addr | atom::TAG_DOUBLE
     }
 
     /// An empty object, with room for `capacity` properties.
     fn object(&mut self, capacity: u64) -> Obj {
-        let tbl = self.alloc((layout::KEYS + capacity * layout::STRIDE) as usize);
-        self.put(tbl, layout::TBL_VT);
-        self.put(tbl + layout::TBL_CAPACITY, capacity);
-        let so = self.alloc(layout::SO_SIZE);
-        self.put(so, layout::SO_VT);
-        self.put(so + layout::SO_TBL, tbl);
+        let tbl = self.alloc((self.layout.keys + capacity * self.layout.stride) as usize);
+        self.put(tbl, self.layout.tbl_vt);
+        self.put(tbl + self.layout.capacity(), capacity);
+        let so = self.alloc(self.layout.so_size);
+        self.put(so, self.layout.so_vt);
+        self.put(so + self.layout.so_tbl, tbl);
         Obj { so, tbl, next: 0 }
     }
 
     /// Adds one entry whose key is `key_atom` as it is, not an interned
     /// String.
     fn set_raw_key(&mut self, o: &mut Obj, key_atom: u64, value: u64) {
-        let key_addr = o.tbl + layout::KEYS + o.next * layout::STRIDE;
+        let key_addr = o.tbl + self.layout.keys + o.next * self.layout.stride;
         o.next += 1;
         self.put(key_addr, key_atom);
-        self.put((key_addr as i64 + layout::VALUE) as u64, value);
+        self.put((key_addr as i64 + self.layout.value) as u64, value);
     }
 
     /// Adds one property. The entries are written from index zero upward, as
     /// a table the player filled would be.
     fn set(&mut self, o: &mut Obj, key: &str, value: u64) {
-        let key_addr = o.tbl + layout::KEYS + o.next * layout::STRIDE;
+        let key_addr = o.tbl + self.layout.keys + o.next * self.layout.stride;
         o.next += 1;
         let key_atom = self.string(key);
         self.put(key_addr, key_atom);
-        self.put((key_addr as i64 + layout::VALUE) as u64, value);
+        self.put((key_addr as i64 + self.layout.value) as u64, value);
     }
 }
 
@@ -236,7 +290,9 @@ fn boolean(v: bool) -> u64 {
 // -- the driver --------------------------------------------------------------
 
 /// A world, in the bytes of Pepper Flash, and what the driver knows of them.
-pub struct PepperFlashHeapWriter {
+///
+/// Words of eight bytes unless told otherwise: see [`ThirtyTwoBitHeapWriter`].
+pub struct PepperFlashHeapWriter<const WORD_BYTES: u64 = 8> {
     bytes: Bytes,
     game_mode: u64,
     mode: Obj,
@@ -245,28 +301,37 @@ pub struct PepperFlashHeapWriter {
     chrono: Obj,
 }
 
-impl WrittenHeap for PepperFlashHeapWriter {
+/// A world, in the bytes of the Windows projector: a 32-bit build.
+pub type ThirtyTwoBitHeapWriter = PepperFlashHeapWriter<4>;
+
+impl<const WORD_BYTES: u64> WrittenHeap for PepperFlashHeapWriter<WORD_BYTES> {
     type Player = PepperFlash;
 
     fn write(world: &World<Self>) -> (Self, PepperFlash) {
+        let layout = DriverLayout::of(WORD_BYTES);
+        let profile = match layout.word {
+            Word::Four => PROFILES_32_BITS[0],
+            Word::Eight => PROFILES[0],
+        };
         // What the reader already knows. On another build, it knows the
         // layout of the first one, and the search never questions it.
         let known = Layout {
             module: (0, 0),
-            str_vt: layout::STR_VT - MODULE.0,
-            str_buf: layout::STR_BUF,
-            str_len: layout::STR_LEN,
-            tbl_vt: layout::TBL_VT - MODULE.0,
-            profile: PROFILES[0],
-            so_tbl: layout::SO_TBL,
+            str_vt: layout.str_vt - MODULE.0,
+            str_buf: layout.str_buf,
+            str_len: layout.str_len,
+            tbl_vt: layout.tbl_vt - MODULE.0,
+            profile,
+            so_tbl: layout.so_tbl,
+            word: layout.word,
         };
         let (str_vt, binary) = if world.another_build {
-            (layout::OTHER_STR_VT, Binary::proven_with(known))
+            (layout.other_str_vt, Binary::proven_with(known))
         } else {
-            (layout::STR_VT, Binary::default())
+            (layout.str_vt, Binary::default())
         };
-        let mut b = Bytes::new(str_vt);
-        let mut player = PepperFlash::new(binary);
+        let mut b = Bytes::new(layout, str_vt);
+        let mut player = PepperFlash::new(layout.word, binary);
         player.attach(MODULE);
 
         if world.empty {
@@ -420,8 +485,8 @@ impl WrittenHeap for PepperFlashHeapWriter {
     }
 }
 
-/// The traps only Pepper Flash sets.
-impl World<PepperFlashHeapWriter> {
+/// The traps only Pepper Flash sets, at either width.
+impl<const WORD_BYTES: u64> World<PepperFlashHeapWriter<WORD_BYTES>> {
     /// A player who has another version of the plugin.
     ///
     /// The String vtable is elsewhere in the module, because the binary is

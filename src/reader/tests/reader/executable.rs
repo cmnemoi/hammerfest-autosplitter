@@ -1,10 +1,10 @@
-//! The extent of an executable, read from its ELF header.
+//! The extent of an executable, read from its ELF or its PE header.
 //!
 //! The rule is in `docs/specs/flash-projector-support.md`.
 
 use alloc::vec::Vec;
 
-use hammerfest_reader::elf;
+use hammerfest_reader::{elf, pe};
 
 use crate::memory_contract::Heap;
 
@@ -111,4 +111,35 @@ fn a_position_independent_executable_gives_no_module() {
     let process = an_executable_with_a_gap(SHARED_OBJECT);
 
     assert_eq!(elf::loaded_image(&process, BASE), None);
+}
+
+// -- a Windows executable ----------------------------------------------------
+
+/// A PE header, as the loader leaves it at the base of an executable, with the
+/// offsets of the PE specification.
+fn a_pe_image_of(size_of_image: u32) -> Heap {
+    const NT_HEADERS: usize = 0x80;
+    const SIZE_OF_IMAGE: usize = NT_HEADERS + 0x18 + 0x38;
+    let mut bytes = alloc::vec![0u8; 0x200];
+    bytes[..2].copy_from_slice(b"MZ");
+    bytes[0x3c..0x40].copy_from_slice(&(NT_HEADERS as u32).to_le_bytes());
+    bytes[NT_HEADERS..NT_HEADERS + 4].copy_from_slice(b"PE\0\0");
+    bytes[SIZE_OF_IMAGE..SIZE_OF_IMAGE + 4].copy_from_slice(&size_of_image.to_le_bytes());
+    Heap::default().with_range(BASE, bytes)
+}
+
+/** @spec projector.find::a-pe-image */
+#[test]
+fn the_module_runs_to_the_end_of_its_image() {
+    let process = a_pe_image_of(0x103_4000);
+
+    assert_eq!(pe::loaded_image(&process, BASE), Some((BASE, 0x143_4000)));
+}
+
+/** @spec projector.find::not-a-pe-image */
+#[test]
+fn bytes_that_are_not_a_pe_header_give_no_module() {
+    let process = an_executable_with_a_gap(EXECUTABLE);
+
+    assert_eq!(pe::loaded_image(&process, BASE), None);
 }

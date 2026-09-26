@@ -52,8 +52,88 @@ pub fn as_number(mem: &dyn Memory, atom: u64) -> Option<f64> {
     }
 }
 
-/// Table capacity, at `tbl + 0x08` on both platforms.
-const TBL_CAPACITY: u64 = 0x08;
+/// The width of a pointer, of a length and of an atom in a build of Flash
+/// Player.
+///
+/// The object model is the same on both widths. Measured on the Windows
+/// projector 32.0.0.465, every offset of a 32-bit build is the one of Pepper
+/// Flash under Linux counted in words of four bytes instead of eight.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum Word {
+    /// A 32-bit build: the Windows projector.
+    Four,
+    /// A 64-bit build: Pepper Flash, and the projector under Linux.
+    #[default]
+    Eight,
+}
+
+impl Word {
+    pub const fn bytes(self) -> u64 {
+        match self {
+            Word::Four => 4,
+            Word::Eight => 8,
+        }
+    }
+
+    /// The word at `addr`: a pointer, a length or a capacity.
+    #[inline]
+    pub fn read(self, mem: &dyn Memory, addr: u64) -> Option<u64> {
+        match self {
+            Word::Eight => read_u64(mem, addr),
+            Word::Four => read_u32(mem, addr),
+        }
+    }
+
+    /// The atom at `addr`, in the 64-bit form the core decodes.
+    ///
+    /// An integer keeps its sign: `portalId` is -1, `0xfffffff8` in four
+    /// bytes.
+    ///
+    /// @spec projector::words-of-four-bytes
+    #[inline]
+    pub fn atom(self, mem: &dyn Memory, addr: u64) -> Option<u64> {
+        let raw = self.read(mem, addr)?;
+        let is_short_integer = self == Word::Four && atom::tag(raw) == atom::TAG_INT;
+        Some(if is_short_integer {
+            raw as u32 as i32 as i64 as u64
+        } else {
+            raw
+        })
+    }
+
+    /// The word at `offset` in a buffer already read, if it fits there.
+    pub fn in_buffer(self, buf: &[u8], offset: usize) -> Option<u64> {
+        crate::scan::word_at(buf, offset, self.bytes() as usize)
+    }
+
+    /// The table geometries a build of this width may use.
+    pub fn profiles(self) -> &'static [Profile] {
+        match self {
+            Word::Four => PROFILES_32_BITS,
+            Word::Eight => PROFILES,
+        }
+    }
+
+    /// Candidate offsets for the buffer pointer of a String object.
+    pub fn string_buffer_candidates(self) -> [u64; 5] {
+        let word = self.bytes();
+        [word, 2 * word, 3 * word, 4 * word, 0]
+    }
+
+    /// Candidate offsets for `ScriptObject -> table`, from one word to
+    /// fifteen. Six words first: it is the offset on every known build, but
+    /// we still derive it.
+    fn table_pointer_candidates(self) -> [u64; 15] {
+        const MEASURED_WORDS: u64 = 6;
+        let word = self.bytes();
+        let mut candidates = [MEASURED_WORDS * word; 15];
+        let others = (1..=15).filter(|&words| words != MEASURED_WORDS);
+        for (candidate, words) in candidates[1..].iter_mut().zip(others) {
+            *candidate = words * word;
+        }
+        candidates
+    }
+}
 /// Entries searched back from a key, looking for the header of its table.
 ///
 /// The header is `i * stride + keys` bytes in front of entry `i`, and `i` is
@@ -103,13 +183,14 @@ pub const PROFILES: &[Profile] = &[
     },
 ];
 
-/// Candidate offsets for `ScriptObject -> table`. The value is 0x30 on both
-/// known platforms, but we still derive it.
-const SO_TBL_CANDIDATES: [u64; 15] = [
-    0x30, 0x08, 0x10, 0x18, 0x20, 0x28, 0x38, 0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78,
-];
-/// Candidate offsets for the buffer pointer of a String object.
-pub const STR_BUF_CANDIDATES: [u64; 5] = [0x08, 0x10, 0x18, 0x20, 0x00];
+/// The geometry of a property table on the Windows projector, measured under
+/// Wine: the one of `linux-x64`, in words of four bytes.
+pub const PROFILES_32_BITS: &[Profile] = &[Profile {
+    name: "windows-x86",
+    keys: 0x10,
+    stride: 8,
+    value: -0x04,
+}];
 
 #[derive(Copy, Clone, Debug)]
 pub struct Layout {
@@ -120,6 +201,7 @@ pub struct Layout {
     pub tbl_vt: u64,
     pub profile: Profile,
     pub so_tbl: u64,
+    pub word: Word,
 }
 
 /// Both the Flash player and the host are x86-64, so the bytes are little
@@ -132,6 +214,17 @@ pub fn read_u64(mem: &dyn Memory, addr: u64) -> Option<u64> {
     let mut bytes = [0u8; 8];
     mem.read_into(addr, &mut bytes)?;
     Some(u64::from_le_bytes(bytes))
+}
+
+/// A 32-bit word, for a 32-bit build.
+#[inline]
+fn read_u32(mem: &dyn Memory, addr: u64) -> Option<u64> {
+    if addr == 0 || addr >= 1 << 47 {
+        return None;
+    }
+    let mut bytes = [0u8; 4];
+    mem.read_into(addr, &mut bytes)?;
+    Some(u64::from(u32::from_le_bytes(bytes)))
 }
 
 impl Layout {
@@ -147,11 +240,11 @@ impl Layout {
         addr: u64,
         out: &mut [u16; MAX_KEY],
     ) -> Option<usize> {
-        if read_u64(mem, addr)? != self.str_vt {
+        if self.word.read(mem, addr)? != self.str_vt {
             return None;
         }
-        let buf = read_u64(mem, addr + self.str_buf)?;
-        let n = read_u64(mem, addr + self.str_len)? as usize;
+        let buf = self.word.read(mem, addr + self.str_buf)?;
+        let n = self.word.read(mem, addr + self.str_len)? as usize;
         if n == 0 || n > MAX_KEY {
             return None;
         }
@@ -185,8 +278,14 @@ impl Layout {
 
     // -- tables ------------------------------------------------------------
     pub fn capacity(&self, mem: &dyn Memory, tbl: u64) -> Option<u64> {
-        let cap = read_u64(mem, tbl + TBL_CAPACITY)?;
+        let cap = self.word.read(mem, tbl + self.capacity_offset())?;
         (cap > 0 && cap <= MAX_CAPACITY).then_some(cap)
+    }
+
+    /// Where a table keeps its capacity: right after its vtable.
+    #[inline]
+    fn capacity_offset(&self) -> u64 {
+        self.word.bytes()
     }
 
     /// Address of key number `i` in the table.
@@ -199,7 +298,7 @@ impl Layout {
     /// can be stored as a raw pointer or as an atom, depending on the
     /// platform.
     pub fn key_is(&self, mem: &dyn Memory, addr: u64, want: &str) -> bool {
-        match read_u64(mem, addr) {
+        match self.word.read(mem, addr) {
             Some(raw) => self.string_eq(mem, raw & !7, want),
             None => false,
         }
@@ -219,7 +318,7 @@ impl Layout {
     /// we must never keep is the *final* address, not the path.
     pub fn get_cached(&self, mem: &dyn Memory, tbl: u64, key: &str, hint: &mut u64) -> Option<u64> {
         let cap = self.capacity(mem, tbl)?;
-        let value_at = |k: u64| read_u64(mem, (k as i64 + self.profile.value) as u64);
+        let value_at = |k: u64| self.word.atom(mem, (k as i64 + self.profile.value) as u64);
 
         if *hint < cap {
             let k = self.key_addr(tbl, *hint);
@@ -244,11 +343,11 @@ impl Layout {
     /// The property table of the object that `atom` points to.
     pub fn table_of(&self, mem: &dyn Memory, atom: u64) -> Option<u64> {
         let so = atom & !7;
-        if !self.in_module(read_u64(mem, so)?) {
+        if !self.in_module(self.word.read(mem, so)?) {
             return None;
         }
-        let t = read_u64(mem, so + self.so_tbl)?;
-        (read_u64(mem, t)? == self.tbl_vt).then_some(t)
+        let t = self.word.read(mem, so + self.so_tbl)?;
+        (self.word.read(mem, t)? == self.tbl_vt).then_some(t)
     }
 
     /// The table of the object stored under `key`.
@@ -273,14 +372,14 @@ impl Layout {
     /// follows.
     pub fn derive_so_tbl(&mut self, mem: &dyn Memory, atom: u64, expect_key: &str) -> Option<u64> {
         let so = atom & !7;
-        if !self.in_module(read_u64(mem, so)?) {
+        if !self.in_module(self.word.read(mem, so)?) {
             return None;
         }
-        for off in SO_TBL_CANDIDATES {
-            let Some(t) = read_u64(mem, so + off) else {
+        for off in self.word.table_pointer_candidates() {
+            let Some(t) = self.word.read(mem, so + off) else {
                 continue;
             };
-            if read_u64(mem, t) != Some(self.tbl_vt) {
+            if self.word.read(mem, t) != Some(self.tbl_vt) {
                 continue;
             }
             if self.capacity(mem, t).is_none() {
@@ -323,8 +422,8 @@ impl Layout {
                 // time. A range near the edge of a region refuses as a whole,
                 // and the header we want can sit inside it.
                 let vt = match chunk {
-                    Some(bytes) => u64_at(bytes, (tbl - lo) as usize)?,
-                    None => match read_u64(mem, tbl) {
+                    Some(bytes) => self.word.in_buffer(bytes, (tbl - lo) as usize)?,
+                    None => match self.word.read(mem, tbl) {
                         Some(vt) => vt,
                         None => continue,
                     },
@@ -338,7 +437,9 @@ impl Layout {
                 }
                 // A table holds our key, so its capacity must cover its index.
                 let cap = match chunk {
-                    Some(bytes) => u64_at(bytes, (tbl - lo) as usize + TBL_CAPACITY as usize)
+                    Some(bytes) => self
+                        .word
+                        .in_buffer(bytes, (tbl - lo + self.capacity_offset()) as usize)
                         .filter(|&c| c > 0 && c <= MAX_CAPACITY),
                     None => self.capacity(mem, tbl),
                 };
@@ -353,10 +454,4 @@ impl Layout {
         }
         None
     }
-}
-
-/// A qword read from a local buffer, if the offset fits inside it.
-fn u64_at(buf: &[u8], off: usize) -> Option<u64> {
-    let raw = buf.get(off..off + 8)?;
-    Some(u64::from_le_bytes(<[u8; 8]>::try_from(raw).ok()?))
 }
