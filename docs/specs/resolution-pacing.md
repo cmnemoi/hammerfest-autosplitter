@@ -78,6 +78,19 @@ When the resolution is dropped, the next tick scans with no wait. Losing a game
 almost always announces the next one. The game builds new objects at every
 launch, so the anchor dies with it and has to be found again.
 
+### Only a game held can be lost
+
+`{#pacing::only-a-game-held-can-be-lost}`
+
+The policy drops the resolution on every tick that reads no game, and in the
+menus that is every tick. When no game was held, nothing was lost, and the
+wait goes on.
+
+Found on 2026-09-26 by the live end-to-end check, in the menus of Ruffle, and
+true of Pepper Flash too: without this rule, every tick of the menus asked for
+a scan, the `GameManager` was declared silent after two seconds instead of
+thirty, and a full scan started again every two and a half seconds.
+
 ---
 
 ## Out of scope

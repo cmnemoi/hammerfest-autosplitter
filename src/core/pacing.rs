@@ -20,6 +20,8 @@ pub struct Pacing {
     next_wait: u32,
     /// The size of the heap at the last scan.
     heap: u64,
+    /// Is a game held since it was found?
+    holds_a_game: bool,
 }
 
 impl Default for Pacing {
@@ -34,6 +36,7 @@ impl Pacing {
             wait: 0,
             next_wait: MIN_WAIT,
             heap: 0,
+            holds_a_game: false,
         }
     }
 
@@ -60,10 +63,18 @@ impl Pacing {
     /// The game is there, whichever path found it.
     pub fn game_found(&mut self) {
         self.next_wait = MIN_WAIT;
+        self.holds_a_game = true;
     }
 
     /// The resolution was dropped.
+    ///
+    /// @spec pacing::a-game-lost-scans-at-once
+    /// @spec pacing::only-a-game-held-can-be-lost
     pub fn game_lost(&mut self) {
+        if !self.holds_a_game {
+            return;
+        }
+        self.holds_a_game = false;
         self.wait = 0;
         self.next_wait = MIN_WAIT;
     }
@@ -179,10 +190,38 @@ mod tests {
     fn a_game_lost_scans_on_the_next_tick() {
         let mut p = Pacing::new();
         p.may_scan(SETTLED);
+        p.game_found();
         p.scan_failed();
 
         p.game_lost();
 
         assert!(p.may_scan(SETTLED));
+    }
+
+    /// @spec pacing::only-a-game-held-can-be-lost
+    #[test]
+    fn a_resolution_dropped_in_the_menus_keeps_the_wait() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+        p.scan_failed();
+
+        p.game_lost();
+
+        assert_eq!(ticks_refused(&mut p, SETTLED), 20);
+    }
+
+    /// @spec pacing::only-a-game-held-can-be-lost
+    #[test]
+    fn a_game_lost_twice_is_lost_once() {
+        let mut p = Pacing::new();
+        p.may_scan(SETTLED);
+        p.game_found();
+        p.game_lost();
+        p.may_scan(SETTLED);
+        p.scan_failed();
+
+        p.game_lost();
+
+        assert_eq!(ticks_refused(&mut p, SETTLED), 20);
     }
 }
