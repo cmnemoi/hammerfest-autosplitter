@@ -29,12 +29,12 @@ static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 mod diagnostics;
 mod plugin;
-mod process_memory;
 mod runtime_log;
 
 use asr::{future::next_tick, time::Duration, timer, Process};
 use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
+use hammerfest_process::ProcessMemory;
 use hammerfest_reader::hammerfest::{self, Game};
 
 asr::async_main!(stable);
@@ -103,8 +103,7 @@ async fn main() {
                 anchor.reset();
                 #[cfg(feature = "known-flash")]
                 {
-                    let matched =
-                        binary.recognize(&process_memory::ProcessMemory(&process), module);
+                    let matched = binary.recognize(&ProcessMemory(&process), module);
                     asr::print_message(&alloc::format!(
                         "HF_DIAG event=binary_profile t_us={} matched={matched}",
                         diagnostics::now_us()
@@ -143,7 +142,7 @@ async fn run(
     let mut last_loop = diagnostics::now_us();
 
     // Every read goes through here, so the diagnostics build can count them.
-    let memory = process_memory::ProcessMemory(process);
+    let memory = diagnostics::Counted(ProcessMemory(process));
 
     while process.is_open() {
         #[cfg(feature = "diagnostics")]

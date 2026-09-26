@@ -141,7 +141,6 @@ simply the old ones. Three separate checks guard against that.
 | `src/core/command.rs` | what one tick sends the timer, in order |
 | `src/lib.rs` | the main loop, and talking to LiveSplit |
 | `src/plugin.rs` | finding the plugin process, and the ranges of its heap |
-| `src/process_memory.rs` | the process, as the reader asks for it |
 | `src/runtime_log.rs` | what the search says, written to the LiveSplit log |
 | `src/diagnostics.rs` | everything that measures. Absent from the normal build. |
 | `build.rs` | the version of the module, with its commit |
@@ -150,7 +149,10 @@ simply the old ones. Three separate checks guard against that.
 | `src/reader/avm1.rs` | the AVM1 object model, measured at run time |
 | `src/reader/search_log.rs` | what a search tells whoever listens |
 | `src/reader/build.rs` | turns the obfuscated names into Rust constants |
-| `src/reader/tests/reader/memory_contract.rs` | the contract of `avm1::Memory`, and the test heap held to it |
+| `src/process/` | the process, as the reader asks for it: `ProcessMemory`, a crate of its own |
+| `src/process/tests/adapter/` | `ProcessMemory` held to the contract of `Memory`, over stubs of the runtime |
+| `src/reader/tests/contract/memory.rs` | the four questions every `Memory` must answer |
+| `src/reader/tests/reader/memory_contract.rs` | the test heap held to those questions |
 | `src/reader/tests/reader/test_heap.rs` | a synthetic AVM1 heap, written byte by byte |
 | `src/reader/tests/reader/replay.rs` | a real capture, replayed. The only test served Flash bytes. |
 | `src/reader/tests/reader/read_cost.rs` | what the reader costs, held to a baseline |

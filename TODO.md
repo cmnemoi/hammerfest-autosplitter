@@ -52,8 +52,8 @@ reads the heap of Ruffle as it reads the heap of Pepper Flash, behind one
 The steps, in order:
 
 1. ~~the bench, in the CI~~: done, see [Read cost](docs/specs/read-cost.md);
-2. ~~the reader leaves the wasm crate, and `asr_stubs` goes~~: done, see
-   `src/reader/`;
+2. ~~the reader leaves the wasm crate~~: done, see `src/reader/` and
+   `src/process/`;
 3. the Ruffle spike, beside steps 1 and 2;
 4. design `Avm1Heap` and `Runtime`;
 5. extract `Avm1Heap` from the Pepper Flash reader;

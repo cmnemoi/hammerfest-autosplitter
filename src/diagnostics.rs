@@ -12,6 +12,8 @@
 #[cfg(feature = "diagnostics")]
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use hammerfest_reader::avm1::Memory;
+
 #[link(wasm_import_module = "wasi_snapshot_preview1")]
 extern "C" {
     fn clock_time_get(id: u32, precision: u64, result: *mut u64) -> u16;
@@ -32,17 +34,24 @@ static BYTES: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "diagnostics")]
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 
-/// Counts one read of the process, in the diagnostics build.
-#[inline]
-pub fn count_read(_bytes: usize, _succeeded: bool) {
-    #[cfg(feature = "diagnostics")]
-    {
-        CALLS.fetch_add(1, Ordering::Relaxed);
-        if _succeeded {
-            BYTES.fetch_add(_bytes as u64, Ordering::Relaxed);
-        } else {
-            FAILURES.fetch_add(1, Ordering::Relaxed);
+/// A memory whose every read is counted, in the diagnostics build. In the
+/// normal build it only forwards.
+pub struct Counted<M>(pub M);
+
+impl<M: Memory> Memory for Counted<M> {
+    #[inline]
+    fn read_into(&self, address: u64, buf: &mut [u8]) -> Option<()> {
+        let result = self.0.read_into(address, buf);
+        #[cfg(feature = "diagnostics")]
+        {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            if result.is_some() {
+                BYTES.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            } else {
+                FAILURES.fetch_add(1, Ordering::Relaxed);
+            }
         }
+        result
     }
 }
 

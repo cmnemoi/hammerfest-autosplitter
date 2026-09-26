@@ -111,7 +111,8 @@ Each step stays green, and the bench measures it.
 
 1. **The bench.** Counters, an exact baseline, in the CI.
 2. **The reader leaves the wasm crate.** A crate with no `asr`, like `core`.
-   Its tests and doubles live in its `tests/`. `asr_stubs` goes. The
+   Its tests and doubles live in its `tests/`. The stubs of the runtime
+   serve only the adapter's tests, in `src/process/tests/`. The
    diagnostic `cfg(feature)` become an injected observer with an empty
    production implementation.
 3. **The Ruffle spike.** Research, so it can run beside steps 1 and 2. Two or

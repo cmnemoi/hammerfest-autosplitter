@@ -1,0 +1,16 @@
+[package]
+name = "hammerfest-process"
+version = "1.0.0"
+edition = "2021"
+
+# The process, as the reader asks for it: the one piece that knows both `asr`
+# and the reader's `Memory`. It is a crate of its own so that its tests can
+# link it against stubs of the runtime, in `tests/`, while the module stays a
+# plain `cdylib`.
+[dependencies]
+asr = { git = "https://github.com/LiveSplit/asr", rev = "89d55ab07198da6fd75cab1ea1a6825b4240b343" }
+hammerfest-reader = { path = "../reader", default-features = false }
+
+# The sources sit beside this file, like the core's.
+[lib]
+path = "lib.rs"

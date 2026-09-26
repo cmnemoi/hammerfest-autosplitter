@@ -144,15 +144,15 @@ cannot.
 
 ### What the adapter run proves, and what it does not
 
-> **Gone since 2026-09-26.** The reader left the wasm crate, and the stubs
-> went with it. The adapter is now `ProcessMemory`, in `src/process_memory.rs`,
-> and no test crosses into the runtime. The two sections below tell what the
-> run used to prove, so that nobody believes it still does.
+> **Moved on 2026-09-26.** The adapter is now `ProcessMemory`, in its own
+> crate `src/process/`. Its run and the stubs live in `src/process/tests/`, and
+> the four questions in `src/reader/tests/contract/memory.rs`, which both test
+> binaries include. The reader's tests need no stub any more.
 
 It proves the three lines forward the address and the length unchanged, and
 turn a failure into `None`.
 
-It cannot prove what LiveSplit does. The bytes come from `src/asr_stubs.rs`, so
+It cannot prove what LiveSplit does. The bytes come from the stubs, so
 the region rule under test is ours on both sides. Only the hostile-host
 question escapes that circle, because it asks how our adapter behaves under a
 host we do not control.
@@ -169,7 +169,8 @@ Three mutations, each reddening only what it should:
 
 ### What still has to be stubbed
 
-Twenty-eight symbols, measured and not guessed. `src/asr_stubs.rs` holds them.
+Twenty-eight symbols, measured and not guessed. `src/process/tests/adapter/stubs.rs`
+holds them.
 
 | how many | which | body |
 | --- | --- | --- |
@@ -183,9 +184,9 @@ tie to the runtime that the trait does not cover.
 
 Three of the four exist only to let the adapter suite build a `Process` and
 serve it bytes. The reader's tests never reach them, because the reader is
-served a `Memory` of its own. `runtime_print_message` is the fourth. The
-reader no longer prints: it tells a `SearchLog`, and the tests give it one that
-ignores everything. The stubs go when the reader leaves the wasm crate.
+served a `Memory` of its own. `runtime_print_message` is the fourth, and it
+writes to the test output. The reader no longer prints: it tells a
+`SearchLog`.
 
 ---
 

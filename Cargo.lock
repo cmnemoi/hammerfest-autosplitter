@@ -103,12 +103,21 @@ dependencies = [
  "asr",
  "dlmalloc",
  "hammerfest-core",
+ "hammerfest-process",
  "hammerfest-reader",
 ]
 
 [[package]]
 name = "hammerfest-core"
 version = "1.0.0"
+
+[[package]]
+name = "hammerfest-process"
+version = "1.0.0"
+dependencies = [
+ "asr",
+ "hammerfest-reader",
+]
 
 [[package]]
 name = "hammerfest-reader"

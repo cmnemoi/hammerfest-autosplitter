@@ -32,8 +32,8 @@ pub use hammerfest_core::atom::{as_bool, as_int};
 /// it. The caller then has no partially true buffer to mistake for a value,
 /// which is what `reader::refuses-rather-than-defaults` asks for.
 ///
-/// `tests/reader/memory_contract.rs` states that in four tests, and holds the
-/// test heap to them.
+/// `tests/contract/memory.rs` states that in four questions. The test heap and
+/// the production adapter, `ProcessMemory`, both answer them.
 ///
 /// @spec reader::refuses-rather-than-defaults
 pub trait Memory {

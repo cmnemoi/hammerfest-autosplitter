@@ -23,10 +23,11 @@ in `core` and held by [the timer commands spec](../specs/timer-commands.md).
 What is left in `src/lib.rs` is `send`, one match arm per command, and each arm
 is one call. A reader can check it against `asr::timer` in a minute.
 
-The adapter that reads the process, `ProcessMemory`, is on the same side of
-that boundary. It is four lines: forward the address and the buffer, and turn
-a failure into `None`. A test used to run it against stubs of the runtime, and
-the stubs went when the reader left the wasm crate.
+The adapter that reads the process, `ProcessMemory` in `src/process/`, is the
+one exception. Its tests link it against stubs of the runtime, in its own
+`tests/`, and ask it the four questions every `Memory` must answer. The stubs
+serve bytes we wrote, so those tests prove the adapter forwards correctly, and
+nothing about what LiveSplit does.
 
 The rest is the five-minute check before a session.
 
