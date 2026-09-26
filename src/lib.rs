@@ -37,6 +37,9 @@ mod asr_stubs;
 /// The contract of `avm1::Memory`, and the implementations held to it.
 #[cfg(test)]
 mod memory_contract;
+/// What the reader costs, held to a baseline.
+#[cfg(test)]
+mod read_cost;
 /// The bytes of a real game, replayed.
 #[cfg(test)]
 mod replay;

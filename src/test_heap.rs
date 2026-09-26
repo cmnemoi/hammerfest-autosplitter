@@ -21,7 +21,7 @@ use crate::memory_contract::Heap;
 
 /// Where the fake module sits. No bytes are served for it: only `in_module`
 /// looks at this range, and it only compares.
-const MODULE: (u64, u64) = (0x4000_0000, 0x4010_0000);
+pub const MODULE: (u64, u64) = (0x4000_0000, 0x4010_0000);
 
 /// Where the heap sits.
 const HEAP_BASE: u64 = 0x1000_0000;
@@ -512,18 +512,18 @@ pub struct Fixture {
     manager: Obj,
     mechanics: Obj,
     chrono: Obj,
-    anchor: Anchor,
-    binary: Binary,
+    pub anchor: Anchor,
+    pub binary: Binary,
 }
 
 impl Fixture {
     /// The heap as it stands. A mutation changes the bytes, so the heap is
     /// built again for every look and every reading.
-    fn heap(&self) -> Heap {
+    pub fn heap(&self) -> Heap {
         Heap::default().with_range(HEAP_BASE, self.bytes.data.clone())
     }
 
-    fn ranges(&self) -> Vec<(u64, u64)> {
+    pub fn ranges(&self) -> Vec<(u64, u64)> {
         vec![(HEAP_BASE, HEAP_BASE + self.bytes.data.len() as u64)]
     }
 

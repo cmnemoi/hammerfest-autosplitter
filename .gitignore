@@ -29,6 +29,8 @@ fixtures/*
 # The exception: the trimmed capture the replay test reads. It is 2.5 MiB, it
 # never changes, and it is the only test served bytes a Flash player wrote.
 !fixtures/replay/
+# The cost baseline. See docs/specs/read-cost.md.
+!fixtures/read-cost.txt
 
 # What `mise run coverage` writes for Codecov.
 lcov.info

@@ -58,7 +58,7 @@ struct Says {
 pub struct Capture {
     bytes: Vec<u8>,
     regions: Vec<Region>,
-    module: (u64, u64),
+    pub module: (u64, u64),
     says: Says,
     /// Regions that must read as zeros, whatever the file holds.
     ///
@@ -148,7 +148,7 @@ impl Capture {
         })
     }
 
-    fn ranges(&self) -> Vec<(u64, u64)> {
+    pub fn ranges(&self) -> Vec<(u64, u64)> {
         self.regions
             .iter()
             .map(|r| (r.base, r.base + r.size))

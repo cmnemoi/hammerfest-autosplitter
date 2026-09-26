@@ -170,6 +170,7 @@ simply the old ones. Three separate checks guard against that.
 | what the memory reader must do | [Memory reader](specs/memory-reader.md) |
 | what a level crossing sends LiveSplit | [Level crossings](specs/level-crossings.md) |
 | when the loop may scan again | [Resolution pacing](specs/resolution-pacing.md) |
+| what the reader costs, to the read | [Read cost](specs/read-cost.md) |
 | why and how Ruffle will be read | [Ruffle support](specs/ruffle-support.md) |
 | what we send the timer, and in what order | [Timer commands](specs/timer-commands.md) |
 | how that is proved, and in what order | [About testing the memory reader](internals/testing-the-memory-reader.md) |

@@ -154,9 +154,8 @@ game. Only a frozen `frameTimer` gives it away, which takes two readings
 separated in time. Time lives in `core`, which tests it with
 `drops_the_resolution_when_the_heartbeat_freezes`.
 
-**What it cost.** Read counts, byte counts, the number of passes and the
-yielding budget are the subject of a benchmark, not of a test. Their effect is
-that LiveSplit does not freeze, and there is no LiveSplit in a test.
+**What it cost.** Read counts, byte counts and the ticks given back are held
+by a baseline of their own: [Read cost](read-cost.md).
 
 **Which path found the game.** The fast path, the `fVersion` search and the
 `world` fallback produce the same answer. A test that asserts the path asserts

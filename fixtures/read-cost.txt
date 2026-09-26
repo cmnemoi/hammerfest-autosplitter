@@ -1,0 +1,8 @@
+# What each situation costs the reader. See docs/specs/read-cost.md.
+# Do not edit by hand. Run `mise run read-cost-update`, and commit the change.
+game-over/first-search 2236 reads 68832 bytes 0 yields
+game-over/second-search 0 reads 0 bytes 0 yields
+real-game/first-read 2054 reads 17296 bytes 0 yields
+real-game/first-search 8162 reads 60306388 bytes 6 yields
+real-game/next-read 309 reads 2586 bytes 0 yields
+real-game/second-search 1281 reads 10798 bytes 0 yields

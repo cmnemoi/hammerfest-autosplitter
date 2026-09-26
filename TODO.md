@@ -51,7 +51,7 @@ reads the heap of Ruffle as it reads the heap of Pepper Flash, behind one
 
 The steps, in order:
 
-1. the bench, in the CI;
+1. ~~the bench, in the CI~~: done, see [Read cost](docs/specs/read-cost.md);
 2. the reader leaves the wasm crate, and `asr_stubs` goes;
 3. the Ruffle spike, beside steps 1 and 2;
 4. design `Avm1Heap` and `Runtime`;
@@ -85,3 +85,6 @@ In one line each: the runtime is a hard boundary; finding the process stays
 outside; the Python of the reverse engineering is a second opinion and never
 the reference; and performance is measured rather than tested, by the method
 [Speed matters](docs/internals/speed-matters.md) prescribes.
+
+notes de l'humain:
+- les profils know-target et l'autre ils osnt pas devenus inuiles ? peut être à supprimer
