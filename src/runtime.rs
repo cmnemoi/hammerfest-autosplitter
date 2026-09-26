@@ -12,6 +12,10 @@ pub enum Runtime {
     PepperFlash,
     /// Ruffle desktop, as Eternalfest Desktop starts it.
     Ruffle,
+    /// Ruffle in a Firefox tab: a linear memory at `base`, whose reservation
+    /// reaches `span` bytes. Every address the reader asks for is an offset
+    /// in it.
+    RuffleWeb { base: u64, span: u64 },
 }
 
 impl Runtime {
@@ -20,6 +24,7 @@ impl Runtime {
         match self {
             Runtime::PepperFlash => "the Flash plugin of EternalTwin",
             Runtime::Ruffle => "Ruffle",
+            Runtime::RuffleWeb { .. } => "Ruffle in Firefox",
         }
     }
 
@@ -29,6 +34,10 @@ impl Runtime {
         match self {
             Runtime::PepperFlash => plugin::heap_ranges(process),
             Runtime::Ruffle => plugin::ruffle_heap_ranges(process),
+            // Its committed part, as offsets.
+            Runtime::RuffleWeb { base, .. } => plugin::committed_end(process, base)
+                .map(|end| alloc::vec![(0, end - base)])
+                .unwrap_or_default(),
         }
     }
 
@@ -36,10 +45,17 @@ impl Runtime {
     pub fn heap_size(self, process: &Process) -> u64 {
         match self {
             Runtime::PepperFlash => plugin::heap_size(process),
-            Runtime::Ruffle => plugin::ruffle_heap_ranges(process)
+            Runtime::Ruffle | Runtime::RuffleWeb { .. } => self
+                .heap_ranges(process)
                 .iter()
                 .map(|(start, end)| end - start)
                 .sum(),
         }
+    }
+
+    /// Several Firefox tabs may run Ruffle. One that shows no `GameManager`
+    /// after a whole search plays something else, and the next one is tried.
+    pub fn is_one_of_several(self) -> bool {
+        matches!(self, Runtime::RuffleWeb { .. })
     }
 }

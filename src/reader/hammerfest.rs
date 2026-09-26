@@ -125,6 +125,13 @@ impl<H> Anchor<H> {
     pub fn reset(&mut self) {
         *self = Self::default();
     }
+
+    /// Has a search found the `GameManager`? It exists as soon as the SWF of
+    /// Hammerfest is loaded, before any game: it tells a tab that plays
+    /// Hammerfest from one that plays something else.
+    pub fn holds_a_manager(&self) -> bool {
+        self.manager.is_some()
+    }
 }
 
 /// Failed attempts allowed before we question an anchor that never gave

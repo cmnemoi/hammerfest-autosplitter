@@ -62,7 +62,10 @@ The steps, in order:
    kept, see `src/reader/heap.rs` and `src/reader/pepper_flash.rs`;
 6. ~~`RuffleHeap`, and finding the player~~: done, see `src/reader/ruffle.rs`
    and `src/runtime.rs`. Windows is left to check on a live game;
-7. the rest of the object redesign, and the cost of the first Ruffle search:
+7. ~~Ruffle in a browser~~: Firefox under Linux is done, see
+   [Ruffle support](docs/specs/ruffle-support.md#ruffle-in-a-browser). Chrome
+   and Windows are left;
+8. the rest of the object redesign, and the cost of the first Ruffle search:
    it reads 419 MB of a real capture, and the whole game lives in `[heap]`.
 
 ### Before any step

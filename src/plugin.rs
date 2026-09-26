@@ -5,6 +5,9 @@
 
 use alloc::vec::Vec;
 use asr::{Process, ProcessId};
+use hammerfest_process::ProcessMemory;
+use hammerfest_reader::linear_memory::LinearMemory;
+use hammerfest_reader::ruffle::RuffleBuild;
 
 /// The plugin, by platform.
 pub const PLUGINS: &[&str] = &[
@@ -187,4 +190,104 @@ pub fn ruffle_heap_ranges(process: &Process) -> Vec<(u64, u64)> {
         (size > 0).then(|| (address.value(), address.value() + size))
     });
     brk_heap.into_iter().chain(anonymous).collect()
+}
+
+// -- Ruffle in Firefox ---------------------------------------------------------
+
+/// The processes of Firefox tabs under Linux, as the runtime names them: the
+/// kernel keeps fifteen characters of a name.
+pub const FIREFOX_TABS: &[&str] = &["Isolated Web Co", "Web Content"];
+
+/// SpiderMonkey puts one page of its own in front of a linear memory.
+const LINEAR_MEMORY_HEADER: u64 = 0x1000;
+/// A 32-bit linear memory reserves 4 GiB, so that its accesses need no
+/// check: the committed part, then a reserve that cannot be read.
+const LINEAR_MEMORY_RESERVATION: u64 = 4 << 30;
+
+/// A Firefox tab where Ruffle runs: its process, and its linear memory.
+pub struct RuffleTab {
+    pub process: Process,
+    pub pid: ProcessId,
+    /// The base of the linear memory, and how far its reservation reaches.
+    pub base: u64,
+    pub span: u64,
+    pub build: RuffleBuild,
+}
+
+/// Every Firefox tab whose linear memory holds a known build of Ruffle.
+///
+/// A linear memory is found by the shape of its range, then proven by the
+/// vtables of a build. See `docs/specs/ruffle-support.md#ruffle-in-a-browser`.
+///
+/// A tab process maps thousands of ranges, and listing them costs one call of
+/// the runtime each: one tick is given back after each process, so that a
+/// look spreads over several ticks.
+pub async fn ruffle_tabs() -> Vec<RuffleTab> {
+    let mut tabs = Vec::new();
+    for name in FIREFOX_TABS {
+        let Some(pids) = Process::list_by_name(name) else {
+            continue;
+        };
+        for pid in pids {
+            asr::future::next_tick().await;
+            let Some(process) = Process::attach_by_pid(pid) else {
+                continue;
+            };
+            let found = linear_memories(&process)
+                .into_iter()
+                .find_map(|(base, span)| {
+                    let memory = ProcessMemory(&process);
+                    let build =
+                        RuffleBuild::recognised_in(&LinearMemory::new(&memory, base, span))?;
+                    Some((base, span, build))
+                });
+            if let Some((base, span, build)) = found {
+                tabs.push(RuffleTab {
+                    process,
+                    pid,
+                    base,
+                    span,
+                    build,
+                });
+            }
+        }
+    }
+    tabs
+}
+
+/// The linear memories of a process: an anonymous range that can be read and
+/// written, followed at once by a range that cannot be read, the two of them
+/// at least as large as the reservation. Their base, and their span.
+fn linear_memories(process: &Process) -> Vec<(u64, u64)> {
+    use asr::MemoryRangeFlags as F;
+    let ranges: Vec<(u64, u64, F)> = process
+        .memory_ranges()
+        .filter_map(|range| {
+            let (address, size) = range.range().ok()?;
+            Some((address.value(), size, range.flags().ok()?))
+        })
+        .collect();
+    ranges
+        .windows(2)
+        .filter_map(|pair| {
+            let [(start, size, flags), (next, reserve, reserve_flags)] = *pair else {
+                return None;
+            };
+            let is_committed = flags.contains(F::READ | F::WRITE) && !flags.contains(F::PATH);
+            let is_a_reserve = next == start + size && !reserve_flags.contains(F::READ);
+            let base = start + LINEAR_MEMORY_HEADER;
+            (is_committed && is_a_reserve && size + reserve >= LINEAR_MEMORY_RESERVATION)
+                .then_some((base, start + size + reserve - base))
+        })
+        .collect()
+}
+
+/// Where the committed part of the linear memory at `base` ends now. It grows
+/// with the game.
+pub fn committed_end(process: &Process, base: u64) -> Option<u64> {
+    process.memory_ranges().find_map(|range| {
+        let (address, size) = range.range().ok()?;
+        let start = address.value();
+        (start + LINEAR_MEMORY_HEADER == base).then_some(start + size)
+    })
 }

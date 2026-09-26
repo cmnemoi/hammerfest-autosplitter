@@ -236,6 +236,12 @@ dimension ends nothing.
 to that dimension and can never be compared with a number from another. What
 that number actually is has not been observed. The split rule never reads it.
 
+**Ruffle in a browser is checked in Firefox under Linux only.** Chrome keeps
+its linear memory in another shape, and Windows names every Firefox process
+`firefox.exe`. Looking at the tabs costs one tick of about 90 ms every two
+seconds while no game is found: the runtime parses the map of every tab that
+runs Ruffle. See [Ruffle support](specs/ruffle-support.md#ruffle-in-a-browser).
+
 **Ruffle is checked under Linux only.** Ruffle 0.6.0 under Windows should keep
 the same layout, since the source and the compiler are the same, but no live
 game has confirmed it. See [About the Ruffle heap](concepts/ruffle-heap.md).

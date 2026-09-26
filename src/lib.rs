@@ -36,8 +36,10 @@ use asr::{future::next_tick, time::Duration, timer, Process};
 use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest_process::ProcessMemory;
+use hammerfest_reader::avm1::Memory;
 use hammerfest_reader::hammerfest::{self, Game};
 use hammerfest_reader::heap::FlashPlayer;
+use hammerfest_reader::linear_memory::LinearMemory;
 use hammerfest_reader::pepper_flash::PepperFlash;
 use hammerfest_reader::ruffle::Ruffle;
 
@@ -79,6 +81,8 @@ async fn main() {
     // What each player keeps about its binary outlives its process.
     let mut pepper_flash = PepperFlash::default();
     let mut ruffle = Ruffle::default();
+    // Ticks left before the Firefox tabs are looked at again.
+    let mut ticks_before_the_tabs = 0;
     // The policy crosses processes: a plugin that disappears is part of the
     // story of a game.
     let mut policy = Policy::new();
@@ -127,10 +131,54 @@ async fn main() {
             ruffle.attach(module);
             run(&process, pid, Runtime::Ruffle, &mut ruffle, &mut policy).await;
             asr::print_message("Hammerfest: Ruffle closed");
-        } else {
+        } else if ticks_before_the_tabs > 0 {
+            ticks_before_the_tabs -= 1;
             apply(policy.tick(timer_state(), None));
             next_tick().await;
+        } else {
+            // Firefox may be open for anything else: its tabs are looked at
+            // every two seconds, and not on every tick like the two players
+            // above, since a look reads the map of every tab.
+            ticks_before_the_tabs = TABS_LOOKED_AT_AGAIN_AFTER;
+            let tabs = plugin::ruffle_tabs().await;
+            for tab in &tabs {
+                let runtime = Runtime::RuffleWeb {
+                    base: tab.base,
+                    span: tab.span,
+                };
+                let mut player = Ruffle::in_browser(tab.build);
+                if run(&tab.process, tab.pid, runtime, &mut player, &mut policy).await
+                    == Ended::Closed
+                {
+                    announce_closed(runtime, tabs.len());
+                    break;
+                }
+            }
+            apply(policy.tick(timer_state(), None));
         }
+    }
+}
+
+/// Ticks between two looks at the Firefox tabs: about two seconds.
+const TABS_LOOKED_AT_AGAIN_AFTER: u32 = 240;
+
+/// How a run on one process ends.
+#[derive(PartialEq, Eq)]
+enum Ended {
+    /// The process closed.
+    Closed,
+    /// A whole search found no `GameManager`: this tab plays something else.
+    NoGameHere,
+}
+
+/// Says a tab was read, and how many others ran Ruffle beside it.
+fn announce_closed(runtime: Runtime, tabs: usize) {
+    asr::print_message(&alloc::format!("Hammerfest: {} closed", runtime.name()));
+    if tabs > 1 {
+        asr::print_message(&alloc::format!(
+            "Hammerfest: {} other Firefox tab(s) ran Ruffle, and held no game.",
+            tabs - 1
+        ));
     }
 }
 
@@ -158,7 +206,7 @@ async fn run<P: FlashPlayer>(
     runtime: Runtime,
     player: &mut P,
     policy: &mut Policy,
-) {
+) -> Ended {
     // What one resolution learns and the next one reuses, within this
     // process only.
     let mut anchor = hammerfest::Anchor::default();
@@ -176,7 +224,17 @@ async fn run<P: FlashPlayer>(
     let mut last_loop = diagnostics::now_us();
 
     // Every read goes through here, so the diagnostics build can count them.
-    let memory = diagnostics::Counted(ProcessMemory(process));
+    let process_memory = diagnostics::Counted(ProcessMemory(process));
+    // In a browser, the reader asks for offsets in the linear memory.
+    let linear;
+    let memory: &dyn Memory = match runtime {
+        Runtime::RuffleWeb { base, span } => {
+            linear = LinearMemory::new(&process_memory, base, span);
+            &linear
+        }
+        _ => &process_memory,
+    };
+    let mut announced_attached = !runtime.is_one_of_several();
 
     while process.is_open() {
         #[cfg(feature = "diagnostics")]
@@ -195,7 +253,7 @@ async fn run<P: FlashPlayer>(
             // The fast path follows `GameManager.current`. It is a few reads,
             // so we can try it every tick. The full scan only runs to learn
             // the anchor, or when the anchor has moved.
-            game = hammerfest::resolve_via_manager(&memory, &mut anchor);
+            game = hammerfest::resolve_via_manager(memory, &mut anchor);
 
             if game.is_none() {
                 // A heap that grows in one step is the SWF creating its
@@ -218,13 +276,20 @@ async fn run<P: FlashPlayer>(
                     // That is what keeps the reader off the runtime API.
                     let all = ranges.map_or_else(|| runtime.heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(
-                        &memory,
+                        memory,
                         player,
                         &mut anchor,
                         &all,
                         &mut runtime_log::RuntimeLog::default(),
                     )
                     .await;
+                    if game.is_none() && runtime.is_one_of_several() && !anchor.holds_a_manager() {
+                        return Ended::NoGameHere;
+                    }
+                    if !announced_attached {
+                        announce_attached(runtime);
+                        announced_attached = true;
+                    }
                     if game.is_none() {
                         pacing.scan_failed();
                         #[cfg(feature = "diagnostics")]
@@ -241,7 +306,7 @@ async fn run<P: FlashPlayer>(
             }
         }
 
-        let read = game.as_mut().and_then(|g| g.read(&memory));
+        let read = game.as_mut().and_then(|g| g.read(memory));
         #[cfg(feature = "diagnostics")]
         {
             let signature = read
@@ -294,6 +359,7 @@ async fn run<P: FlashPlayer>(
 
         next_tick().await;
     }
+    Ended::Closed
 }
 
 /// Executes what the policy decided. Returns `true` if the current resolution

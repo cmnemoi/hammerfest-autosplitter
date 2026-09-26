@@ -21,15 +21,18 @@ The autosplitter is available directly in LiveSplit. You do not need to download
 Do not skip step 3. The big timer shows *real time*, which starts a few
 hundred milliseconds late. The *gametime* channel carries the correct time.
 
-Then start a game, in EternalTwin or in Eternalfest Desktop, which plays it in
-[Ruffle](https://ruffle.rs). Start **one** game, in **one** player: when both
-run, the autosplitter reads EternalTwin, and says so in its log.
+Then start a game: in EternalTwin, in Eternalfest Desktop, which plays it in
+[Ruffle](https://ruffle.rs), or on [eternalfest.net](https://eternalfest.net)
+in Firefox with the [Ruffle extension](https://addons.mozilla.org/firefox/addon/ruffle_rs/).
+Start **one** game, in **one** player: when several run, the autosplitter reads
+EternalTwin first, then Ruffle, then Firefox, and says so in its log.
 
 The autosplitter has been tested on:
 
 - Windows, Eternaltwin 1.0.0
 - macOS ARM, Eternaltwin 0.6.6 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, Eternaltwin 1.0.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
+- Linux x64, Firefox ESR 140 with the Ruffle extension 0.6.0 on eternalfest.net (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, [Eternalfest Desktop 0.1.0](https://github.com/cmnemoi/eternalfest-desktop#install) with Ruffle 0.6.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute
