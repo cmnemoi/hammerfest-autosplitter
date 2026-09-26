@@ -131,3 +131,34 @@ mod a_known_build {
         assert_eq!(recognised(&process), None);
     }
 }
+
+mod blocks {
+    use super::*;
+    use hammerfest_reader::linear_memory::blocks;
+
+    const MIB: u64 = 1 << 20;
+
+    /** @spec browser.find::blocks-of-a-linear-memory */
+    #[test]
+    fn cuts_a_linear_memory_into_blocks_of_one_mib() {
+        assert_eq!(
+            blocks(2 * MIB + MIB / 2),
+            [(0, MIB), (MIB, 2 * MIB), (2 * MIB, 2 * MIB + MIB / 2)]
+        );
+    }
+
+    /** @spec browser.find::blocks-of-a-linear-memory */
+    #[test]
+    fn keeps_the_blocks_it_had_when_the_memory_grows() {
+        let before = blocks(2 * MIB);
+        let after = blocks(3 * MIB);
+
+        assert!(before.iter().all(|block| after.contains(block)));
+    }
+
+    /** @spec browser.find::an-empty-linear-memory */
+    #[test]
+    fn cuts_nothing_out_of_nothing() {
+        assert_eq!(blocks(0), []);
+    }
+}

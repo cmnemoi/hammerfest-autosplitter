@@ -3,6 +3,8 @@
 use alloc::vec::Vec;
 use asr::Process;
 
+use hammerfest_reader::linear_memory::blocks;
+
 use crate::plugin;
 
 /// A Flash player the autosplitter can read.
@@ -34,9 +36,9 @@ impl Runtime {
         match self {
             Runtime::PepperFlash => plugin::heap_ranges(process),
             Runtime::Ruffle => plugin::ruffle_heap_ranges(process),
-            // Its committed part, as offsets.
+            // Its committed part, as blocks of offsets.
             Runtime::RuffleWeb { base, .. } => plugin::committed_end(process, base)
-                .map(|end| alloc::vec![(0, end - base)])
+                .map(|end| blocks(end - base))
                 .unwrap_or_default(),
         }
     }

@@ -292,6 +292,18 @@ The reader asks for offsets. An offset is read at the base plus that offset,
 and only inside the linear memory: a read that runs past its end reads
 nothing.
 
+#### A linear memory is swept by blocks
+
+`{#browser::swept-by-blocks}`
+
+A linear memory is one range, and it grows at its end. The search sweeps what
+changed since the last one, and a single range would always look changed as a
+whole. So it is cut into blocks of 1 MiB: when it grows, only the blocks that
+grew are new, and the objects the game creates there are looked for first.
+
+Found on 2026-09-26 with the live check: the game loaded 0.36 s before level 0,
+and a search of the whole 97 MB took 1.24 s.
+
 #### A real game in a browser is read
 
 `{#browser::a-real-game-is-read}`
@@ -307,6 +319,8 @@ dimension the game showed.
 | `browser.find::the-extensions-build` | a linear memory with the vtables of the extensions build | the build is recognised |
 | `browser.find::the-mvp-build` | a linear memory with the vtables of the MVP build | the build is recognised |
 | `browser.find::an-unknown-build` | a linear memory whose vtables are not where a known build puts them | nothing is recognised, and no game is looked for |
+| `browser.find::blocks-of-a-linear-memory` | a linear memory of 2.5 MiB | three blocks: two of 1 MiB, and one of 0.5 MiB at its end |
+| `browser.find::an-empty-linear-memory` | a linear memory of no committed byte | no block |
 | `browser.read::past-the-end` | a read that runs past the end of the linear memory | nothing is read |
 | `browser.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure`, in Firefox | the game is found, at level 2, in `xml_adventure`, dimension 0 |
 

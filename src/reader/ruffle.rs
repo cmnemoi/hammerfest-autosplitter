@@ -490,6 +490,12 @@ impl FlashPlayer for Ruffle {
             return None;
         };
 
+        // The objects that own the entries were most likely born with them,
+        // in the memory that changed: it is swept first.
+        //
+        // @spec browser::swept-by-blocks
+        all.sort_by_key(|range| !fresh.contains(range));
+
         cost.stage("key_owners");
         let mut tried: Vec<u64> = Vec::new();
         let mut found = None;

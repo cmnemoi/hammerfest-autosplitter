@@ -4,7 +4,26 @@
 //! reader asks for offsets, and this turns them into addresses of the
 //! process, as `ProcessMemory` turns addresses into bytes.
 
+use alloc::vec::Vec;
+
 use crate::avm1::Memory;
+
+/// The size of a block a linear memory is swept by.
+const BLOCK: u64 = 1 << 20;
+
+/// The committed part of a linear memory, as blocks of 1 MiB.
+///
+/// A linear memory grows at its end. Cut in blocks, the blocks it had stay the
+/// same when it grows, and the search sees the new ones as the memory that
+/// changed.
+///
+/// @spec browser::swept-by-blocks
+pub fn blocks(committed: u64) -> Vec<(u64, u64)> {
+    (0..committed)
+        .step_by(BLOCK as usize)
+        .map(|start| (start, (start + BLOCK).min(committed)))
+        .collect()
+}
 
 /// A linear memory: `size` bytes of `process`, from `base`.
 pub struct LinearMemory<'a> {
