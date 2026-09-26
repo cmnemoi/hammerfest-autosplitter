@@ -17,7 +17,7 @@ every push.
 
 | OS \ player | Pepper Flash (EternalTwin) | Flash projector | Ruffle desktop | Ruffle in a browser |
 | --- | --- | --- | --- | --- |
-| Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | missing | missing |
+| Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | `windows-ruffle-wine`, under Wine | missing |
 | Linux | missing | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
 | macOS | missing: needs a Mac | not shipped | missing: needs a Mac | missing: needs a Mac |
 
@@ -56,7 +56,8 @@ Useful flags:
 | `--level 6` | smaller, and four times slower to take |
 | `--raw` | no compression, to see what it saves |
 
-Fixtures stay out of git, except one. See below.
+Captures stay out of git. Their trimmed forms, under `fixtures/replay/`, do not:
+see below.
 
 ---
 

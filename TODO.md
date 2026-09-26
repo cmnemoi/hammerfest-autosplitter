@@ -55,13 +55,16 @@ The steps, in order:
 2. ~~the reader leaves the wasm crate~~: done, see `src/reader/` and
    `src/process/`;
 3. the Ruffle spike, beside steps 1 and 2: done under Linux, see
-   [About the Ruffle heap](docs/concepts/ruffle-heap.md). Windows is left;
+   [About the Ruffle heap](docs/concepts/ruffle-heap.md). Windows was read
+   under Wine, see `fixtures/replay/windows-ruffle-wine`;
 4. ~~design `Avm1Heap` and `Runtime`~~: done, see
    [Ruffle support](docs/specs/ruffle-support.md#design);
 5. ~~extract `Avm1Heap` from the Pepper Flash reader~~: done, with every read
    kept, see `src/reader/heap.rs` and `src/reader/pepper_flash.rs`;
 6. ~~`RuffleHeap`, and finding the player~~: done, see `src/reader/ruffle.rs`
-   and `src/runtime.rs`. Windows is left to check on a live game;
+   and `src/runtime.rs`. Windows is left to check on a real Windows: under
+   Wine, the kernel names the process `main`, and the module cannot find it
+   by its name;
 7. ~~Ruffle in a browser~~: Firefox under Linux is done, see
    [Ruffle support](docs/specs/ruffle-support.md#ruffle-in-a-browser). Chrome
    and Windows are left;

@@ -233,6 +233,19 @@ The bytes Ruffle 0.6.0 wrote under Linux, in
 `fixtures/replay/linux-ruffle`, give the level, the world and the
 dimension the game showed.
 
+### Windows is read as Linux is
+
+`{#ruffle::windows-is-read}`
+
+The Windows build of Ruffle 0.6.0 is the same Rust on the same processor as the
+Linux one, and its objects, strings and maps have the same layout. The bytes
+it wrote under Wine 10.0, in `fixtures/replay/windows-ruffle-wine`, give the
+level, the world and the dimension the game showed, read with the desktop
+layout.
+
+Seen on the live game, 2026-09-26: the heap was 459 MiB, and 647 objects held
+the key of `world`, against about ten under Linux.
+
 ## Acceptance criteria
 
 | id | given | then |
@@ -240,6 +253,7 @@ dimension the game showed.
 | `ruffle.read::an-entry-whose-hash-lies` | a game whose `currentId` entry holds the hash of another key | nothing is read |
 | `ruffle.find::a-map-that-is-not-an-object` | a game whose object carries the vtable of another type | nothing is found |
 | `ruffle.read::entries-that-moved` | a game whose entries were moved elsewhere, and reordered, after the first read | the level is still read |
+| `ruffle.replay::the-windows-main-world` | the capture of a game at level 25 of `xml_adventure`, in Ruffle for Windows under Wine | the game is found, at level 25, in `xml_adventure`, dimension 0 |
 | `ruffle.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure` | the game is found, at level 2, in `xml_adventure`, dimension 0 |
 
 ---
@@ -354,7 +368,8 @@ live game read a complete and correct `State` on the first try.
 `GameMode.duration` follows real time to 0.01 %. What is not met yet is the
 cost: the Ruffle heap is 300 MiB, and the first search reads 601 MiB. See
 [About the Ruffle heap](../concepts/ruffle-heap.md#seen-on-a-live-game).
-Windows is not checked.
+Windows was checked under Wine on the same day: see
+[the rule](#windows-is-read-as-linux-is).
 
 - `docs/concepts/ruffle-heap.md`: strings, objects and property maps of Ruffle,
   drawn from a real capture;

@@ -273,6 +273,34 @@ mod tests {
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }
 
+    /// The same, on the bytes the Windows build of Ruffle 0.6.0 wrote under
+    /// Wine. Its objects are the ones of the Linux build: the same Rust, on
+    /// the same processor.
+    ///
+    /// @spec ruffle.replay::the-windows-main-world
+    /// @spec ruffle::windows-is-read
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_windows_ruffle_capture() {
+        let capture = Capture::load("windows-ruffle-wine")
+            .expect("the capture fixtures/replay/windows-ruffle-wine is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut Ruffle::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real Windows Ruffle heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
     /// The same, on the bytes the Windows projector 32.0.0.465 wrote under
     /// Wine. It is a 32-bit program: its pointers and its atoms are words of
     /// four bytes.
