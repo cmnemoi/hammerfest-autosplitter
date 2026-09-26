@@ -102,3 +102,28 @@ measure them this way. See [About stale memory](stale-memory.md).
 
 The two searches by content, on a failed attempt. The detail is in the git
 history, commit `6be7eb9`.
+
+---
+
+## What the redesign cost
+
+Nothing measurable. On 2026-09-26, the module of the 1.0.0 release and the
+module after the redesign around `Avm1Heap` ran side by side in the end-to-end
+harness, on the same EternalTwin game under Linux, for two minutes:
+
+| | before | after |
+| --- | --- | --- |
+| update, p50 | 0.150 ms | 0.145 ms |
+| update, p99 | 0.349 ms | 0.327 ms |
+| update, max | 29.8 ms | 27.7 ms |
+
+Both found the same `GameManager` at the same instant, dated the start the
+same, and split on the same eight crossings. The small gap is noise: on each
+tick the older module ran first, and paid for the cold caches.
+
+The slow tick of the first search, near 30 ms, was already there. It is the
+next thing worth measuring away. To compare two builds again:
+
+```sh
+mise run e2e -- 120 before.wasm target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
+```
