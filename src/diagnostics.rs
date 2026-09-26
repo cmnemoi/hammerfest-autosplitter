@@ -122,11 +122,15 @@ const MAP_PERIOD_US: u64 = 100_000;
 const MAP_DUTY: u64 = 10;
 
 impl FreshMap {
-    pub fn poll(&mut self, pid: asr::ProcessId) -> Option<&[(u64, u64)]> {
+    pub fn poll(
+        &mut self,
+        pid: asr::ProcessId,
+        runtime: crate::runtime::Runtime,
+    ) -> Option<&[(u64, u64)]> {
         let now = now_us();
         if now >= self.next_us {
             if let Some(process) = asr::Process::attach_by_pid(pid) {
-                let ranges = crate::plugin::heap_ranges(&process);
+                let ranges = runtime.heap_ranges(&process);
                 #[cfg(feature = "diagnostics")]
                 asr::print_message(&alloc::format!(
                     "HF_DIAG event=map_refresh t_us={} elapsed_us={} changed={} ranges={} bytes={}",

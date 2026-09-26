@@ -235,6 +235,10 @@ dimension ends nothing.
 to that dimension and can never be compared with a number from another. What
 that number actually is has not been observed. The split rule never reads it.
 
+**Ruffle is checked under Linux only.** Ruffle 0.6.0 under Windows should keep
+the same layout, since the source and the compiler are the same, but no live
+game has confirmed it. See [About the Ruffle heap](concepts/ruffle-heap.md).
+
 **One version, one machine.** The layout is derived at run time. A different
 Flash build fails cleanly rather than report a wrong level, and
 `reader.find::nothing-on-another-flash-build` holds that. What no test can see

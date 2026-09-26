@@ -56,10 +56,14 @@ The steps, in order:
    `src/process/`;
 3. the Ruffle spike, beside steps 1 and 2: done under Linux, see
    [About the Ruffle heap](docs/concepts/ruffle-heap.md). Windows is left;
-4. design `Avm1Heap` and `Runtime`;
-5. extract `Avm1Heap` from the Pepper Flash reader;
-6. `RuffleHeap`, and finding the player;
-7. the rest of the object redesign.
+4. ~~design `Avm1Heap` and `Runtime`~~: done, see
+   [Ruffle support](docs/specs/ruffle-support.md#design);
+5. ~~extract `Avm1Heap` from the Pepper Flash reader~~: done, with every read
+   kept, see `src/reader/heap.rs` and `src/reader/pepper_flash.rs`;
+6. ~~`RuffleHeap`, and finding the player~~: done, see `src/reader/ruffle.rs`
+   and `src/runtime.rs`. Windows is left to check on a live game;
+7. the rest of the object redesign, and the cost of the first Ruffle search:
+   it reads 419 MB of a real capture, and the whole game lives in `[heap]`.
 
 ### Before any step
 

@@ -1,4 +1,5 @@
-//! Finding the Flash plugin process, and the ranges where its heap lives.
+//! Finding the process of a Flash player, and the ranges where its heap lives:
+//! the Pepper Flash plugin of EternalTwin, or Ruffle desktop.
 //!
 //! All of it asks the runtime, so none of it belongs to the reader.
 
@@ -131,4 +132,59 @@ pub fn attach_plugin(
 
     rejected.retain(|pid| alive.contains(pid));
     found
+}
+
+// -- Ruffle ------------------------------------------------------------------
+
+/// Ruffle desktop, by platform. Its executable is its module.
+pub const RUFFLE: &[&str] = &["ruffle", "ruffle.exe"];
+
+/// How many processes of these names run.
+pub fn count_running(names: &[&str]) -> usize {
+    names
+        .iter()
+        .filter_map(|name| Process::list_by_name(name))
+        .map(|pids| pids.len())
+        .sum()
+}
+
+/// A Ruffle desktop process, the range of its executable, and its pid.
+pub fn attach_ruffle() -> Option<(Process, (u64, u64), ProcessId)> {
+    RUFFLE.iter().find_map(|name| {
+        Process::list_by_name(name)?.into_iter().find_map(|pid| {
+            let process = Process::attach_by_pid(pid)?;
+            let (address, size) = process.get_module_range(name).ok()?;
+            let module = (address.value(), address.value() + size);
+            Some((process, module, pid))
+        })
+    })
+}
+
+/// The ranges where Ruffle keeps its AVM1 heap, the likeliest first.
+///
+/// Measured on a live game under Linux, every object of the game sat in
+/// `[heap]`, the heap of glibc, and none in the hundred anonymous ranges
+/// beside it. So `[heap]` comes first. LiveSplit marks it as a range with a
+/// path, which is why the rule of Pepper Flash -- no path -- must not apply
+/// here: it would drop the one range worth reading. It is found as a module,
+/// by its name.
+///
+/// The anonymous ranges follow, in case another build or another platform
+/// puts the game there. Windows names no heap: its private ranges carry no
+/// path, and all of them are read.
+pub fn ruffle_heap_ranges(process: &Process) -> Vec<(u64, u64)> {
+    use asr::MemoryRangeFlags as F;
+    let brk_heap = process
+        .get_module_range("[heap]")
+        .ok()
+        .map(|(address, size)| (address.value(), address.value() + size));
+    let anonymous = process.memory_ranges().filter_map(|range| {
+        let flags = range.flags().ok()?;
+        if !flags.contains(F::READ | F::WRITE) || flags.contains(F::PATH) {
+            return None;
+        }
+        let (address, size) = range.range().ok()?;
+        (size > 0).then(|| (address.value(), address.value() + size))
+    });
+    brk_heap.into_iter().chain(anonymous).collect()
 }

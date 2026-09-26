@@ -29,6 +29,7 @@ static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 mod diagnostics;
 mod plugin;
+mod runtime;
 mod runtime_log;
 
 use asr::{future::next_tick, time::Duration, timer, Process};
@@ -36,7 +37,11 @@ use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest_process::ProcessMemory;
 use hammerfest_reader::hammerfest::{self, Game};
-use hammerfest_reader::pepper_flash::{PepperFlash, PepperFlashHeap};
+use hammerfest_reader::heap::FlashPlayer;
+use hammerfest_reader::pepper_flash::PepperFlash;
+use hammerfest_reader::ruffle::Ruffle;
+
+use runtime::Runtime;
 
 asr::async_main!(stable);
 asr::panic_handler!();
@@ -71,10 +76,9 @@ async fn main() {
     // EternalTwin processes already examined and set aside: see
     // `attach_plugin`.
     let mut rejected = alloc::vec::Vec::new();
-    // What one resolution learns and the next one reuses.
-    let mut anchor = hammerfest::Anchor::default();
-    // What we keep about the binary outlives the plugin process.
-    let mut player = PepperFlash::default();
+    // What each player keeps about its binary outlives its process.
+    let mut pepper_flash = PepperFlash::default();
+    let mut ruffle = Ruffle::default();
     // The policy crosses processes: a plugin that disappears is part of the
     // story of a game.
     let mut policy = Policy::new();
@@ -95,41 +99,70 @@ async fn main() {
     diagnostics::event("module_started");
 
     loop {
-        match plugin::attach_plugin(PROCESS_NAMES, &mut rejected) {
-            Some((process, module, pid)) => {
-                asr::print_message("Hammerfest: Flash plugin attached");
-                diagnostics::event("plugin_attached");
-                // Nothing another process learned is valid here: ASLR moves
-                // the module, and the AVM1 heap is built again.
-                anchor.reset();
-                player.attach(module);
-                #[cfg(feature = "known-flash")]
-                {
-                    let matched = player.recognize(&ProcessMemory(&process));
-                    asr::print_message(&alloc::format!(
-                        "HF_DIAG event=binary_profile t_us={} matched={matched}",
-                        diagnostics::now_us()
-                    ));
-                }
-                run(&process, pid, &mut player, &mut anchor, &mut policy).await;
-                asr::print_message("Hammerfest: Flash plugin closed");
+        // Pepper Flash first: the runs that count are made on EternalTwin.
+        if let Some((process, module, pid)) = plugin::attach_plugin(PROCESS_NAMES, &mut rejected) {
+            announce_attached(Runtime::PepperFlash);
+            // Nothing another process learned is valid here: ASLR moves the
+            // module, and the AVM1 heap is built again.
+            pepper_flash.attach(module);
+            #[cfg(feature = "known-flash")]
+            {
+                let matched = pepper_flash.recognize(&ProcessMemory(&process));
+                asr::print_message(&alloc::format!(
+                    "HF_DIAG event=binary_profile t_us={} matched={matched}",
+                    diagnostics::now_us()
+                ));
             }
-            None => {
-                apply(policy.tick(timer_state(), None));
-                next_tick().await;
-            }
+            run(
+                &process,
+                pid,
+                Runtime::PepperFlash,
+                &mut pepper_flash,
+                &mut policy,
+            )
+            .await;
+            asr::print_message("Hammerfest: the Flash plugin of EternalTwin closed");
+        } else if let Some((process, module, pid)) = plugin::attach_ruffle() {
+            announce_attached(Runtime::Ruffle);
+            ruffle.attach(module);
+            run(&process, pid, Runtime::Ruffle, &mut ruffle, &mut policy).await;
+            asr::print_message("Hammerfest: Ruffle closed");
+        } else {
+            apply(policy.tick(timer_state(), None));
+            next_tick().await;
         }
     }
 }
 
-async fn run(
+/// Says which player is read, and warns when EternalTwin and Ruffle both run.
+///
+/// The runner must start one game, in one player. When both players run, the
+/// module reads EternalTwin, and a log someone sends us must say so at once.
+///
+/// Only the other player is counted. The runtime's list of processes also
+/// holds threads under Linux, so two processes of the same name cannot be
+/// told from one process with two threads.
+fn announce_attached(runtime: Runtime) {
+    asr::print_message(&alloc::format!("Hammerfest: {} attached", runtime.name()));
+    diagnostics::event("plugin_attached");
+    if runtime == Runtime::PepperFlash && plugin::count_running(plugin::RUFFLE) > 0 {
+        asr::print_message(
+            "Hammerfest: Ruffle runs too, and is not read. Start one game, in one player.",
+        );
+    }
+}
+
+async fn run<P: FlashPlayer>(
     process: &Process,
     pid: asr::ProcessId,
-    player: &mut PepperFlash,
-    anchor: &mut hammerfest::Anchor<PepperFlashHeap>,
+    runtime: Runtime,
+    player: &mut P,
     policy: &mut Policy,
 ) {
-    let mut game: Option<Game<PepperFlashHeap>> = None;
+    // What one resolution learns and the next one reuses, within this
+    // process only.
+    let mut anchor = hammerfest::Anchor::default();
+    let mut game: Option<Game<P::Heap>> = None;
     // When a full scan is allowed. The rules are in `core::pacing`, with their
     // spec and their tests.
     let mut pacing = Pacing::new();
@@ -162,7 +195,7 @@ async fn run(
             // The fast path follows `GameManager.current`. It is a few reads,
             // so we can try it every tick. The full scan only runs to learn
             // the anchor, or when the anchor has moved.
-            game = hammerfest::resolve_via_manager(&memory, anchor);
+            game = hammerfest::resolve_via_manager(&memory, &mut anchor);
 
             if game.is_none() {
                 // A heap that grows in one step is the SWF creating its
@@ -170,9 +203,9 @@ async fn run(
                 // only window that matters -- the game starts half a second
                 // later -- and a fixed wait added up to one second of delay
                 // there, at the mercy of the previous attempt.
-                let ranges = fresh_map.poll(pid);
+                let ranges = fresh_map.poll(pid, runtime);
                 let now = ranges.map_or_else(
-                    || plugin::heap_size(process),
+                    || runtime.heap_size(process),
                     |rs| rs.iter().map(|(a, b)| b - a).sum(),
                 );
                 if pacing.may_scan(now) {
@@ -183,11 +216,11 @@ async fn run(
                     ));
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
-                    let all = ranges.map_or_else(|| plugin::heap_ranges(process), |rs| rs.to_vec());
+                    let all = ranges.map_or_else(|| runtime.heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(
                         &memory,
                         player,
-                        anchor,
+                        &mut anchor,
                         &all,
                         &mut runtime_log::RuntimeLog::default(),
                     )
