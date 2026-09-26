@@ -27,7 +27,7 @@ Adobe's Flash projector or in [Ruffle](https://ruffle.rs), or on
 [Ruffle extension](https://addons.mozilla.org/firefox/addon/ruffle_rs/).
 Start **one** game, in **one** player: when several run, the autosplitter reads
 EternalTwin first, then the Flash projector, then Ruffle, then Firefox, and
-says so in its log. The Flash projector is read under Linux only.
+says so in its log. The Windows Flash projector was checked under Wine only.
 
 The autosplitter has been tested on:
 
@@ -37,6 +37,7 @@ The autosplitter has been tested on:
 - Linux x64, Firefox ESR 140 with the Ruffle extension 0.6.0 on eternalfest.net (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, [Eternalfest Desktop 0.1.0](https://github.com/cmnemoi/eternalfest-desktop#install) with Ruffle 0.6.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, Eternalfest Desktop after 0.3.0 with Adobe's Flash projector 32.0.0.465 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
+- Linux x64, Adobe's Windows Flash projector 32.0.0.465 under Wine 10.0, as Eternalfest Desktop starts it on Windows (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute
 

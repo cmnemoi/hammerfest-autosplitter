@@ -36,7 +36,7 @@ use asr::{future::next_tick, time::Duration, timer, Process};
 use hammerfest_core::{Command, Pacing, Policy, State, TimerState};
 
 use hammerfest_process::ProcessMemory;
-use hammerfest_reader::avm1::Memory;
+use hammerfest_reader::avm1::{Memory, Word};
 use hammerfest_reader::hammerfest::{self, Game};
 use hammerfest_reader::heap::FlashPlayer;
 use hammerfest_reader::linear_memory::LinearMemory;
@@ -81,6 +81,7 @@ async fn main() {
     // What each player keeps about its binary outlives its process.
     let mut pepper_flash = PepperFlash::default();
     let mut flash_projector = PepperFlash::default();
+    let mut flash_projector_32_bits = PepperFlash::with_words(Word::Four);
     let mut ruffle = Ruffle::default();
     // Ticks left before the Firefox tabs are looked at again.
     let mut ticks_before_the_tabs = 0;
@@ -127,20 +128,16 @@ async fn main() {
             )
             .await;
             asr::print_message("Hammerfest: the Flash plugin of EternalTwin closed");
-        } else if let Some((process, module, pid)) =
-            plugin::attach_by_executable(plugin::FLASH_PROJECTOR)
-        {
-            announce_attached(Runtime::FlashProjector);
-            flash_projector.attach(module);
-            run(
-                &process,
-                pid,
-                Runtime::FlashProjector,
-                &mut flash_projector,
-                &mut policy,
-            )
-            .await;
-            asr::print_message("Hammerfest: the Flash projector closed");
+        } else if let Some((word, (process, module, pid))) = plugin::attach_flash_projector() {
+            let runtime = Runtime::FlashProjector(word);
+            announce_attached(runtime);
+            let projector = match word {
+                Word::Eight => &mut flash_projector,
+                Word::Four => &mut flash_projector_32_bits,
+            };
+            projector.attach(module);
+            run(&process, pid, runtime, projector, &mut policy).await;
+            announce_closed(runtime, 1);
         } else if let Some((process, module, pid)) = plugin::attach_by_executable(plugin::RUFFLE) {
             announce_attached(Runtime::Ruffle);
             ruffle.attach(module);

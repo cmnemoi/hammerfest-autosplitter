@@ -6,9 +6,10 @@
 use alloc::vec::Vec;
 use asr::{Process, ProcessId};
 use hammerfest_process::ProcessMemory;
-use hammerfest_reader::elf;
+use hammerfest_reader::avm1::Word;
 use hammerfest_reader::linear_memory::LinearMemory;
 use hammerfest_reader::ruffle::RuffleBuild;
+use hammerfest_reader::{elf, pe};
 
 /// The plugin, by platform.
 pub const PLUGINS: &[&str] = &[
@@ -152,26 +153,44 @@ pub fn count_running(names: &[&str]) -> usize {
         .sum()
 }
 
-/// Adobe's Flash projector under Linux. Its executable is its module.
-///
-/// The Windows projector, `flashplayer.exe`, is not looked for: it is a 32-bit
-/// program, and the reader reads atoms and pointers of eight bytes.
-pub const FLASH_PROJECTOR: &[&str] = &["flashplayer"];
+/// A player attached to: its process, the range of its module, and its pid.
+pub type Attached = (Process, (u64, u64), ProcessId);
+
+/// Adobe's Flash projector under Linux, a 64-bit program. Its executable is
+/// its module.
+const FLASH_PROJECTOR: &[&str] = &["flashplayer"];
+/// Adobe's Flash projector under Windows, a 32-bit program: as Eternalfest
+/// Desktop names it, and as Adobe ships it.
+const FLASH_PROJECTOR_32_BITS: &[&str] = &["flashplayer.exe", "flashplayer_32_sa.exe"];
+
+/// A Flash projector process, the width of its words, the range of its
+/// executable, and its pid.
+pub fn attach_flash_projector() -> Option<(Word, Attached)> {
+    [
+        (Word::Eight, FLASH_PROJECTOR),
+        (Word::Four, FLASH_PROJECTOR_32_BITS),
+    ]
+    .into_iter()
+    .find_map(|(word, names)| Some((word, attach_by_executable(names)?)))
+}
 
 /// A process of a player whose executable is its module -- Ruffle desktop or
 /// the Flash projector --, the range of that executable, and its pid.
 ///
-/// The runtime sums the sizes of the mappings of a module, and the projector
-/// leaves a gap between its code and its data. So its ELF header says where it
+/// The runtime sums the sizes of the mappings of a module. The Linux projector
+/// leaves a gap between its code and its data, and Wine maps one page of the
+/// Windows projector from its file. So its ELF or its PE header says where it
 /// ends, when there is one to read.
-pub fn attach_by_executable(names: &[&str]) -> Option<(Process, (u64, u64), ProcessId)> {
+pub fn attach_by_executable(names: &[&str]) -> Option<Attached> {
     names.iter().find_map(|name| {
         Process::list_by_name(name)?.into_iter().find_map(|pid| {
             let process = Process::attach_by_pid(pid)?;
             let (address, size) = process.get_module_range(name).ok()?;
             let base = address.value();
-            let module =
-                elf::loaded_image(&ProcessMemory(&process), base).unwrap_or((base, base + size));
+            let memory = ProcessMemory(&process);
+            let module = elf::loaded_image(&memory, base)
+                .or_else(|| pe::loaded_image(&memory, base))
+                .unwrap_or((base, base + size));
             Some((process, module, pid))
         })
     })

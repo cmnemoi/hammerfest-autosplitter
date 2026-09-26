@@ -3,18 +3,23 @@
 use alloc::vec::Vec;
 use asr::Process;
 
+use hammerfest_reader::avm1::Word;
 use hammerfest_reader::linear_memory::blocks;
 
 use crate::plugin;
+
+/// The end of what a 32-bit program can address.
+const FOUR_GIB: u64 = 1 << 32;
 
 /// A Flash player the autosplitter can read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Runtime {
     /// The Pepper Flash plugin, inside EternalTwin.
     PepperFlash,
-    /// Adobe's Flash projector under Linux, as Eternalfest Desktop starts it.
-    /// Its AVM1 is the one of Pepper Flash.
-    FlashProjector,
+    /// Adobe's Flash projector, as Eternalfest Desktop starts it. Its AVM1 is
+    /// the one of Pepper Flash, in words of eight bytes under Linux and of
+    /// four under Windows.
+    FlashProjector(Word),
     /// Ruffle desktop, as Eternalfest Desktop starts it when the projector is
     /// missing.
     Ruffle,
@@ -29,7 +34,8 @@ impl Runtime {
     pub fn name(self) -> &'static str {
         match self {
             Runtime::PepperFlash => "the Flash plugin of EternalTwin",
-            Runtime::FlashProjector => "the Flash projector",
+            Runtime::FlashProjector(Word::Eight) => "the Flash projector",
+            Runtime::FlashProjector(Word::Four) => "the 32-bit Flash projector",
             Runtime::Ruffle => "Ruffle",
             Runtime::RuffleWeb { .. } => "Ruffle in Firefox",
         }
@@ -39,7 +45,18 @@ impl Runtime {
     /// them.
     pub fn heap_ranges(self, process: &Process) -> Vec<(u64, u64)> {
         match self {
-            Runtime::PepperFlash | Runtime::FlashProjector => plugin::heap_ranges(process),
+            Runtime::PepperFlash | Runtime::FlashProjector(Word::Eight) => {
+                plugin::heap_ranges(process)
+            }
+            // A 32-bit program points nowhere past 4 GiB. Wine keeps its own
+            // 64-bit memory up there.
+            Runtime::FlashProjector(Word::Four) => plugin::heap_ranges(process)
+                .into_iter()
+                .filter_map(|(start, end)| {
+                    let end = end.min(FOUR_GIB);
+                    (start < end).then_some((start, end))
+                })
+                .collect(),
             Runtime::Ruffle => plugin::ruffle_heap_ranges(process),
             // Its committed part, as blocks of offsets.
             Runtime::RuffleWeb { base, .. } => plugin::committed_end(process, base)
@@ -51,12 +68,15 @@ impl Runtime {
     /// Total committed bytes in the heap of this player.
     pub fn heap_size(self, process: &Process) -> u64 {
         match self {
-            Runtime::PepperFlash | Runtime::FlashProjector => plugin::heap_size(process),
-            Runtime::Ruffle | Runtime::RuffleWeb { .. } => self
-                .heap_ranges(process)
-                .iter()
-                .map(|(start, end)| end - start)
-                .sum(),
+            Runtime::PepperFlash | Runtime::FlashProjector(Word::Eight) => {
+                plugin::heap_size(process)
+            }
+            Runtime::FlashProjector(Word::Four) | Runtime::Ruffle | Runtime::RuffleWeb { .. } => {
+                self.heap_ranges(process)
+                    .iter()
+                    .map(|(start, end)| end - start)
+                    .sum()
+            }
         }
     }
 
