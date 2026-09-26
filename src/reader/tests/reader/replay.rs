@@ -244,6 +244,34 @@ mod tests {
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }
 
+    /// The same, on the bytes Adobe's Flash projector 32.0.0.465 wrote under
+    /// Linux. Its AVM1 is the one of Pepper Flash, so the Pepper Flash reader
+    /// reads it, with the executable as its module.
+    ///
+    /// @spec projector.replay::the-main-world
+    /// @spec projector::a-real-game-is-read
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_flash_projector_capture() {
+        let capture = Capture::load("projector-main-world")
+            .expect("the capture fixtures/replay/projector-main-world is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut PepperFlash::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real projector heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
     /// The same, on the bytes Ruffle 0.6.0 wrote in a Firefox tab.
     ///
     /// @spec browser.replay::the-main-world
@@ -413,11 +441,14 @@ mod tests {
     /// ```sh
     /// cargo test -p hammerfest-reader smallest -- --ignored --nocapture
     /// ```
+    ///
+    /// It trims `main-world`, or the capture `HF_CAPTURE` names.
     #[test]
     #[ignore = "a tool, not a test: it trims a new capture"]
     fn smallest_set_of_regions() {
-        let Some(capture) = Capture::load("main-world") else {
-            println!("no capture in fixtures/replay/main-world");
+        let name = std::env::var("HF_CAPTURE").unwrap_or_else(|_| String::from("main-world"));
+        let Some(capture) = Capture::load(&name) else {
+            println!("no capture in fixtures/replay/{name}");
             return;
         };
         assert!(
@@ -449,7 +480,7 @@ mod tests {
             capture.regions.len(),
             bytes as f64 / (1 << 20) as f64
         );
-        let mut line = String::from("mise run replay-fixture -- main-world --keep");
+        let mut line = std::format!("mise run replay-fixture -- {name} --keep");
         for region in kept {
             line.push_str(&std::format!(" {:#x}", region.base));
         }
