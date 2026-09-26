@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.1.0...v1.2.0) (2026-09-26)
+
+
+### Features
+
+* find the game in Ruffle, in a Firefox tab ([09655a0](https://github.com/cmnemoi/hammerfest-autosplitter/commit/09655a0d154159f99ff6920c462a67465935729b))
+* read a linear memory by offset, and recognise the build of Ruffle in it ([eca624d](https://github.com/cmnemoi/hammerfest-autosplitter/commit/eca624d984a5949a1b93d8a1e99a5cd25df5bca4))
+
+
+### Bug Fixes
+
+* keep a Ruffle tab while its game loads ([bc81408](https://github.com/cmnemoi/hammerfest-autosplitter/commit/bc8140885a14f2df28d56254f3ab7dc8f18aa0d1))
+
+
+### Performance Improvements
+
+* search at once and in full while the SWF loads ([f324625](https://github.com/cmnemoi/hammerfest-autosplitter/commit/f324625916f2b530a3c031a340fad049da3abe6a))
+* sweep a linear memory by blocks, and what grew first ([329fc19](https://github.com/cmnemoi/hammerfest-autosplitter/commit/329fc19d87adff649dc1324dd3cc566f9b23021f))
+* sweep Pepper Flash in a tight loop, on the first unit of a pattern ([0fc205d](https://github.com/cmnemoi/hammerfest-autosplitter/commit/0fc205d5d08c035fb6b8eec9bc39dddfcb87bafe))
+* test the value of a word in a tight loop, and call back only on a match ([c212413](https://github.com/cmnemoi/hammerfest-autosplitter/commit/c212413bb60586e239e9df6083efc7bbd17bfbd4))
+
 ## [1.1.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.0.0...v1.1.0) (2026-09-26)
 
 
