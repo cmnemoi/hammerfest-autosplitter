@@ -121,6 +121,13 @@ run = "uv run python scripts/capture_startup.py"
 description = "Show the level and the clock of the game in progress"
 run = "uv run python scripts/hf_state.py"
 
+[tasks.e2e]
+description = "Run the module in LiveSplit's runtime against the game running here, and judge it"
+# On demand only, never in the CI: it needs a game, and it builds wasmtime.
+# The duration of the run, in seconds, can follow: `mise run e2e -- 120`.
+depends = ["build"]
+run = "cargo run --release --manifest-path src/harness/Cargo.toml --target-dir target/harness --"
+
 [tasks.ruffle-state]
 description = "Show the level and the clock of a game running in Ruffle, on Linux"
 run = "uv run python scripts/ruffle_state.py"

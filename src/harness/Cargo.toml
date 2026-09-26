@@ -1,0 +1,22 @@
+[package]
+name = "hammerfest-harness"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+# The runtime LiveSplit loads auto splitters with, and wasmtime under it. It
+# takes minutes to build, so this crate stays out of the workspace: neither
+# `mise run test` nor the CI build it. `mise run e2e` does.
+#
+# The revision is the one the harness was written against. LiveSplit ships its
+# own; the ABI the module uses has not changed between them.
+[dependencies]
+livesplit-auto-splitting = { git = "https://github.com/LiveSplit/livesplit-core", rev = "a065a8d" }
+time = "0.3"
+
+# Its own workspace, so the root one never pulls it in.
+[workspace]
+
+[[bin]]
+name = "hammerfest-harness"
+path = "main.rs"

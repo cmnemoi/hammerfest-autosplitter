@@ -1,5 +1,8 @@
 [workspace]
 members = ["src/core", "src/reader", "src/process"]
+# The end-to-end harness builds the whole LiveSplit runtime: `mise run e2e`
+# only.
+exclude = ["src/harness"]
 
 [package]
 name = "hammerfest-autosplitter"

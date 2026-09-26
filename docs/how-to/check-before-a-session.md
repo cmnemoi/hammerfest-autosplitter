@@ -9,7 +9,7 @@ and LiveSplit that are installed today.
 ## The five minutes
 
 ```sh
-mise run ci       # 20 s. The format, the lint, every test.
+mise run ci       # The format, the lint, every test.
 mise run build    # the .wasm LiveSplit loads
 ```
 
@@ -19,6 +19,19 @@ never drift apart. Install the hooks once per clone:
 ```sh
 mise run hooks
 ```
+
+Then start a game, in EternalTwin or in Ruffle, and play past the black
+screen. With the game running:
+
+```sh
+mise run e2e      # 30 s. The real module, in LiveSplit's own runtime.
+```
+
+It prints what the module logs and asks of the timer, then judges two
+things: the module found the game and published its level, and one update in
+a hundred stays within one tick (8.3 ms). `mise run e2e -- 120` watches for
+two minutes, long enough to cross a level. The first run builds the runtime,
+which takes a few minutes; the next ones start at once.
 
 Then, with the game and LiveSplit open:
 
