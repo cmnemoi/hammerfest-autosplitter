@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.2.0...v1.3.0) (2026-09-26)
+
+
+### Features
+
+* find the game in Adobe's Flash projector under Linux ([58eea7f](https://github.com/cmnemoi/hammerfest-autosplitter/commit/58eea7f483f72cf22889d484a6005524895c0ac7))
+* find the game in the Windows Flash projector ([5e27358](https://github.com/cmnemoi/hammerfest-autosplitter/commit/5e27358ee8dc0400c413ed3d8c8847037801aeda))
+* read a 32-bit build of Flash Player, in words of four bytes ([61b0188](https://github.com/cmnemoi/hammerfest-autosplitter/commit/61b0188d72e0806a31e006e8541f81b7570bd636))
+
 ## [1.2.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.1.0...v1.2.0) (2026-09-26)
 
 
