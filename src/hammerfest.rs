@@ -18,7 +18,6 @@
 //! ```
 
 use alloc::{vec, vec::Vec};
-use asr::future::next_tick;
 
 use crate::avm1::{self, read_u64, Layout, Memory, PROFILES, STR_BUF_CANDIDATES};
 use crate::keys;
@@ -141,6 +140,25 @@ pub struct Game {
 
 pub use hammerfest_core::{EndSequence, Level, State, World};
 
+// -- sharing the tick -------------------------------------------------------
+
+/// Lets one tick pass before the scan goes on.
+///
+/// The runtime polls the module once per tick. A future that is pending once
+/// therefore gives exactly one tick back, and LiveSplit does not freeze during
+/// a long scan. It is what `asr::future::next_tick` does. The reader keeps its
+/// own so that it needs no runtime.
+fn give_the_tick_back() -> impl core::future::Future<Output = ()> {
+    let mut given_back = false;
+    core::future::poll_fn(move |_| {
+        if core::mem::replace(&mut given_back, true) {
+            core::task::Poll::Ready(())
+        } else {
+            core::task::Poll::Pending
+        }
+    })
+}
+
 // -- scans ------------------------------------------------------------------
 
 /// Every aligned address where `pat` appears.
@@ -179,7 +197,7 @@ async fn scan_bytes(
             chunks += 1;
             if cost.should_yield(chunks) {
                 cost.paused();
-                next_tick().await;
+                give_the_tick_back().await;
             }
         }
     }
@@ -226,7 +244,7 @@ async fn scan_bytes_until(
             chunks += 1;
             if cost.should_yield(chunks) {
                 cost.paused();
-                next_tick().await;
+                give_the_tick_back().await;
             }
         }
     }
@@ -277,7 +295,7 @@ async fn scan_u64_any(
             chunks += 1;
             if cost.should_yield(chunks) {
                 cost.paused();
-                next_tick().await;
+                give_the_tick_back().await;
             }
         }
     }
@@ -326,7 +344,7 @@ async fn scan_atoms(
             chunks += 1;
             if cost.should_yield(chunks) {
                 cost.paused();
-                next_tick().await;
+                give_the_tick_back().await;
             }
         }
     }
