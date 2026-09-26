@@ -91,6 +91,22 @@ true of Pepper Flash too: without this rule, every tick of the menus asked for
 a scan, the `GameManager` was declared silent after two seconds instead of
 thirty, and a full scan started again every two and a half seconds.
 
+### A start is dated within a blink
+
+`{#pacing::a-start-dated-within-a-blink}`
+
+The run starts when level 0 appears. The time is right whatever the delay,
+since the game time carries it, but a runner watches the big timer too. So the
+module dates the start at most 300 ms after level 0: the time of a blink, below
+which the eye cannot tell.
+
+No unit test can hold it: it depends on the search in a live player. The live
+end-to-end check judges it, `mise run e2e`, when the game is started after the
+check: see [Check before a session](../how-to/check-before-a-session.md).
+
+Measured on 2026-09-26, before this rule existed: 0 and 267 ms under
+EternalTwin, 50 ms under Ruffle desktop, 1073 ms under Ruffle in Firefox.
+
 ---
 
 ## Out of scope

@@ -16,12 +16,14 @@
 //! they see the same game at the same moment, and their costs can be
 //! compared.
 //!
-//! It judges two things, and reports the rest:
+//! It judges three things, and reports the rest:
 //!
 //! - the module attaches to a player, finds the game and publishes its
 //!   level;
 //! - one `update()` stays within one tick at the 99th percentile. LiveSplit
-//!   gives a tick 8.3 ms, and stops a module that falls five seconds behind.
+//!   gives a tick 8.3 ms, and stops a module that falls five seconds behind;
+//! - a start is dated at most 300 ms after level 0, when the game is started
+//!   after this check.
 //!
 //! See `docs/how-to/check-before-a-session.md`.
 
@@ -37,6 +39,8 @@ use livesplit_auto_splitting::{Config, LogLevel, Runtime, Timer, TimerState};
 
 const MODULE: &str = "target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm";
 const TICK: Duration = Duration::from_nanos(1_000_000_000 / 120);
+/// A blink: the eye cannot tell a later start from one on time.
+const START_LATENESS: Duration = Duration::from_millis(300);
 
 /// What the module did, as a timer sees it.
 #[derive(Default)]
@@ -45,6 +49,8 @@ struct Report {
     level_at: Option<Duration>,
     starts: usize,
     splits: usize,
+    /// How long after level 0 each start was dated.
+    start_lateness: Vec<Duration>,
 }
 
 /// A timer that prints what the module asks of it, and keeps a report.
@@ -116,6 +122,14 @@ impl Timer for WatchingTimer {
         let mut report = self.report.lock().unwrap();
         if line.ends_with(" attached") && report.attached_at.is_none() {
             report.attached_at = Some(self.started.elapsed());
+        }
+        // "Hammerfest: start dated, 267 ms already elapsed"
+        if let Some(ms) = line
+            .strip_prefix("Hammerfest: start dated, ")
+            .and_then(|rest| rest.strip_suffix(" ms already elapsed"))
+            .and_then(|ms| ms.parse().ok())
+        {
+            report.start_lateness.push(Duration::from_millis(ms));
         }
         drop(report);
         self.say(format_args!("log: {line}"));
@@ -195,6 +209,9 @@ fn judge(judged: &mut Judged) -> Vec<String> {
         "timer      {} start(s), {} split(s)",
         report.starts, report.splits
     );
+    for lateness in &report.start_lateness {
+        println!("start      dated {:.0} ms after level 0", ms(*lateness));
+    }
 
     let mut failures = Vec::new();
     if report.attached_at.is_none() {
@@ -204,6 +221,19 @@ fn judge(judged: &mut Judged) -> Vec<String> {
         failures.push(
             "the module published no level: is a game started, past the black screen?".to_owned(),
         );
+    }
+    // @spec pacing::a-start-dated-within-a-blink
+    if let Some(late) = report
+        .start_lateness
+        .iter()
+        .find(|late| **late > START_LATENESS)
+    {
+        failures.push(format!(
+            "a start was dated {:.0} ms after level 0, more than a blink ({:.0} ms). \
+             Was the game started after this check?",
+            ms(*late),
+            ms(START_LATENESS)
+        ));
     }
     if p99 > TICK {
         failures.push(format!(
