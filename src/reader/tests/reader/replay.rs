@@ -162,7 +162,7 @@ mod tests {
     use super::*;
     use hammerfest_core::{Level, Policy, State, TimerState, World};
 
-    use crate::test_heap::block_on;
+    use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::pepper_flash::PepperFlash;
     use hammerfest_reader::search_log::Silent;

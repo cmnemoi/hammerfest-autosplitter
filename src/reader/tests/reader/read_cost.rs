@@ -165,8 +165,9 @@ mod situations {
     use std::{env, fs, path::PathBuf};
 
     use super::*;
+    use crate::pepper_flash_heap::PepperFlashHeapWriter;
     use crate::replay::Capture;
-    use crate::test_heap::given_a_heap;
+    use crate::scenarios::{World, WrittenHeap};
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
     use hammerfest_reader::pepper_flash::{PepperFlash, PepperFlashHeap};
     use hammerfest_reader::search_log::Silent;
@@ -231,8 +232,11 @@ mod situations {
     }
 
     fn a_game_that_is_over(costs: &mut Costs) {
-        let mut fixture = given_a_heap().with_a_game().that_is_over().build();
-        let (heap, ranges) = (fixture.heap(), fixture.ranges());
+        let mut fixture = World::<PepperFlashHeapWriter>::default()
+            .with_a_game()
+            .that_is_over()
+            .build();
+        let (heap, ranges) = (fixture.written.memory(), fixture.written.ranges());
 
         for situation in ["game-over/first-search", "game-over/second-search"] {
             let found = search(

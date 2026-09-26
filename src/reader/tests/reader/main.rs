@@ -6,6 +6,7 @@
 extern crate alloc;
 
 mod memory_contract;
+mod pepper_flash_heap;
 mod read_cost;
 mod replay;
-mod test_heap;
+mod scenarios;

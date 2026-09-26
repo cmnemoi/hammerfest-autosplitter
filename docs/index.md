@@ -153,7 +153,8 @@ simply the old ones. Three separate checks guard against that.
 | `src/process/tests/adapter/` | `ProcessMemory` held to the contract of `Memory`, over stubs of the runtime |
 | `src/reader/tests/contract/memory.rs` | the four questions every `Memory` must answer |
 | `src/reader/tests/reader/memory_contract.rs` | the test heap held to those questions |
-| `src/reader/tests/reader/test_heap.rs` | a synthetic AVM1 heap, written byte by byte |
+| `src/reader/tests/reader/scenarios.rs` | the reader's scenarios, written once and run on every player |
+| `src/reader/tests/reader/pepper_flash_heap.rs` | the Pepper Flash driver: a heap written byte by byte |
 | `src/reader/tests/reader/replay.rs` | a real capture, replayed. The only test served Flash bytes. |
 | `src/reader/tests/reader/read_cost.rs` | what the reader costs, held to a baseline |
 | `scripts/` | reading and capturing memory, in Python |

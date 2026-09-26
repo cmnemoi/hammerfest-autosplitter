@@ -47,12 +47,12 @@ run = "pre-commit install --install-hooks"
 [tasks.coverage]
 description = "Measure the line coverage of the code that ships"
 # The test-only modules are left out. Counting a synthetic heap as covered
-# code would say the net is wider than it is: `test_heap.rs` alone is 511
+# code would say the net is wider than it is: `pepper_flash_heap.rs` alone is 511
 # lines that only ever test themselves.
 #
 # `src/lib.rs` stays in, at zero percent. The loop is deliberately outside the
 # net, and a number that hides that decision is worth nothing.
-run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(test_heap|memory_contract|memory|replay|read_cost|stubs|main)[.]rs$"'
+run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(scenarios|pepper_flash_heap|ruffle_heap|memory_contract|memory|replay|read_cost|stubs|main)[.]rs$"'
 
 [tasks.ci]
 description = "Everything that must pass before a change leaves the machine"

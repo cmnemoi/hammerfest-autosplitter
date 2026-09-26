@@ -309,7 +309,9 @@ mise run replay-fixture -- my-capture --keep <the addresses it printed>
 
 ## The DSL
 
-It lives in `src/reader/tests/reader/test_heap.rs`, with the builder and the seventeen tests.
+It lives in `src/reader/tests/reader/pepper_flash_heap.rs`. The scenarios that
+use it are in `src/reader/tests/reader/scenarios.rs`, written once for every
+player.
 Three phases, and each one has a name.
 
 ```rust
@@ -396,7 +398,7 @@ tests still pass.
 
 ### Step 2, the builder and the rest. Done
 
-`src/reader/tests/reader/test_heap.rs` writes a synthetic heap byte by byte, and the sixteen
+`src/reader/tests/reader/pepper_flash_heap.rs` writes a synthetic heap byte by byte, and the sixteen
 remaining situations are written against it.
 
 | covered | against |
