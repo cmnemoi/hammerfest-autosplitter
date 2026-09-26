@@ -42,7 +42,24 @@ and the twenty-eight tests on the synthetic heap stayed green. The list is on
 
 ## What is next, in order
 
-### 1. Whatever the redesign asks for next
+### 1. Support Ruffle, and redesign the reader on the way
+
+The need, the decisions and their reasons live on one page:
+[Ruffle support](docs/specs/ruffle-support.md). In short: the autosplitter
+reads the heap of Ruffle as it reads the heap of Pepper Flash, behind one
+`Avm1Heap` trait, and a bench holds the reads to an exact baseline.
+
+The steps, in order:
+
+1. the bench, in the CI;
+2. the reader leaves the wasm crate, and `asr_stubs` goes;
+3. the Ruffle spike, beside steps 1 and 2;
+4. design `Avm1Heap` and `Runtime`;
+5. extract `Avm1Heap` from the Pepper Flash reader;
+6. `RuffleHeap`, and finding the player;
+7. the rest of the object redesign.
+
+### Before any step
 
 The net is posed, and something other than memory runs it. `mise run ci` is
 the one name the git hook and the CI both call, so they cannot drift apart.
