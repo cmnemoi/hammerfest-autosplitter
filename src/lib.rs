@@ -167,7 +167,8 @@ const TABS_LOOKED_AT_AGAIN_AFTER: u32 = 240;
 enum Ended {
     /// The process closed.
     Closed,
-    /// A whole search found no `GameManager`: this tab plays something else.
+    /// No `GameManager` in this tab, and another tab runs Ruffle: that one
+    /// may be the game.
     NoGameHere,
 }
 
@@ -235,8 +236,29 @@ async fn run<P: FlashPlayer>(
         _ => &process_memory,
     };
     let mut announced_attached = !runtime.is_one_of_several();
+    // A tab that runs Ruffle and shows no `GameManager` yet is kept: its game
+    // may be loading, and leaving it would date the start late. But another
+    // tab may be the one that plays Hammerfest, so every two seconds, the
+    // tabs are looked at again.
+    let mut ticks_before_other_tabs = TABS_LOOKED_AT_AGAIN_AFTER;
 
     while process.is_open() {
+        if let Runtime::RuffleWeb { base, .. } = runtime {
+            if game.is_none() && !anchor.holds_a_manager() {
+                ticks_before_other_tabs -= 1;
+                if ticks_before_other_tabs == 0 {
+                    ticks_before_other_tabs = TABS_LOOKED_AT_AGAIN_AFTER;
+                    let other_tab = plugin::ruffle_tabs()
+                        .await
+                        .iter()
+                        .any(|tab| (tab.pid, tab.base) != (pid, base));
+                    if other_tab {
+                        return Ended::NoGameHere;
+                    }
+                }
+            }
+        }
+
         #[cfg(feature = "diagnostics")]
         {
             let now = diagnostics::now_us();
@@ -283,10 +305,7 @@ async fn run<P: FlashPlayer>(
                         &mut runtime_log::RuntimeLog::default(),
                     )
                     .await;
-                    if game.is_none() && runtime.is_one_of_several() && !anchor.holds_a_manager() {
-                        return Ended::NoGameHere;
-                    }
-                    if !announced_attached {
+                    if !announced_attached && anchor.holds_a_manager() {
                         announce_attached(runtime);
                         announced_attached = true;
                     }

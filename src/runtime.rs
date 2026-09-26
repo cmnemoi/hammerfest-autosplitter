@@ -53,8 +53,7 @@ impl Runtime {
         }
     }
 
-    /// Several Firefox tabs may run Ruffle. One that shows no `GameManager`
-    /// after a whole search plays something else, and the next one is tried.
+    /// Several Firefox tabs may run Ruffle, and only one plays Hammerfest.
     pub fn is_one_of_several(self) -> bool {
         matches!(self, Runtime::RuffleWeb { .. })
     }
