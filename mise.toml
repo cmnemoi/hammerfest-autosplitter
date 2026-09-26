@@ -27,8 +27,9 @@ run = [
 description = "Run the slow tests: the replays of real captures, and the read cost baseline"
 # The slow tests are the ignored ones of these two modules. Other tests are
 # ignored for other reasons: a known limit of the policy, and
-# `smallest_set_of_regions`, a tool that trims a capture.
-run = "cargo test --workspace -- --ignored replay::tests:: read_cost::situations:: --skip smallest_set_of_regions"
+# `smallest_set_of_regions`, a tool that trims a capture, and
+# `times_the_first_search`, a measure.
+run = "cargo test --workspace -- --ignored replay::tests:: read_cost::situations:: --skip smallest_set_of_regions --skip times_the_first_search"
 
 [tasks.test]
 description = "Run every test: the fast ones, then the slow ones"
@@ -64,7 +65,7 @@ description = "Measure the line coverage of the code that ships"
 #
 # `src/lib.rs` stays in, at zero percent. The loop is deliberately outside the
 # net, and a number that hides that decision is worth nothing.
-run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(scenarios|pepper_flash_heap|ruffle_heap|memory_contract|memory|replay|read_cost|stubs|main)[.]rs$" -- --include-ignored --skip smallest_set_of_regions --skip an_autosplitter_started_inside_a_dimension'
+run = 'cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex "(scenarios|pepper_flash_heap|ruffle_heap|memory_contract|memory|replay|read_cost|stubs|main)[.]rs$" -- --include-ignored --skip smallest_set_of_regions --skip times_the_first_search --skip an_autosplitter_started_inside_a_dimension'
 
 [tasks.ci]
 description = "Everything that must pass before a change leaves the machine"

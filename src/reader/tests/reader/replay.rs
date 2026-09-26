@@ -319,6 +319,66 @@ mod tests {
         assert_eq!(actions.skips, 0, "it must skip nothing");
     }
 
+    /// How long the first search takes on each real capture, in processor
+    /// time. The reads are held by the cost baseline; this measures what the
+    /// baseline cannot, as `docs/internals/speed-matters.md` says, by hand:
+    ///
+    /// ```sh
+    /// cargo test --release -p hammerfest-reader times_the_first_search -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore = "a measure, not a test: it times the first search"]
+    fn times_the_first_search() {
+        const RUNS: u32 = 20;
+        let pepper_flash = Capture::load("main-world").expect("no main-world");
+        let ruffle = Capture::load("ruffle-main-world").expect("no ruffle-main-world");
+        let firefox = Capture::load("ruffle-web-main-world").expect("no ruffle-web-main-world");
+        let (base, size) = firefox.linear.expect("no linear memory");
+        let linear = LinearMemory::new(&firefox, base, size);
+        let build = RuffleBuild::recognised_in(&linear).expect("no build");
+
+        let time = |name: &str, search: &dyn Fn() -> bool| {
+            let started = std::time::Instant::now();
+            for _ in 0..RUNS {
+                assert!(search(), "{name}: no game");
+            }
+            println!(
+                "{name:12} {:7.2} ms",
+                started.elapsed().as_secs_f64() * 1000.0 / RUNS as f64
+            );
+        };
+        time("pepper flash", &|| {
+            block_on(resolve(
+                &pepper_flash,
+                &mut PepperFlash::attached_to(pepper_flash.module),
+                &mut Anchor::default(),
+                &pepper_flash.ranges(),
+                &mut Silent,
+            ))
+            .is_some()
+        });
+        time("ruffle", &|| {
+            block_on(resolve(
+                &ruffle,
+                &mut Ruffle::attached_to(ruffle.module),
+                &mut Anchor::default(),
+                &ruffle.ranges(),
+                &mut Silent,
+            ))
+            .is_some()
+        });
+        time("firefox", &|| {
+            block_on(resolve(
+                &linear,
+                &mut Ruffle::in_browser(build),
+                &mut Anchor::default(),
+                &[linear.range()],
+                &mut Silent,
+            ))
+            .is_some()
+        });
+    }
+
     /// Does the reader still find the game when those regions read as zeros?
     fn still_finds_the_game(capture: &Capture, masked: &[u64]) -> bool {
         capture.masked.replace(masked.to_vec());
