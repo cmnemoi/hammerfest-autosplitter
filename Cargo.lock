@@ -112,7 +112,7 @@ version = "1.0.0"
 
 [[package]]
 name = "hammerfest-reader"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "flate2",
  "hammerfest-core",

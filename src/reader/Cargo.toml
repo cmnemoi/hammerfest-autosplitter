@@ -1,6 +1,6 @@
 [package]
 name = "hammerfest-reader"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
 
 # Not `asr`: that is what makes this crate testable. The ASR runtime symbols
