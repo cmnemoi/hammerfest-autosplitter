@@ -109,6 +109,18 @@ run = "uv run python scripts/capture_startup.py"
 description = "Show the level and the clock of the game in progress"
 run = "uv run python scripts/hf_state.py"
 
+[tasks.ruffle-state]
+description = "Show the level and the clock of a game running in Ruffle, on Linux"
+run = "uv run python scripts/ruffle_state.py"
+
+[tasks.capture-ruffle]
+description = "Record the memory of a live Ruffle as a fixture, on Linux"
+run = "uv run python scripts/capture_ruffle.py"
+
+[tasks.trim-ruffle-capture]
+description = "Keep only the pages of a Ruffle capture that hold the game"
+run = "uv run python scripts/trim_ruffle_capture.py"
+
 [tasks.watch]
 description = "Follow the level changes live"
 run = "uv run python scripts/hf_state.py --watch"

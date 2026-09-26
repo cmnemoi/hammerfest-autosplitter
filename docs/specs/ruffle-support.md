@@ -128,6 +128,13 @@ Step 6 is the `feat:` that does.
 
 ### What the spike delivers
 
+**Where it stands, 2026-09-26.** Under Linux, all three are delivered, and a
+live game read a complete and correct `State` on the first try.
+`GameMode.duration` follows real time to 0.01 %. What is not met yet is the
+cost: the Ruffle heap is 300 MiB, and the first search reads 601 MiB. See
+[About the Ruffle heap](../concepts/ruffle-heap.md#seen-on-a-live-game).
+Windows is not checked.
+
 - `docs/concepts/ruffle-heap.md`: strings, objects and property maps of Ruffle,
   drawn from a real capture;
 - a trimmed fixture of a game under Ruffle 0.6.0, like

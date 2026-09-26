@@ -1,12 +1,13 @@
 # About the Ruffle heap
 
-> **Draft.** Read in the source of Ruffle 0.6.0 and in its Linux binary, on
-> 2026-09-26. Nothing here was checked on a live game yet. Each line says where
-> it comes from:
+> **Read in the source of Ruffle 0.6.0 and in its Linux binary, then checked
+> on a live game under Linux, on 2026-09-26.** Windows is not checked yet. Each
+> line says where it comes from:
 >
 > - **[S]** read in the source;
 > - **[B]** read in the Linux 0.6.0 binary, by disassembly;
-> - **[H]** a hypothesis, to check on a live process.
+> - **[L]** seen on a live game, under Linux;
+> - **[H]** a hypothesis, still to check.
 >
 > See [Ruffle support](../specs/ruffle-support.md) for why this page exists.
 
@@ -302,17 +303,40 @@ sweeps.
 
 ---
 
-## To check on a live process
+## Seen on a live game
+
+[L] Under Linux, Eternalfest Desktop 0.1.0, Ruffle 0.6.0, a game at level 2 of
+`xml_adventure`. `mise run ruffle-state` reads it, and
+`fixtures/replay/ruffle-main-world` keeps it.
+
+- **The search above works as written, on the first try.** Pass A found 18
+  buckets of `]=[]8`, pass B found 19 objects that own them, and one of them is
+  the `GameMode`: its `manager` names it back as `current`.
+- **Every offset of the bucket, the object and the value holds**: the stride
+  of 56, the key at `+0x28`, the hash at `+0x30`, the map at `+0x08`, the
+  Value tags, the vtable Layout 8 and 160, the Latin-1 strings.
+- **`currentId` is the f64 `2.0`**, and `_previousId` the f64 `1.0`.
+- **The whole game lives in `[heap]`**, the brk heap of glibc, and in two
+  mappings of the module: the vtables, and the static strings such as
+  `__proto__`. The 110 anonymous mappings hold none of it.
+- **`GameMode.duration` follows real time.** Over 60.13 s of wall clock,
+  `duration` advanced 1924 cycles, that is 60.12 s: 0.01 %. Pepper Flash gives
+  0.1 %.
+
+What it costs, and it is the one bad news: the heap is **300 MiB in 111
+ranges**, against about 80 MiB for Pepper Flash. The two sweeps read 601 MiB.
+Since the game lives in `[heap]` alone, sweeping `[heap]` first is the obvious
+lead. That is for the design of `RuffleHeap`, and the read cost baseline will
+say what it saves.
+
+## Still to check
 
 - The Windows `.exe` has the same layout. Probe it: the Layout in a vtable,
   the meta and bytes of a string, a bucket hash equal to the FNV of its key,
-  a RefCell flag at 0.
-- The order of getter, setter, id and attributes in `Property`.
-- Hammerfest's compiler, MTASC, sends its keys through the constant pool. If
-  not, the keys are not interned, and pass A still holds.
-- `GameMode` is an `Object` with `NativeObject::None`.
-- The regions that hold the heap: `[heap]` and anonymous RW mappings on Linux,
-  private RW regions on Windows.
+  a RefCell flag at 0. And which regions hold the heap there.
+- The order of getter, setter, id and attributes in `Property`. The reader
+  needs only the Value at `+0x00`, so it may never matter.
+- Whether the keys are interned. Pass A does not need them to be.
 - Finding a dead object by its overwritten header is safe under glibc, and
   uncertain under the Windows heap (LFH).
 - The real key of `fVersion`. Its hash above assumes it is not obfuscated.

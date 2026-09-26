@@ -54,7 +54,8 @@ The steps, in order:
 1. ~~the bench, in the CI~~: done, see [Read cost](docs/specs/read-cost.md);
 2. ~~the reader leaves the wasm crate~~: done, see `src/reader/` and
    `src/process/`;
-3. the Ruffle spike, beside steps 1 and 2;
+3. the Ruffle spike, beside steps 1 and 2: done under Linux, see
+   [About the Ruffle heap](docs/concepts/ruffle-heap.md). Windows is left;
 4. design `Avm1Heap` and `Runtime`;
 5. extract `Avm1Heap` from the Pepper Flash reader;
 6. `RuffleHeap`, and finding the player;
