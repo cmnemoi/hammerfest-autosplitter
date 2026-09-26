@@ -9,7 +9,12 @@
 //! mise run e2e              # 30 seconds
 //! mise run e2e -- 120       # longer, to play a level or two
 //! mise run e2e -- 30 target/diagnostics/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
+//! mise run e2e -- 120 before.wasm after.wasm   # two builds, side by side
 //! ```
+//!
+//! Several modules run in the same loop, one after the other on each tick. So
+//! they see the same game at the same moment, and their costs can be
+//! compared.
 //!
 //! It judges two things, and reports the rest:
 //!
@@ -46,6 +51,8 @@ struct Report {
 ///
 /// The runtime owns the timer once the module runs, so the report is shared.
 struct WatchingTimer {
+    /// The module this timer serves, when several run side by side.
+    name: String,
     state: TimerState,
     started: Instant,
     variables: HashMap<String, String>,
@@ -54,7 +61,11 @@ struct WatchingTimer {
 
 impl WatchingTimer {
     fn say(&self, what: fmt::Arguments) {
-        println!("[{:7.2} s] {what}", self.started.elapsed().as_secs_f64());
+        println!(
+            "[{:7.2} s] {}{what}",
+            self.started.elapsed().as_secs_f64(),
+            self.name
+        );
     }
 }
 
@@ -122,18 +133,23 @@ fn percentile(sorted: &[Duration], fraction: f64) -> Duration {
     sorted.get(index).copied().unwrap_or_default()
 }
 
-fn main() -> ExitCode {
-    let seconds: u64 = env::args().nth(1).map_or(30, |text| {
-        text.parse().expect("the duration of the run, in seconds")
-    });
-    // Another build can be judged, such as the one that measures:
-    // `mise run build-diagnostics`, then its `.wasm` as the second argument.
-    let module = env::args().nth(2).unwrap_or_else(|| MODULE.to_owned());
-    let wasm = fs::read(&module).expect("no module: run `mise run build` first");
+/// One module under judgement: its runtime, its report, the time of each of
+/// its updates.
+struct Judged {
+    name: String,
+    splitter: livesplit_auto_splitting::AutoSplitter<WatchingTimer>,
+    report: Arc<Mutex<Report>>,
+    updates: Vec<Duration>,
+}
+
+fn load(path: &str, name: String, started: Instant) -> Judged {
+    let wasm = fs::read(path)
+        .unwrap_or_else(|_| panic!("no module at {path}: run `mise run build` first"));
     let report = Arc::new(Mutex::new(Report::default()));
     let timer = WatchingTimer {
+        name: name.clone(),
         state: TimerState::NotRunning,
-        started: Instant::now(),
+        started,
         variables: HashMap::new(),
         report: Arc::clone(&report),
     };
@@ -141,47 +157,50 @@ fn main() -> ExitCode {
         .and_then(|runtime| runtime.compile(&wasm))
         .and_then(|module| module.instantiate(timer, None, None))
         .expect("the runtime refused the module");
-
-    let mut updates = Vec::new();
-    let end = Instant::now() + Duration::from_secs(seconds);
-    while Instant::now() < end {
-        let before = Instant::now();
-        splitter.lock().update().expect("the module trapped");
-        let spent = before.elapsed();
-        updates.push(spent);
-        std::thread::sleep(splitter.tick_rate().saturating_sub(spent));
+    Judged {
+        name,
+        splitter,
+        report,
+        updates: Vec::new(),
     }
+}
 
-    let timer = report.lock().unwrap();
+/// Prints what one module did, and says what failed.
+fn judge(judged: &mut Judged) -> Vec<String> {
+    let report = judged.report.lock().unwrap();
+    let updates = &mut judged.updates;
     updates.sort_unstable();
-    let p99 = percentile(&updates, 0.99);
+    let p99 = percentile(updates, 0.99);
     let ms = |duration: Duration| duration.as_secs_f64() * 1000.0;
-    println!();
-    println!("updates    {}", updates.len());
-    println!(
-        "update     p50 {:.3} ms, p99 {:.3} ms, max {:.3} ms",
-        ms(percentile(&updates, 0.5)),
-        ms(p99),
-        ms(percentile(&updates, 1.0))
-    );
     let at = |moment: Option<Duration>| {
         moment.map_or_else(
             || "never".to_owned(),
             |d| format!("{:.2} s", d.as_secs_f64()),
         )
     };
-    println!("attached   {}", at(timer.attached_at));
-    println!("level      {}", at(timer.level_at));
+    println!();
+    if !judged.name.is_empty() {
+        println!("{}", judged.name.trim_end_matches(": "));
+    }
+    println!("updates    {}", updates.len());
+    println!(
+        "update     p50 {:.3} ms, p99 {:.3} ms, max {:.3} ms",
+        ms(percentile(updates, 0.5)),
+        ms(p99),
+        ms(percentile(updates, 1.0))
+    );
+    println!("attached   {}", at(report.attached_at));
+    println!("level      {}", at(report.level_at));
     println!(
         "timer      {} start(s), {} split(s)",
-        timer.starts, timer.splits
+        report.starts, report.splits
     );
 
     let mut failures = Vec::new();
-    if timer.attached_at.is_none() {
+    if report.attached_at.is_none() {
         failures.push("the module attached to no player: is a game running?".to_owned());
     }
-    if timer.level_at.is_none() {
+    if report.level_at.is_none() {
         failures.push(
             "the module published no level: is a game started, past the black screen?".to_owned(),
         );
@@ -193,6 +212,49 @@ fn main() -> ExitCode {
             ms(TICK)
         ));
     }
+    failures
+        .into_iter()
+        .map(|failure| format!("{}{failure}", judged.name))
+        .collect()
+}
+
+fn main() -> ExitCode {
+    let seconds: u64 = env::args().nth(1).map_or(30, |text| {
+        text.parse().expect("the duration of the run, in seconds")
+    });
+    // Other builds can be judged, such as the one that measures
+    // (`mise run build-diagnostics`), or an older one to compare with.
+    let mut paths: Vec<String> = env::args().skip(2).collect();
+    if paths.is_empty() {
+        paths.push(MODULE.to_owned());
+    }
+    let started = Instant::now();
+    let several = paths.len() > 1;
+    let mut modules: Vec<Judged> = paths
+        .iter()
+        .map(|path| {
+            let name = if several {
+                let file = path.rsplit('/').next().unwrap_or(path);
+                format!("{}: ", file.trim_end_matches(".wasm"))
+            } else {
+                String::new()
+            };
+            load(path, name, started)
+        })
+        .collect();
+
+    let end = Instant::now() + Duration::from_secs(seconds);
+    while Instant::now() < end {
+        let tick_started = Instant::now();
+        for module in &mut modules {
+            let before = Instant::now();
+            module.splitter.lock().update().expect("the module trapped");
+            module.updates.push(before.elapsed());
+        }
+        std::thread::sleep(TICK.saturating_sub(tick_started.elapsed()));
+    }
+
+    let failures: Vec<String> = modules.iter_mut().flat_map(judge).collect();
     println!();
     if failures.is_empty() {
         println!("PASS");

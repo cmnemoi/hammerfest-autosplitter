@@ -33,6 +33,13 @@ a hundred stays within one tick (8.3 ms). `mise run e2e -- 120` watches for
 two minutes, long enough to cross a level. The first run builds the runtime,
 which takes a few minutes; the next ones start at once.
 
+To compare two builds, give both `.wasm` after the duration. They run in the
+same loop, so they see the same game at the same moment:
+
+```sh
+mise run e2e -- 120 before.wasm target/wasm32-unknown-unknown/release/hammerfest_autosplitter.wasm
+```
+
 Then, with the game and LiveSplit open:
 
 1. start a game, and watch the timer start when level 0 appears;
