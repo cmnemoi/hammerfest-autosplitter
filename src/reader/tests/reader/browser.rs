@@ -133,7 +133,6 @@ mod a_known_build {
 }
 
 mod blocks {
-    use super::*;
     use hammerfest_reader::linear_memory::blocks;
 
     const MIB: u64 = 1 << 20;
