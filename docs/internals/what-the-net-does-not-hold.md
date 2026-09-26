@@ -30,7 +30,7 @@ The rest is the five-minute check before a session.
 Listing the EternalTwin processes, attaching to each one and asking for its
 modules is out of the reader's scope, and the spec says so.
 
-`heap_iter`, `heap_ranges` and `heap_size` keep talking to `asr` directly for
+`heap_iter`, `heap_ranges` and `heap_size`, in `src/plugin.rs`, talk to `asr` directly for
 that reason. `resolve` receives the ranges as a slice, which is what took the
 reader off the runtime API.
 

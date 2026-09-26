@@ -30,6 +30,7 @@ static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 mod avm1;
 mod diagnostics;
 mod hammerfest;
+mod plugin;
 
 /// The runtime symbols, defined so that `cargo test` can link.
 #[cfg(test)]
@@ -114,7 +115,7 @@ async fn main() {
     diagnostics::event("module_started");
 
     loop {
-        match hammerfest::attach_plugin(PROCESS_NAMES, &mut rejected) {
+        match plugin::attach_plugin(PROCESS_NAMES, &mut rejected) {
             Some((process, module, pid)) => {
                 asr::print_message("Hammerfest: Flash plugin attached");
                 diagnostics::event("plugin_attached");
@@ -188,7 +189,7 @@ async fn run(
                 // there, at the mercy of the previous attempt.
                 let ranges = fresh_map.poll(pid);
                 let now = ranges.map_or_else(
-                    || hammerfest::heap_size(process),
+                    || plugin::heap_size(process),
                     |rs| rs.iter().map(|(a, b)| b - a).sum(),
                 );
                 if pacing.may_scan(now) {
@@ -199,8 +200,7 @@ async fn run(
                     ));
                     // The ranges are gathered here, and not inside `resolve`.
                     // That is what keeps the reader off the runtime API.
-                    let all =
-                        ranges.map_or_else(|| hammerfest::heap_ranges(process), |rs| rs.to_vec());
+                    let all = ranges.map_or_else(|| plugin::heap_ranges(process), |rs| rs.to_vec());
                     game = hammerfest::resolve(process, module, anchor, binary, &all).await;
                     if game.is_none() {
                         pacing.scan_failed();

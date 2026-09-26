@@ -36,5 +36,5 @@ memory to search is spread over 1119 MiB where Windows holds it in 84 MiB.
 Finding the game there takes about 2.5 s.
 
 See [About finding the game](../internals/finding-the-game.md) for what the
-search does, and `heap_ranges` in `src/hammerfest.rs` for the order it reads
+search does, and `heap_ranges` in `src/plugin.rs` for the order it reads
 the ranges in.

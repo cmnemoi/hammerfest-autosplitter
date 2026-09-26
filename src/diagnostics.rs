@@ -105,7 +105,7 @@ impl FreshMap {
         let now = now_us();
         if now >= self.next_us {
             if let Some(process) = asr::Process::attach_by_pid(pid) {
-                let ranges = crate::hammerfest::heap_ranges(&process);
+                let ranges = crate::plugin::heap_ranges(&process);
                 #[cfg(feature = "diagnostics")]
                 asr::print_message(&alloc::format!(
                     "HF_DIAG event=map_refresh t_us={} elapsed_us={} changed={} ranges={} bytes={}",

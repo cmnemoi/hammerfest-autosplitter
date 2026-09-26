@@ -66,7 +66,7 @@ EternalTwin starts half a dozen processes under one name. Only one loaded
 modules.
 
 That process lives only while a Flash instance lives. Its identifier is never
-cached. → `src/hammerfest.rs`, `attach_plugin`
+cached. → `src/plugin.rs`, `attach_plugin`
 
 ### 2. Find the game in the heap
 
