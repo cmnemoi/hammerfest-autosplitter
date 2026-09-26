@@ -1,6 +1,8 @@
 [package]
 name = "hammerfest-harness"
-version = "1.0.0"
+# Out of the workspace, so release-please never bumps it: this crate follows
+# no release, and its number means nothing.
+version = "0.0.0"
 edition = "2021"
 publish = false
 
