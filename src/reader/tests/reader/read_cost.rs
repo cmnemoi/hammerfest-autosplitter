@@ -167,7 +167,7 @@ mod situations {
     use super::*;
     use crate::pepper_flash_heap::PepperFlashHeapWriter;
     use crate::replay::Capture;
-    use crate::ruffle_heap::RuffleHeapWriter;
+    use crate::ruffle_heap::RuffleDesktopHeap;
     use crate::scenarios::{World, WrittenHeap};
     use hammerfest_reader::hammerfest::{resolve, Anchor, Game};
     use hammerfest_reader::heap::FlashPlayer;
@@ -271,7 +271,7 @@ mod situations {
             "ruffle-main-world",
             Ruffle::attached_to,
         );
-        a_game_that_is_over::<RuffleHeapWriter>(&mut costs, "ruffle-");
+        a_game_that_is_over::<RuffleDesktopHeap>(&mut costs, "ruffle-");
         costs
     }
 

@@ -6,7 +6,8 @@
 //! the scenarios         below: what the reader must find, and read
 //! the DSL               `given_a_heap`, `when_we_look_for_the_game`, `then_...`
 //! the drivers           a heap written in the bytes of one player:
-//!                       `pepper_flash_heap.rs`, `ruffle_heap.rs`
+//!                       `pepper_flash_heap.rs`, `ruffle_heap.rs` (desktop
+//!                       and browser)
 //! ```
 //!
 //! A scenario never names a player. [`scenario!`] writes it once per driver,
@@ -23,7 +24,7 @@ use hammerfest_reader::search_log::Silent;
 
 use crate::memory_contract::Heap;
 use crate::pepper_flash_heap::PepperFlashHeapWriter;
-use crate::ruffle_heap::RuffleHeapWriter;
+use crate::ruffle_heap::{RuffleDesktopHeap, RuffleWebHeap};
 
 // -- the drivers -------------------------------------------------------------
 
@@ -88,7 +89,16 @@ macro_rules! scenario {
             $(#[$meta])*
             #[test]
             fn ruffle() {
-                fn given_a_heap() -> World<RuffleHeapWriter> {
+                fn given_a_heap() -> World<RuffleDesktopHeap> {
+                    World::default()
+                }
+                $body
+            }
+
+            $(#[$meta])*
+            #[test]
+            fn ruffle_web() {
+                fn given_a_heap() -> World<RuffleWebHeap> {
                     World::default()
                 }
                 $body
@@ -695,39 +705,64 @@ fn finds_a_game_when_a_key_is_not_a_string() {
 
 // -- the scenarios of Ruffle alone -------------------------------------------
 
-/// A heap in the bytes of Ruffle, for the traps only that player sets.
-fn given_a_ruffle_heap() -> World<RuffleHeapWriter> {
-    World::default()
+/// Writes a scenario of Ruffle alone once per Ruffle driver: on the desktop,
+/// and in a browser.
+macro_rules! ruffle_scenario {
+    ($(#[$meta:meta])* fn $name:ident() $body:block) => {
+        mod $name {
+            use super::*;
+
+            $(#[$meta])*
+            #[test]
+            fn ruffle() {
+                fn given_a_ruffle_heap() -> World<RuffleDesktopHeap> {
+                    World::default()
+                }
+                $body
+            }
+
+            $(#[$meta])*
+            #[test]
+            fn ruffle_web() {
+                fn given_a_ruffle_heap() -> World<RuffleWebHeap> {
+                    World::default()
+                }
+                $body
+            }
+        }
+    };
 }
 
-/// Ruffle only: Pepper Flash keeps no hash beside its keys.
-/** @spec ruffle.read::an-entry-whose-hash-lies */
-#[test]
-fn refuses_to_read_an_entry_whose_hash_lies() {
-    let mut heap = given_a_ruffle_heap()
-        .with_a_manager_and_a_game()
-        .at_level(2)
-        .build();
-    let found = when_we_look_for_the_game(&mut heap);
-    let mut game = then_the_game_is_found(&heap, found);
-    // The first reading remembers where `currentId` sits.
-    then_the_state(when_we_read_it(&heap, &mut game)).level(2);
-    heap.written.the_level_entry_holds_another_hash();
+ruffle_scenario! {
+    /// Ruffle only: Pepper Flash keeps no hash beside its keys.
+    /** @spec ruffle.read::an-entry-whose-hash-lies */
+    fn refuses_to_read_an_entry_whose_hash_lies() {
+        let mut heap = given_a_ruffle_heap()
+            .with_a_manager_and_a_game()
+            .at_level(2)
+            .build();
+        let found = when_we_look_for_the_game(&mut heap);
+        let mut game = then_the_game_is_found(&heap, found);
+        // The first reading remembers where `currentId` sits.
+        then_the_state(when_we_read_it(&heap, &mut game)).level(2);
+        heap.written.the_level_entry_holds_another_hash();
 
-    let state = when_we_read_it(&heap, &mut game);
+        let state = when_we_read_it(&heap, &mut game);
 
-    then_nothing_is_read(state);
+        then_nothing_is_read(state);
+    }
 }
 
-/// Ruffle only: the type of a Pepper Flash object is proven by the vtable of
-/// its table, which the Pepper Flash scenarios already hold.
-/** @spec ruffle.find::a-map-that-is-not-an-object */
-#[test]
-fn finds_nothing_in_a_map_that_is_not_an_object() {
-    let mut heap = given_a_ruffle_heap().with_a_game().build();
-    heap.written.the_game_is_not_an_object();
+ruffle_scenario! {
+    /// Ruffle only: the type of a Pepper Flash object is proven by the vtable
+    /// of its table, which the Pepper Flash scenarios already hold.
+    /** @spec ruffle.find::a-map-that-is-not-an-object */
+    fn finds_nothing_in_a_map_that_is_not_an_object() {
+        let mut heap = given_a_ruffle_heap().with_a_game().build();
+        heap.written.the_game_is_not_an_object();
 
-    let found = when_we_look_for_the_game(&mut heap);
+        let found = when_we_look_for_the_game(&mut heap);
 
-    then_nothing_is_found(found);
+        then_nothing_is_found(found);
+    }
 }

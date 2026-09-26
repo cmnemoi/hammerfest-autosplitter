@@ -8,59 +8,152 @@
 //! reader's offsets against bytes Ruffle really wrote.
 
 use alloc::{string::String, vec, vec::Vec};
+use core::marker::PhantomData;
 
 use hammerfest_reader::keys;
-use hammerfest_reader::ruffle::Ruffle;
+use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
 
 use crate::memory_contract::Heap;
 use crate::scenarios::{World, WrittenHeap};
 
-/// Where the fake module sits, and the vtables in it.
-const MODULE: (u64, u64) = (0x4000_0000, 0x4010_0000);
-/// Where the heap sits.
-const HEAP_BASE: u64 = 0x1000_0000;
 /// Where nothing is mapped at all.
 const NOWHERE: u64 = 0x2000_0000;
 
-/// Ruffle 0.6.0 under Linux, as `docs/concepts/ruffle-heap.md` draws it.
-mod layout {
-    use super::MODULE;
-
+/// Where one target of Ruffle puts what the driver writes. The driver's own
+/// table: `docs/concepts/ruffle-heap.md` and `ruffle-web-heap.md`.
+#[derive(Copy, Clone)]
+pub struct DriverLayout {
+    /// Where the heap starts: an address on the desktop, an offset in the
+    /// linear memory in a browser.
+    heap_base: u64,
+    /// The bytes of a pointer, of a length, and of a stored hash.
+    word: usize,
     /// A collected value is preceded by `next`, then its tagged vtable.
-    pub const GC_HEADER: u64 = 0x10;
-    pub const GC_VTABLE: u64 = 0x08;
-    /// The low bits of the vtable are flags of the collector.
-    pub const GC_FLAGS: u64 = 0b1010;
-
-    /// The vtable of an AVM1 object, and the one of another type.
-    pub const OBJECT_VTABLE: u64 = MODULE.0 + 0x1120;
-    pub const OBJECT_SIZE: u64 = 160;
-    pub const VEC_VTABLE: u64 = MODULE.0 + 0x1140;
-    pub const VEC_SIZE: u64 = 24;
-    pub const STRING_VTABLE: u64 = MODULE.0 + 0x1300;
-    pub const STRING_SIZE: u64 = 32;
-
+    gc_header: u64,
+    gc_vtable: u64,
+    object_vtable: u64,
+    object_size: u64,
+    vec_vtable: u64,
+    string_vtable: u64,
+    string_size: u64,
     /// Object: the borrow flag, then the map of its properties.
-    pub const ENTRIES_CAPACITY: u64 = 0x08;
-    pub const ENTRIES_POINTER: u64 = 0x10;
-    pub const ENTRIES_LENGTH: u64 = 0x18;
-
+    entries_capacity: u64,
+    entries_pointer: u64,
+    entries_length: u64,
     /// Entry: the value, then the key and its hash.
-    pub const ENTRY_SIZE: u64 = 56;
-    pub const ENTRY_KEY: u64 = 0x28;
-    pub const ENTRY_HASH: u64 = 0x30;
-
-    /// Value: a tag, then the boolean or the payload.
-    pub const TAG_BOOL: u8 = 2;
-    pub const TAG_NUMBER: u8 = 3;
-    pub const TAG_STRING: u8 = 4;
-    pub const TAG_OBJECT: u8 = 5;
-    pub const VALUE_BOOL: u64 = 0x01;
-    pub const VALUE_PAYLOAD: u64 = 0x08;
-
+    entry_size: u64,
+    entry_key: u64,
+    entry_hash: u64,
+    /// Value: a tag, then the boolean, the pointer or the number.
+    value_pointer: u64,
     /// String: the pointer to its units, then its length.
-    pub const STRING_UNITS: u64 = 0x00;
-    pub const STRING_LENGTH: u64 = 0x10;
+    string_length: u64,
+}
+
+/// The low bits of a vtable are flags of the collector.
+const GC_FLAGS: u64 = 0b1010;
+const TAG_BOOL: u8 = 2;
+const TAG_NUMBER: u8 = 3;
+const TAG_STRING: u8 = 4;
+const TAG_OBJECT: u8 = 5;
+const VALUE_BOOL: u64 = 0x01;
+const VALUE_NUMBER: u64 = 0x08;
+
+/// A target Ruffle is compiled for, and the player that reads it.
+pub trait Target {
+    const LAYOUT: DriverLayout;
+
+    fn player() -> Ruffle;
+
+    /// The memory, as the reader asks for it: the heap, and the statics.
+    fn memory(heap: Vec<u8>) -> Heap;
+}
+
+/// Ruffle desktop 0.6.0, x86-64.
+pub struct Desktop;
+
+/// Where the fake module sits, and the vtables in it.
+const MODULE: (u64, u64) = (0x4000_0000, 0x4010_0000);
+
+impl Target for Desktop {
+    const LAYOUT: DriverLayout = DriverLayout {
+        heap_base: 0x1000_0000,
+        word: 8,
+        gc_header: 0x10,
+        gc_vtable: 0x08,
+        object_vtable: MODULE.0 + 0x1120,
+        object_size: 160,
+        vec_vtable: MODULE.0 + 0x1140,
+        string_vtable: MODULE.0 + 0x1300,
+        string_size: 32,
+        entries_capacity: 0x08,
+        entries_pointer: 0x10,
+        entries_length: 0x18,
+        entry_size: 56,
+        entry_key: 0x28,
+        entry_hash: 0x30,
+        value_pointer: 0x08,
+        string_length: 0x10,
+    };
+
+    fn player() -> Ruffle {
+        Ruffle::attached_to(MODULE)
+    }
+
+    /// The module holds the vtables of the collected types: their alignment,
+    /// then their size.
+    fn memory(heap: Vec<u8>) -> Heap {
+        let layout = Self::LAYOUT;
+        let mut module = vec![0u8; 0x2000];
+        for (vtable, size) in [
+            (layout.object_vtable, layout.object_size),
+            (layout.vec_vtable, 24),
+            (layout.string_vtable, layout.string_size),
+        ] {
+            let at = (vtable - MODULE.0) as usize;
+            module[at..at + 8].copy_from_slice(&8u64.to_le_bytes());
+            module[at + 8..at + 16].copy_from_slice(&size.to_le_bytes());
+        }
+        Heap::default()
+            .with_range(layout.heap_base, heap)
+            .with_range(MODULE.0, module)
+    }
+}
+
+/// Ruffle web 0.6.0, wasm32, the extensions build. Every address is an
+/// offset in the linear memory.
+pub struct Browser;
+
+impl Target for Browser {
+    const LAYOUT: DriverLayout = DriverLayout {
+        // Above the stack and the statics, where dlmalloc starts.
+        heap_base: 0x49_0000,
+        word: 4,
+        gc_header: 0x08,
+        gc_vtable: 0x04,
+        object_vtable: 0x2C_69A0,
+        object_size: 80,
+        vec_vtable: 0x2D_C490,
+        string_vtable: 0x31_5F30,
+        string_size: 20,
+        entries_capacity: 0x04,
+        entries_pointer: 0x08,
+        entries_length: 0x0C,
+        entry_size: 40,
+        entry_key: 0x20,
+        entry_hash: 0x24,
+        value_pointer: 0x04,
+        string_length: 0x04,
+    };
+
+    fn player() -> Ruffle {
+        Ruffle::in_browser(RuffleBuild::Extensions)
+    }
+
+    /// The build names the vtable of an object: no static is read.
+    fn memory(heap: Vec<u8>) -> Heap {
+        Heap::default().with_range(Self::LAYOUT.heap_base, heap)
+    }
 }
 
 /// A value, as the driver writes it in an entry.
@@ -95,6 +188,7 @@ fn key_hash(key: &str) -> u64 {
 
 /// A bump allocator over one region, and the strings already interned.
 struct Bytes {
+    layout: DriverLayout,
     data: Vec<u8>,
     interned: Vec<(String, u64)>,
 }
@@ -107,8 +201,9 @@ struct Obj {
 }
 
 impl Bytes {
-    fn new() -> Self {
+    fn new(layout: DriverLayout) -> Self {
         Self {
+            layout,
             // Address zero means "no address", so nothing starts there.
             data: vec![0u8; 16],
             interned: Vec::new(),
@@ -116,26 +211,43 @@ impl Bytes {
     }
 
     fn alloc(&mut self, len: u64) -> u64 {
-        let address = HEAP_BASE + self.data.len() as u64;
+        let address = self.layout.heap_base + self.data.len() as u64;
         self.data
             .resize(self.data.len() + (len as usize).next_multiple_of(16), 0);
         address
     }
 
+    /// A word of the target: a pointer, a length, a hash.
     fn put(&mut self, address: u64, value: u64) {
-        let at = (address - HEAP_BASE) as usize;
-        self.data[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        let width = self.layout.word;
+        self.put_bytes(address, &value.to_le_bytes()[..width]);
+    }
+
+    fn put_number(&mut self, address: u64, value: f64) {
+        self.put_bytes(address, &value.to_bits().to_le_bytes());
+    }
+
+    fn put_bytes(&mut self, address: u64, bytes: &[u8]) {
+        let at = (address - self.layout.heap_base) as usize;
+        self.data[at..at + bytes.len()].copy_from_slice(bytes);
     }
 
     fn put_byte(&mut self, address: u64, value: u8) {
-        self.data[(address - HEAP_BASE) as usize] = value;
+        self.put_bytes(address, &[value]);
+    }
+
+    fn word(&self, address: u64) -> u64 {
+        let at = (address - self.layout.heap_base) as usize;
+        let mut bytes = [0u8; 8];
+        bytes[..self.layout.word].copy_from_slice(&self.data[at..at + self.layout.word]);
+        u64::from_le_bytes(bytes)
     }
 
     /// A value the collector owns: its header, then the value itself.
     fn collected(&mut self, vtable: u64, size: u64) -> u64 {
-        let header = self.alloc(layout::GC_HEADER + size);
-        self.put(header + layout::GC_VTABLE, vtable | layout::GC_FLAGS);
-        header + layout::GC_HEADER
+        let header = self.alloc(self.layout.gc_header + size);
+        self.put(header + self.layout.gc_vtable, vtable | GC_FLAGS);
+        header + self.layout.gc_header
     }
 
     /// A string, written once and shared, as the pool of constants does.
@@ -144,18 +256,21 @@ impl Bytes {
             return *address;
         }
         let units = self.alloc(text.len() as u64);
-        let at = (units - HEAP_BASE) as usize;
-        self.data[at..at + text.len()].copy_from_slice(text.as_bytes());
-        let string = self.collected(layout::STRING_VTABLE, layout::STRING_SIZE);
-        self.put(string + layout::STRING_UNITS, units);
-        self.put(string + layout::STRING_LENGTH, text.len() as u64);
+        self.put_bytes(units, text.as_bytes());
+        let string = self.collected(self.layout.string_vtable, self.layout.string_size);
+        self.put(string, units);
+        // The length is a u32 on every target.
+        self.put_bytes(
+            string + self.layout.string_length,
+            &(text.len() as u32).to_le_bytes(),
+        );
         self.interned.push((String::from(text), string));
         string
     }
 
     fn object(&mut self) -> Obj {
         Obj {
-            address: self.collected(layout::OBJECT_VTABLE, layout::OBJECT_SIZE),
+            address: self.collected(self.layout.object_vtable, self.layout.object_size),
             properties: Vec::new(),
         }
     }
@@ -163,37 +278,40 @@ impl Bytes {
     /// Writes the entries of an object in a new buffer, and points its map at
     /// them. That is also what Ruffle does when a map grows.
     fn write_entries(&mut self, object: &Obj) {
+        let layout = self.layout;
         let count = object.properties.len() as u64;
-        let entries = self.alloc(count * layout::ENTRY_SIZE);
+        let entries = self.alloc(count * layout.entry_size);
         for (index, (key, value)) in object.properties.iter().enumerate() {
-            let entry = entries + index as u64 * layout::ENTRY_SIZE;
+            let entry = entries + index as u64 * layout.entry_size;
             self.write_value(entry, *value);
             let key_string = self.string(key);
-            self.put(entry + layout::ENTRY_KEY, key_string);
-            self.put(entry + layout::ENTRY_HASH, key_hash(key));
+            self.put(entry + layout.entry_key, key_string);
+            // `put` keeps the low half of the hash on a 32-bit target, as
+            // Ruffle does.
+            self.put(entry + layout.entry_hash, key_hash(key));
         }
-        self.put(object.address + layout::ENTRIES_CAPACITY, count);
-        self.put(object.address + layout::ENTRIES_POINTER, entries);
-        self.put(object.address + layout::ENTRIES_LENGTH, count);
+        self.put(object.address + layout.entries_capacity, count);
+        self.put(object.address + layout.entries_pointer, entries);
+        self.put(object.address + layout.entries_length, count);
     }
 
     fn write_value(&mut self, at: u64, value: Value) {
         match value {
             Value::Bool(flag) => {
-                self.put_byte(at, layout::TAG_BOOL);
-                self.put_byte(at + layout::VALUE_BOOL, flag as u8);
+                self.put_byte(at, TAG_BOOL);
+                self.put_byte(at + VALUE_BOOL, flag as u8);
             }
             Value::Number(number) => {
-                self.put_byte(at, layout::TAG_NUMBER);
-                self.put(at + layout::VALUE_PAYLOAD, number.to_bits());
+                self.put_byte(at, TAG_NUMBER);
+                self.put_number(at + VALUE_NUMBER, number);
             }
             Value::String(string) => {
-                self.put_byte(at, layout::TAG_STRING);
-                self.put(at + layout::VALUE_PAYLOAD, string);
+                self.put_byte(at, TAG_STRING);
+                self.put(at + self.layout.value_pointer, string);
             }
             Value::Object(object) => {
-                self.put_byte(at, layout::TAG_OBJECT);
-                self.put(at + layout::VALUE_PAYLOAD, object);
+                self.put_byte(at, TAG_OBJECT);
+                self.put(at + self.layout.value_pointer, object);
             }
         }
     }
@@ -205,9 +323,8 @@ impl Bytes {
             .iter()
             .position(|(name, _)| name == key)
             .expect("the object carries no property under that key");
-        let at = (object.address + layout::ENTRIES_POINTER - HEAP_BASE) as usize;
-        let entries = u64::from_le_bytes(self.data[at..at + 8].try_into().unwrap());
-        entries + index as u64 * layout::ENTRY_SIZE
+        let entries = self.word(object.address + self.layout.entries_pointer);
+        entries + index as u64 * self.layout.entry_size
     }
 
     /// Writes another value under a key the object already carries.
@@ -229,8 +346,10 @@ fn set(object: &mut Obj, key: &str, value: Value) {
 
 // -- the driver --------------------------------------------------------------
 
-/// A world, in the bytes of Ruffle, and what the driver knows of them.
-pub struct RuffleHeapWriter {
+/// A world, in the bytes of Ruffle for one target, and what the driver knows
+/// of them.
+pub struct RuffleHeapWriter<T> {
+    target: PhantomData<T>,
     bytes: Bytes,
     mode: Obj,
     manager: Obj,
@@ -238,14 +357,20 @@ pub struct RuffleHeapWriter {
     chrono: Obj,
 }
 
-impl WrittenHeap for RuffleHeapWriter {
+/// The Ruffle desktop driver.
+pub type RuffleDesktopHeap = RuffleHeapWriter<Desktop>;
+/// The Ruffle web driver: offsets in a linear memory.
+pub type RuffleWebHeap = RuffleHeapWriter<Browser>;
+
+impl<T: Target> WrittenHeap for RuffleHeapWriter<T> {
     type Player = Ruffle;
 
     fn write(world: &World<Self>) -> (Self, Ruffle) {
-        let mut b = Bytes::new();
-        let player = Ruffle::attached_to(MODULE);
+        let mut b = Bytes::new(T::LAYOUT);
+        let player = T::player();
         if world.empty {
             let written = Self {
+                target: PhantomData,
                 bytes: b,
                 mode: Obj::default(),
                 manager: Obj::default(),
@@ -347,6 +472,7 @@ impl WrittenHeap for RuffleHeapWriter {
         }
 
         let written = Self {
+            target: PhantomData,
             bytes: b,
             mode: game_mode,
             manager,
@@ -357,13 +483,12 @@ impl WrittenHeap for RuffleHeapWriter {
     }
 
     fn memory(&self) -> Heap {
-        Heap::default()
-            .with_range(HEAP_BASE, self.bytes.data.clone())
-            .with_range(MODULE.0, module_bytes())
+        T::memory(self.bytes.data.clone())
     }
 
     fn ranges(&self) -> Vec<(u64, u64)> {
-        vec![(HEAP_BASE, HEAP_BASE + self.bytes.data.len() as u64)]
+        let base = T::LAYOUT.heap_base;
+        vec![(base, base + self.bytes.data.len() as u64)]
     }
 
     fn game_mode(&self) -> u64 {
@@ -425,39 +550,22 @@ impl WrittenHeap for RuffleHeapWriter {
     }
 }
 
-/// The module, where the vtables of the collected types sit: their alignment,
-/// then their size.
-fn module_bytes() -> Vec<u8> {
-    let mut module = vec![0u8; 0x2000];
-    for (vtable, size) in [
-        (layout::OBJECT_VTABLE, layout::OBJECT_SIZE),
-        (layout::VEC_VTABLE, layout::VEC_SIZE),
-        (layout::STRING_VTABLE, layout::STRING_SIZE),
-    ] {
-        let at = (vtable - MODULE.0) as usize;
-        module[at..at + 8].copy_from_slice(&8u64.to_le_bytes());
-        module[at + 8..at + 16].copy_from_slice(&size.to_le_bytes());
-    }
-    module
-}
-
 /// The traps only Ruffle sets.
-impl RuffleHeapWriter {
+impl<T: Target> RuffleHeapWriter<T> {
     /// The entry of `currentId` holds the hash of another key, as memory that
     /// was once another entry would.
     pub fn the_level_entry_holds_another_hash(&mut self) {
         let entry = self.bytes.entry_of(&self.mechanics, keys::CURRENT_ID);
         self.bytes
-            .put(entry + layout::ENTRY_HASH, key_hash(keys::PREVIOUS_ID));
+            .put(entry + T::LAYOUT.entry_hash, key_hash(keys::PREVIOUS_ID));
     }
 
     /// The `GameMode` carries the vtable of another type: its map was found
     /// in an allocation that is not an AVM1 object.
     pub fn the_game_is_not_an_object(&mut self) {
-        let header = self.mode.address - layout::GC_HEADER;
-        self.bytes.put(
-            header + layout::GC_VTABLE,
-            layout::VEC_VTABLE | layout::GC_FLAGS,
-        );
+        let layout = T::LAYOUT;
+        let header = self.mode.address - layout.gc_header;
+        self.bytes
+            .put(header + layout.gc_vtable, layout.vec_vtable | GC_FLAGS);
     }
 }
