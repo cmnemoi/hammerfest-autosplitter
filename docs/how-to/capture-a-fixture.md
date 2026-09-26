@@ -23,6 +23,25 @@ every push.
 
 A missing cell is a platform the net does not hold yet.
 
+How to take each one. A capture must bracket one level: when `state_before`
+and `state_after` differ, take it again.
+
+| player | command |
+| --- | --- |
+| Pepper Flash, Windows or Linux | `mise run capture-heap --name <os>-pepper-flash` |
+| the projector under Linux | `mise run capture-heap --name linux-projector --pid <pid>` |
+| the Windows projector, under Wine too | `mise run capture-heap --name windows-projector-wine --pid <pid> --words 4` |
+| Ruffle desktop, Linux or Wine | `mise run ruffle-state`, then `mise run capture-ruffle --name <os>-ruffle --game-mode <address>` |
+| Ruffle in Firefox | `scripts/capture_ruffle_web.py`, see its header |
+
+Under Wine, the Windows programs run in a distrobox that has `wine32`; the
+scripts read them from the host, through `/proc`. Ruffle for Windows is named
+`main` there, and `ruffle-state` finds it by the `ruffle.exe` it maps.
+
+Any capture reads back with no game running:
+`uv run python scripts/hf_state.py --capture fixtures/<name>` for Flash, with
+`--words 4` for the Windows projector.
+
 ---
 
 ## Take one

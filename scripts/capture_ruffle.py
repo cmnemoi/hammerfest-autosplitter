@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Records the memory of a live Ruffle as a replayable fixture, on Linux.
+"""Records the memory of a live Ruffle as a replayable fixture, on Linux, and
+of Ruffle for Windows under Wine.
 
 The same layout as `capture_heap.py`, so `replay_fixture.py` trims it with no
 change:
@@ -16,13 +17,21 @@ module could find buckets, and never an object.
 Like every capture, it is not atomic: the game runs while we read, so
 `state_before` and `state_after` bracket it, and no clock in it is exact.
 
+Under Wine, the sections of `ruffle.exe` sit in anonymous memory: the module
+is every readable mapping inside the range of its PE image, and the heap is
+the rest.
+
+A search of the Python reader takes minutes under Wine, where the heap is 459
+MiB, and the game moves on meanwhile. `--game-mode` gives the GameMode a first
+search found, so that the state is read before and after in a few reads.
+
 Usage:
     capture_ruffle.py --name linux-ruffle
+    capture_ruffle.py --name windows-ruffle-wine --game-mode 0x7f5c9c5c6050
 """
 import argparse
 import gzip
 import json
-import os
 import pathlib
 import sys
 import time
@@ -33,10 +42,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MIB = 1 << 20
 
 
-def state_of(heap, ranges):
+def state_of(heap, ranges, game_mode=None):
     """The game as the second opinion reads it, for the fixture's oracle."""
-    buckets = heap.buckets_of(ruffle_state.K_WORLD, ranges)
-    game_mode = heap.game_mode(heap.owners(buckets, ranges))
+    if game_mode is None:
+        buckets = heap.buckets_of(ruffle_state.K_WORLD, ranges)
+        game_mode = heap.game_mode(heap.owners(buckets, ranges))
     if game_mode is None:
         sys.exit("no GameMode: is a game running, past the black screen?")
     world = heap.get(game_mode, ruffle_state.K_WORLD)
@@ -53,16 +63,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", required=True)
     parser.add_argument("--pid", type=int)
+    parser.add_argument("--game-mode", type=lambda text: int(text, 16),
+                        help="the address of the GameMode, as ruffle_state.py prints it")
     arguments = parser.parse_args()
 
     process = ruffle_state.Process(arguments.pid or ruffle_state.find_pid())
     heap = ruffle_state.RuffleHeap(process)
-    executable = os.readlink(f"/proc/{process.pid}/exe")
-    module_ranges = [(start, end) for start, end, permissions, path in process.maps()
-                     if path == executable and permissions.startswith("r")]
-    heap_ranges = process.heap()
+    low, high = heap.module
+    module_ranges = [(max(start, low), min(end, high)) for start, end, permissions, _ in process.maps()
+                     if start < high and end > low and permissions.startswith("r")]
+    heap_ranges = [(start, end) for start, end in process.heap() if not (start < high and end > low)]
+    known = ruffle_state.Obj(arguments.game_mode) if arguments.game_mode else None
 
-    before = state_of(heap, heap_ranges)
+    before = state_of(heap, heap_ranges, known)
     print(f"before: {before}")
 
     directory = ROOT / "fixtures" / arguments.name
@@ -80,7 +93,7 @@ def main():
                             "module": (start, end) in module_ranges})
             offset += end - start
 
-    after = state_of(heap, heap_ranges)
+    after = state_of(heap, heap_ranges, known)
     print(f"after:  {after}")
     metadata = {
         "player": "ruffle",

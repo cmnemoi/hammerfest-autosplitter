@@ -130,7 +130,7 @@ depends = ["build"]
 run = "cargo run --release --manifest-path src/harness/Cargo.toml --target-dir target/harness --"
 
 [tasks.ruffle-state]
-description = "Show the level and the clock of a game running in Ruffle, on Linux"
+description = "Show the level and the clock of a game running in Ruffle, on Linux, or in Ruffle for Windows under Wine"
 run = "uv run python scripts/ruffle_state.py"
 
 [tasks.ruffle-web-state]
@@ -138,7 +138,7 @@ description = "Show the level of a game running in Ruffle, in a Firefox tab, on 
 run = "uv run --group analysis python scripts/ruffle_web_state.py"
 
 [tasks.capture-ruffle]
-description = "Record the memory of a live Ruffle as a fixture, on Linux"
+description = "Record the memory of a live Ruffle as a fixture, on Linux, and of Ruffle for Windows under Wine"
 run = "uv run python scripts/capture_ruffle.py"
 
 [tasks.trim-ruffle-capture]
@@ -162,5 +162,5 @@ description = "Turn a capture into a fixture a Rust test can replay"
 run = "uv run python scripts/replay_fixture.py"
 
 [tasks.capture-heap]
-description = "Record the plugin memory as a replayable fixture"
+description = "Record the memory of the Flash plugin or of a Flash projector as a replayable fixture, on Windows or Linux"
 run = "uv run python scripts/capture_heap.py"

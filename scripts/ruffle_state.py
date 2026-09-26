@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Reads the current Hammerfest level and clock from a live Ruffle, on Linux.
+"""Reads the current Hammerfest level and clock from a live Ruffle, on Linux,
+and from Ruffle for Windows under Wine: its objects are the same.
 
 A second opinion, as `hf_state.py` is for Pepper Flash. It is also how the
 layout in `docs/concepts/ruffle-heap.md` gets checked: every step below prints
@@ -22,6 +23,10 @@ Usage:
     ruffle_state.py               one reading
     ruffle_state.py --dump        prints GameMode, world and Chrono in full
     ruffle_state.py --pid 1234    a given process, not the first `ruffle`
+
+Under Wine, the kernel names the process `main`, and its executable is Wine's
+own: the process is the one that maps `ruffle.exe`, and its module runs as far
+as the PE header of `ruffle.exe` says.
 """
 import argparse
 import os
@@ -33,6 +38,7 @@ import time
 import hfmap
 
 PROCESS_NAME = "ruffle"
+WINDOWS_EXECUTABLE = "ruffle.exe"
 CHUNK = 1 << 20
 
 # From docs/concepts/ruffle-heap.md, read in the Linux 0.6.0 binary.
@@ -125,7 +131,17 @@ class Process:
                 yield start, end, fields[1], path
 
     def module(self):
-        """The range of the ruffle executable itself."""
+        """The range of the ruffle executable itself.
+
+        Under Wine, one page of `ruffle.exe` is mapped from its file and its
+        sections are copied into anonymous memory: its PE header says how far
+        it runs.
+        """
+        windows = [start for start, _, _, path in self.maps() if path.lower().endswith(WINDOWS_EXECUTABLE)]
+        if windows:
+            base = min(windows)
+            nt_headers = self.u32(base + 0x3C)
+            return base, base + self.u32(base + nt_headers + 0x18 + 0x38)
         executable = os.readlink(f"/proc/{self.pid}/exe")
         ranges = [(start, end) for start, end, _, path in self.maps() if path == executable]
         return min(start for start, _ in ranges), max(end for _, end in ranges)
@@ -313,10 +329,25 @@ class Clip(Obj):
 
 def find_pid():
     found = subprocess.run(["pgrep", "-x", PROCESS_NAME], capture_output=True, text=True)
-    pids = [int(pid) for pid in found.stdout.split()]
+    pids = [int(pid) for pid in found.stdout.split()] or wine_pids()
     if not pids:
         sys.exit(f"no process named {PROCESS_NAME!r}: start a game in Eternalfest Desktop")
     return pids[0]
+
+
+def wine_pids():
+    """The processes that map `ruffle.exe`: Ruffle for Windows, under Wine."""
+    pids = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/maps") as maps:
+                if any(line.rstrip().lower().endswith(WINDOWS_EXECUTABLE) for line in maps):
+                    pids.append(int(entry))
+        except OSError:
+            continue
+    return pids
 
 
 def dump(heap, obj, title):
