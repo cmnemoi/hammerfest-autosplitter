@@ -156,9 +156,9 @@ pub fn count_running(names: &[&str]) -> usize {
 /// A player attached to: its process, the range of its module, and its pid.
 pub type Attached = (Process, (u64, u64), ProcessId);
 
-/// Adobe's Flash projector under Linux, a 64-bit program. Its executable is
-/// its module.
-const FLASH_PROJECTOR: &[&str] = &["flashplayer"];
+/// Adobe's Flash projector under Linux and under macOS, a 64-bit program. Its
+/// executable is its module. On an ARM Mac, Rosetta 2 translates it.
+const FLASH_PROJECTOR: &[&str] = &["flashplayer", "Flash Player"];
 /// Adobe's Flash projector under Windows, a 32-bit program: as Eternalfest
 /// Desktop names it, and as Adobe ships it.
 const FLASH_PROJECTOR_32_BITS: &[&str] = &["flashplayer.exe", "flashplayer_32_sa.exe"];

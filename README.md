@@ -37,6 +37,7 @@ The autosplitter has been tested on:
 - Linux x64, Firefox ESR 140 with the Ruffle extension 0.6.0 on eternalfest.net (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, [Eternalfest Desktop 0.1.0](https://github.com/cmnemoi/eternalfest-desktop#install) with Ruffle 0.6.0 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, Eternalfest Desktop after 0.3.0 with Adobe's Flash projector 32.0.0.465 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
+- macOS ARM, Eternalfest Desktop 0.5.0 with Adobe's Flash projector 32.0.0.465 under Rosetta 2 (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 - Linux x64, Adobe's Windows Flash projector 32.0.0.465 under Wine 10.0, as Eternalfest Desktop starts it on Windows (needs [LiveSplit One Druid](https://github.com/AlexKnauth/livesplit-one-druid) to run)
 
 ## How to contribute

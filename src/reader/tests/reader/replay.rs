@@ -300,6 +300,33 @@ mod tests {
         assert_eq!(state.dim, capture.says.dim, "dimension");
     }
 
+    /// The same, on the bytes the macOS projector 32.0.0.465 wrote. It is an
+    /// x86-64 program, and Rosetta 2 translates it on an ARM Mac.
+    ///
+    /// @spec projector.replay::the-macos-main-world
+    /// @spec projector::macos-is-read
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_macos_flash_projector_capture() {
+        let capture = Capture::load("macos-projector")
+            .expect("the capture fixtures/replay/macos-projector is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut PepperFlash::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real macOS projector heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
     /// The same, on the bytes the Windows build of Ruffle 0.6.0 wrote under
     /// Wine. Its objects are the ones of the Linux build: the same Rust, on
     /// the same processor.

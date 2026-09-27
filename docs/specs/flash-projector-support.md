@@ -2,7 +2,8 @@
 
 Why the autosplitter reads Adobe's Flash projector, how, and what is left. The
 decisions were taken on 2026-09-26, with a live game in view: under Linux, and
-the Windows projector under Wine 10.0.
+the Windows projector under Wine 10.0. macOS followed on 2026-09-27, under
+Rosetta 2 on an ARM Mac.
 
 ---
 
@@ -20,7 +21,9 @@ In:
 - the projector under Linux, x86-64, as Eternalfest Desktop starts it or as a
   runner starts it alone;
 - the projector under Windows, a 32-bit program, as Eternalfest Desktop starts
-  it (`flashplayer.exe`) or as Adobe ships it (`flashplayer_32_sa.exe`).
+  it (`flashplayer.exe`) or as Adobe ships it (`flashplayer_32_sa.exe`);
+- the projector under macOS, an x86-64 program in `Flash Player.app`, that
+  Rosetta 2 translates on an ARM Mac.
 
 Out, for now:
 
@@ -135,6 +138,16 @@ Windows projector 32.0.0.465 wrote under Wine, in
 `fixtures/replay/windows-projector-wine`, give the level, the world and
 the dimension the game showed.
 
+### A real game in the macOS projector is read
+
+`{#projector::macos-is-read}`
+
+The macOS projector is a 64-bit build, like the Linux one: the process is
+`Flash Player`, in words of eight bytes. Its segments follow each other with no
+gap, so the module the runtime gives is its extent. The bytes the projector
+32.0.0.465 wrote under macOS, in `fixtures/replay/macos-projector`, give the
+level, the world and the dimension the game showed.
+
 ## Acceptance criteria
 
 | id | given | then |
@@ -145,4 +158,5 @@ the dimension the game showed.
 | `projector.find::a-pe-image` | a PE header at `0x400000` whose `SizeOfImage` is `0x1034000` | the module runs from `0x400000` to `0x1434000` |
 | `projector.find::not-a-pe-image` | bytes at the base that are not a PE header | no module |
 | `projector.replay::the-windows-main-world` | the capture of a game at level 34 of `xml_adventure`, in the Windows projector under Wine | the game is found, at level 34, in `xml_adventure`, dimension 0 |
+| `projector.replay::the-macos-main-world` | the capture of a game in the projector under macOS | the game is found, at the level, in the world and the dimension the game showed |
 | `projector.replay::the-main-world` | the capture of a game at level 17 of `xml_adventure`, in the projector under Linux | the game is found, at level 17, in `xml_adventure`, dimension 0 |

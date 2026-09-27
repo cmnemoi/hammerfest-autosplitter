@@ -38,9 +38,10 @@ import platform_memory
 import procmem
 
 # The plugin of EternalTwin, and the projector: `flashplayer` under Linux,
-# `flashplayer.exe` or `flashplayer_32_sa.exe` under Windows.
+# `flashplayer.exe` or `flashplayer_32_sa.exe` under Windows, `Flash Player`
+# in its bundle under macOS.
 PLUGIN = (r"pepflashplayer\.dll|libpepflashplayer\.so|PepperFlashPlayer"
-          r"|[/\\]flashplayer(_32_sa)?(\.exe)?$")
+          r"|[/\\]flashplayer(_32_sa)?(\.exe)?$|/MacOS/Flash Player$")
 
 K_WORLD = hfmap.obf("world")
 K_CURRENT_ID = hfmap.obf("currentId")

@@ -19,7 +19,7 @@ every push.
 | --- | --- | --- | --- | --- |
 | Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | `windows-ruffle-wine`, under Wine | missing |
 | Linux | `linux-pepper-flash` | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
-| macOS | missing: needs a Mac | not shipped | missing: needs a Mac | missing: needs a Mac |
+| macOS | missing | `macos-projector`, under Rosetta 2 | missing | missing |
 
 A missing cell is a platform the net does not hold yet.
 
@@ -30,6 +30,7 @@ and `state_after` differ, take it again.
 | --- | --- |
 | Pepper Flash, Windows or Linux | `mise run capture-heap --name <os>-pepper-flash` |
 | the projector under Linux | `mise run capture-heap --name linux-projector --pid <pid>` |
+| the projector under macOS, as root | `sudo uv run python scripts/capture_heap.py --name macos-projector` |
 | the Windows projector, under Wine too | `mise run capture-heap --name windows-projector-wine --pid <pid> --words 4` |
 | Ruffle desktop, Linux or Wine | `mise run ruffle-state`, then `mise run capture-ruffle --name <os>-ruffle --game-mode <address>` |
 | Ruffle in Firefox | `scripts/capture_ruffle_web.py`, see its header |
