@@ -1,0 +1,37 @@
+docs/specs/flash-projector-support.md
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 87-97,169-171
+docs/internals/speed-matters.md
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 55-56
+src/plugin.rs
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 11,163-172
+src/reader/pepper_flash.rs
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 10,112-114,117-128,131-135,163-213,215-239,303-306,352-355,455-463,510
+docs/specs/memory-reader.md
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 127-129
+fixtures/read-cost.txt
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 3,6
+src/reader/tests/reader/pepper_flash_heap.rs
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 519,568-661
+  s_b6ee5c5e1e68f7::t_ada007cf02731d 662
+src/reader/tests/reader/replay.rs
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 186-188,332-391
+  s_b6ee5c5e1e68f7::t_2c1ede67404c1a 392
+src/lib.rs
+  s_b6ee5c5e1e68f7::t_d2ea97bd62e363 43,83-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0c9504e76a21dd94d8f4f6a4afe7151e53698bc8",
+  "prompts": {},
+  "sessions": {
+    "s_b6ee5c5e1e68f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f2fabfe-b127-4363-bb12-f757abb6502a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Charles-Meldhine Madi Mnemoi <icdk5b4zf@relay.firefox.com>"
+    }
+  }
+}
