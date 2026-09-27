@@ -1,0 +1,29 @@
+src/reader/tests/reader/pepper_flash_heap.rs
+  s_b6ee5c5e1e68f7::t_ef3b8a03444641 606-625,633-636,639-640,642-651,655,658,661-665
+  s_b6ee5c5e1e68f7::t_62ab7be15bb92b 363-371
+  s_b6ee5c5e1e68f7::t_399310c1705a97 641
+src/reader/tests/reader/ruffle_heap.rs
+  s_b6ee5c5e1e68f7::t_62ab7be15bb92b 392-401,479-480
+docs/concepts/obfuscation.md
+  s_b6ee5c5e1e68f7::t_e37d6e182aeb21 115
+docs/specs/memory-reader.md
+  s_b6ee5c5e1e68f7::t_e37d6e182aeb21 68-73,122
+fixtures/read-cost.txt
+  s_b6ee5c5e1e68f7::t_e37d6e182aeb21 3,9,15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aaf7d68f093981a9eb6fdc6aa207a969e4e821cd",
+  "prompts": {},
+  "sessions": {
+    "s_b6ee5c5e1e68f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f2fabfe-b127-4363-bb12-f757abb6502a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Charles-Meldhine Madi Mnemoi <icdk5b4zf@relay.firefox.com>"
+    }
+  }
+}
