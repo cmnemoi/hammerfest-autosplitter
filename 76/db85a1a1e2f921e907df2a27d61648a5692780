@@ -1,0 +1,30 @@
+src/reader/hammerfest.rs
+  s_b6ee5c5e1e68f7::t_d4f82ac6dc6362 279-281
+src/reader/heap.rs
+  s_b6ee5c5e1e68f7::t_d4f82ac6dc6362 163-168
+src/reader/pepper_flash.rs
+  s_b6ee5c5e1e68f7::t_d4f82ac6dc6362 370,432-437
+src/reader/ruffle.rs
+  s_b6ee5c5e1e68f7::t_d4f82ac6dc6362 379-380,389,407,419,502-504,569-573
+  s_b6ee5c5e1e68f7::t_f90e01a205dde0 574
+src/reader/tests/reader/scenarios.rs
+  s_b6ee5c5e1e68f7::t_289f54c0b676d5 23,325-356,835-847
+docs/specs/ruffle-support.md
+  s_b6ee5c5e1e68f7::t_b4bd490acfb141 255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "76db85a1a1e2f921e907df2a27d61648a5692780",
+  "prompts": {},
+  "sessions": {
+    "s_b6ee5c5e1e68f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f2fabfe-b127-4363-bb12-f757abb6502a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Charles-Meldhine Madi Mnemoi <icdk5b4zf@relay.firefox.com>"
+    }
+  }
+}
