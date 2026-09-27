@@ -124,15 +124,10 @@ pub struct KnownBuild {
     pub table_method: u64,
 }
 
-/// The plugin: its first search starts from [`MEASURED`]. Its methods are the
-/// ones `Binary::recognize` checks.
+/// The plugin under Windows: its first search starts from [`WINDOWS_PLUGIN`].
 impl Default for Binary {
     fn default() -> Self {
-        Self::of_build(KnownBuild {
-            seed: MEASURED,
-            string_method: 0x43_91d0,
-            table_method: 0x39_ec60,
-        })
+        Self::of_build(WINDOWS_PLUGIN)
     }
 }
 
@@ -158,6 +153,28 @@ const MEASURED: Layout = Layout {
     profile: PROFILES[0],
     so_tbl: 0x30,
     word: Word::Eight,
+};
+
+/// The plugin `pepflashplayer.dll` win32-x64 32.0.0.465. Its methods are the
+/// ones `Binary::recognize` checks.
+pub const WINDOWS_PLUGIN: KnownBuild = KnownBuild {
+    seed: MEASURED,
+    string_method: 0x43_91d0,
+    table_method: 0x39_ec60,
+};
+
+/// The plugin `libpepflashplayer.so` 32.0.0.465, as EternalTwin ships it.
+/// The seed was measured on `fixtures/replay/linux-pepper-flash`, and the
+/// methods read in the relocations of the library: its vtables are filled
+/// when it is loaded.
+pub const LINUX_PLUGIN: KnownBuild = KnownBuild {
+    seed: Layout {
+        str_vt: 0x141_f2b0,
+        tbl_vt: 0x142_2210,
+        ..LINUX_PROJECTOR.seed
+    },
+    string_method: 0x58_c210,
+    table_method: 0x67_9730,
 };
 
 // The projectors 32.0.0.465, as Eternalfest Desktop pins them. Each seed was

@@ -79,7 +79,10 @@ async fn main() {
     // `attach_plugin`.
     let mut rejected = alloc::vec::Vec::new();
     // What each player keeps about its binary outlives its process.
-    let mut pepper_flash = PepperFlash::default();
+    let mut pepper_flash = PepperFlash::new(
+        Word::Eight,
+        plugin::pepper_flash_build().map_or_else(Binary::unknown, Binary::of_build),
+    );
     let mut flash_projector = PepperFlash::new(
         Word::Eight,
         Binary::of_build(plugin::flash_projector_build()),

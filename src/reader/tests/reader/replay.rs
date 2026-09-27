@@ -184,7 +184,8 @@ mod tests {
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::{
-        Binary, KnownBuild, PepperFlash, LINUX_PROJECTOR, MACOS_PROJECTOR, WINDOWS_PROJECTOR,
+        Binary, KnownBuild, PepperFlash, LINUX_PLUGIN, LINUX_PROJECTOR, MACOS_PROJECTOR,
+        WINDOWS_PROJECTOR,
     };
     use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
@@ -367,6 +368,13 @@ mod tests {
             "the seed did not hold: {:?}",
             stages.0
         );
+    }
+
+    /** @spec reader.seed::linux-plugin */
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn the_seed_of_the_linux_plugin_holds() {
+        the_seed_holds("linux-pepper-flash", Word::Eight, LINUX_PLUGIN);
     }
 
     /** @spec projector.seed::linux */

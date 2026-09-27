@@ -9,7 +9,7 @@ use hammerfest_process::ProcessMemory;
 use hammerfest_reader::avm1::Word;
 use hammerfest_reader::linear_memory::LinearMemory;
 use hammerfest_reader::pepper_flash::{
-    under_rosetta, KnownBuild, LINUX_PROJECTOR, MACOS_PROJECTOR,
+    under_rosetta, KnownBuild, LINUX_PLUGIN, LINUX_PROJECTOR, MACOS_PROJECTOR, WINDOWS_PLUGIN,
 };
 use hammerfest_reader::ruffle::RuffleBuild;
 use hammerfest_reader::{elf, pe};
@@ -20,6 +20,16 @@ pub const PLUGINS: &[&str] = &[
     "libpepflashplayer.so",
     "PepperFlashPlayer",
 ];
+
+/// The build of the plugin on this system. The plugin under macOS was never
+/// measured: the seed of another build would cost one pass for nothing.
+pub fn pepper_flash_build() -> Option<KnownBuild> {
+    match asr::get_os().ok()?.as_str() {
+        "windows" => Some(WINDOWS_PLUGIN),
+        "linux" => Some(LINUX_PLUGIN),
+        _ => None,
+    }
+}
 
 // -- memory ranges ----------------------------------------------------------
 
