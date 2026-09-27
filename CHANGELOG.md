@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.3.0...v1.4.0) (2026-09-27)
+
+
+### Features
+
+* find the game in Adobe's Flash projector under macOS ([b446574](https://github.com/cmnemoi/hammerfest-autosplitter/commit/b446574058f4fa551a93913add3306873eb9849d))
+
+
+### Performance Improvements
+
+* look at the first 128 MiB before the search by content reads the rest ([a087773](https://github.com/cmnemoi/hammerfest-autosplitter/commit/a08777335858f62637d90ab135d153d529e720af))
+* look for no world in Ruffle while the GameManager is not born ([76db85a](https://github.com/cmnemoi/hammerfest-autosplitter/commit/76db85a1a1e2f921e907df2a27d61648a5692780))
+* never try the seed of the Windows plugin on a Flash projector ([5cecb54](https://github.com/cmnemoi/hammerfest-autosplitter/commit/5cecb54d9d2936b380274a0210a60717d73d7b2c))
+* start the plugin under Linux from the seed of its build ([cbf6dfa](https://github.com/cmnemoi/hammerfest-autosplitter/commit/cbf6dfa3f69b504aec3c0d92c1c6e5e0c3d5af37))
+* start the plugin under macOS from the seed of its build ([57a99a6](https://github.com/cmnemoi/hammerfest-autosplitter/commit/57a99a641ddd97340f07ad4f5e9781b136880b83))
+* sweep no range larger than 64 MiB under Rosetta 2 ([27ec753](https://github.com/cmnemoi/hammerfest-autosplitter/commit/27ec753545be0404909a14cfc0c0bdb4f038594b))
+* sweep the ranges that follow each other as one under Rosetta 2 ([9efceaa](https://github.com/cmnemoi/hammerfest-autosplitter/commit/9efceaa23080ec84f70bee3db6a6078edbe30ad8))
+* trust the known build of each Flash projector ([0c9504e](https://github.com/cmnemoi/hammerfest-autosplitter/commit/0c9504e76a21dd94d8f4f6a4afe7151e53698bc8))
+
 ## [1.3.0](https://github.com/cmnemoi/hammerfest-autosplitter/compare/v1.2.0...v1.3.0) (2026-09-26)
 
 
