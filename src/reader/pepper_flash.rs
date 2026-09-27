@@ -177,6 +177,20 @@ pub const LINUX_PLUGIN: KnownBuild = KnownBuild {
     table_method: 0x67_9730,
 };
 
+/// The plugin `PepperFlashPlayer` 32.0.0.465 for macOS, as EternalTwin ships
+/// it, that Rosetta 2 translates. The seed was measured on
+/// `fixtures/replay/macos-pepper-flash`, and the methods read in the bundle,
+/// then checked on the module of the running plugin.
+pub const MACOS_PLUGIN: KnownBuild = KnownBuild {
+    seed: Layout {
+        str_vt: 0x187_4108,
+        tbl_vt: 0x192_1af8,
+        ..LINUX_PROJECTOR.seed
+    },
+    string_method: 0x44_9d20,
+    table_method: 0x58_d8e0,
+};
+
 // The projectors 32.0.0.465, as Eternalfest Desktop pins them. Each seed was
 // measured on the capture of its game, in `fixtures/replay/`, and each method
 // was read in the binary Adobe ships, at the sha256 of

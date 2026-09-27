@@ -184,8 +184,8 @@ mod tests {
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::{
-        Binary, KnownBuild, PepperFlash, LINUX_PLUGIN, LINUX_PROJECTOR, MACOS_PROJECTOR,
-        WINDOWS_PROJECTOR,
+        Binary, KnownBuild, PepperFlash, LINUX_PLUGIN, LINUX_PROJECTOR, MACOS_PLUGIN,
+        MACOS_PROJECTOR, WINDOWS_PROJECTOR,
     };
     use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
@@ -368,6 +368,40 @@ mod tests {
             "the seed did not hold: {:?}",
             stages.0
         );
+    }
+
+    /// The same, on the bytes Pepper Flash wrote in EternalTwin under macOS,
+    /// translated by Rosetta 2. The game was paused: a capture takes three
+    /// seconds, and a running game allocates a new `duration` meanwhile.
+    ///
+    /// @spec reader.replay::macos-pepper-flash
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_out_of_a_macos_pepper_flash_capture() {
+        let capture = Capture::load("macos-pepper-flash")
+            .expect("the capture fixtures/replay/macos-pepper-flash is missing");
+
+        let found = block_on(resolve(
+            &capture,
+            &mut PepperFlash::attached_to(capture.module),
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut Silent,
+        ));
+
+        let mut game = found.expect("the reader found no game in a real macOS heap");
+        let state = game.read(&capture).expect("the reader read no state");
+
+        assert_eq!(game.set, capture.says.set, "world");
+        assert_eq!(state.level.id, capture.says.level, "level");
+        assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /** @spec reader.seed::macos-plugin */
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn the_seed_of_the_macos_plugin_holds() {
+        the_seed_holds("macos-pepper-flash", Word::Eight, MACOS_PLUGIN);
     }
 
     /** @spec reader.seed::linux-plugin */

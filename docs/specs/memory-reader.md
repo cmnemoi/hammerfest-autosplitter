@@ -134,6 +134,8 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::another-build-is-not-trusted` | the same, with another first method | the search by content still runs |
 | `reader.find::no-manager-no-game` | the menus of a known build: no key of the `GameManager` | `world` is not looked for |
 | `reader.seed::linux-plugin` | the capture of `linux-pepper-flash`, and `LINUX_PLUGIN` | the String of `world` is found by its header, with no search by content |
+| `reader.seed::macos-plugin` | the capture of `macos-pepper-flash`, and `MACOS_PLUGIN` | the same |
+| `reader.replay::macos-pepper-flash` | the capture of a paused game at level 12 of `xml_adventure`, in Pepper Flash under macOS | the game is found, at level 12, in `xml_adventure`, dimension 0 |
 
 ### Reading the state
 

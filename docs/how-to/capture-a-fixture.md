@@ -19,18 +19,20 @@ every push.
 | --- | --- | --- | --- | --- |
 | Windows | `windows-pepper-flash` | `windows-projector-wine`, under Wine | `windows-ruffle-wine`, under Wine | missing |
 | Linux | `linux-pepper-flash` | `linux-projector` | `linux-ruffle` | `linux-ruffle-web`, Firefox |
-| macOS | missing | `macos-projector`, under Rosetta 2 | missing | missing |
+| macOS | `macos-pepper-flash`, under Rosetta 2 | `macos-projector`, under Rosetta 2 | missing | missing |
 
 A missing cell is a platform the net does not hold yet.
 
 How to take each one. A capture must bracket one level: when `state_before`
-and `state_after` differ, take it again.
+and `state_after` differ, take it again. Under Rosetta 2, a capture takes three
+seconds, and a running game allocates a new `duration` meanwhile: pause it.
 
 | player | command |
 | --- | --- |
 | Pepper Flash, Windows or Linux | `mise run capture-heap --name <os>-pepper-flash` |
 | the projector under Linux | `mise run capture-heap --name linux-projector --pid <pid>` |
 | the projector under macOS, as root | `sudo uv run python scripts/capture_heap.py --name macos-projector` |
+| Pepper Flash under macOS, as root, the game paused | `sudo uv run python scripts/capture_heap.py --name macos-pepper-flash --pid $(pgrep -f "Eternaltwin Helper \(Plugin\)")` |
 | the Windows projector, under Wine too | `mise run capture-heap --name windows-projector-wine --pid <pid> --words 4` |
 | Ruffle desktop, Linux or Wine | `mise run ruffle-state`, then `mise run capture-ruffle --name <os>-ruffle --game-mode <address>` |
 | Ruffle in Firefox | `scripts/capture_ruffle_web.py`, see its header |
