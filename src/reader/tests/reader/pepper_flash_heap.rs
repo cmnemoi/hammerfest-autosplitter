@@ -513,9 +513,10 @@ impl<const WORD_BYTES: u64> World<PepperFlashHeapWriter<WORD_BYTES>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::read_cost::{measure, Metered};
     use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
-    use hammerfest_reader::search_log::SearchLog;
+    use hammerfest_reader::search_log::{SearchLog, Silent};
 
     /// The stages a search went through, in order.
     #[derive(Default)]
@@ -525,6 +526,42 @@ mod tests {
         fn stage(&mut self, next: &'static str, _requested: u64, _calls: u64) {
             self.0.push(next);
         }
+    }
+
+    /** @spec reader.find::the-first-ranges-first */
+    #[test]
+    fn a_key_in_the_first_ranges_is_found_without_the_rest_of_the_heap() {
+        const THE_REST: u64 = 256 << 20;
+        const REST_BASE: u64 = 0x1_0000_0000;
+        let fixture = World::<PepperFlashHeapWriter>::default()
+            .with_a_manager_and_a_game()
+            .build();
+        let memory = fixture
+            .written
+            .memory()
+            .with_range(REST_BASE, vec![0; THE_REST as usize]);
+        let mut ranges = fixture.written.ranges();
+        ranges.push((REST_BASE, REST_BASE + THE_REST));
+        let mut player = PepperFlash::with_words(Word::Eight);
+        player.attach(MODULE);
+
+        let metered = Metered::new(&memory);
+        let (found, cost) = measure(
+            &metered,
+            resolve(
+                &metered,
+                &mut player,
+                &mut Anchor::default(),
+                &ranges,
+                &mut Silent,
+            ),
+        );
+
+        assert!(found.is_some(), "the game was not found");
+        assert!(
+            cost.bytes < THE_REST,
+            "the search read the rest of the heap: {cost}"
+        );
     }
 
     /** @spec projector.find::no-seed */

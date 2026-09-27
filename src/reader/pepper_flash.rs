@@ -407,36 +407,78 @@ impl PepperFlash {
         }
 
         // Fallback: the vtable is not known, or the seed does not hold for this
-        // binary. Two passes, no more -- the bytes of the key first, then one
-        // single pass for all the candidates at once.
-        let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
-        cost.stage("string_bytes");
-        let buffers = scan_bytes(mem, ranges, &needle, 2, 8, cost).await;
-        if buffers.is_empty() {
-            return None;
-        }
-
+        // binary. Its passes read to the end of what they are given, so they
+        // look at the first ranges alone before they read the whole heap.
+        let first_ranges = first_ranges(ranges);
         let mut found = None;
-        cost.stage("string_references");
-        let width = word.bytes() as usize;
-        scan_words_any(mem, ranges, width, &buffers, cost, |slot| {
-            for buf_off in word.string_buffer_candidates() {
-                let Some(so) = slot.checked_sub(buf_off) else {
-                    continue;
-                };
-                if let Some(layout) = string_layout_at(mem, module, word, so, key, units) {
-                    found = Some((layout, so));
-                    return true;
-                }
-            }
-            false
-        })
-        .await;
+        if !first_ranges.is_empty() && first_ranges.len() < ranges.len() {
+            found = string_by_content(mem, module, word, &first_ranges, key, cost).await;
+        }
+        if found.is_none() {
+            found = string_by_content(mem, module, word, ranges, key, cost).await;
+        }
         if let Some((_, so)) = found {
-            *cache = Some(so);
+            *self.key_strings.of(key) = Some(so);
         }
         found
     }
+}
+
+/// How much of the heap the first look at a key reads. The objects of the
+/// game sat in the first 64 MiB of the 2257 MiB the macOS projector maps,
+/// smallest ranges first. A look at all of it costs 282 ticks there.
+const FIRST_LOOK: u64 = 128 << 20;
+
+/// The ranges, in their order, as long as they hold no more than
+/// [`FIRST_LOOK`] bytes together.
+fn first_ranges(ranges: &[(u64, u64)]) -> Vec<(u64, u64)> {
+    let mut volume = 0;
+    ranges
+        .iter()
+        .take_while(|&&(start, end)| {
+            volume += end - start;
+            volume <= FIRST_LOOK
+        })
+        .copied()
+        .collect()
+}
+
+/// Finds the String object of a key by its content, with no vtable known.
+/// Two passes, no more -- the bytes of the key first, then one single pass
+/// for all the candidates at once.
+async fn string_by_content(
+    mem: &dyn Memory,
+    module: (u64, u64),
+    word: Word,
+    ranges: &[(u64, u64)],
+    key: &str,
+    cost: &mut Scan<'_>,
+) -> Option<(Layout, u64)> {
+    let units = key.encode_utf16().count() as u64;
+    let needle: Vec<u8> = key.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
+    cost.stage("string_bytes");
+    let buffers = scan_bytes(mem, ranges, &needle, 2, 8, cost).await;
+    if buffers.is_empty() {
+        return None;
+    }
+
+    let mut found = None;
+    cost.stage("string_references");
+    let width = word.bytes() as usize;
+    scan_words_any(mem, ranges, width, &buffers, cost, |slot| {
+        for buf_off in word.string_buffer_candidates() {
+            let Some(so) = slot.checked_sub(buf_off) else {
+                continue;
+            };
+            if let Some(layout) = string_layout_at(mem, module, word, so, key, units) {
+                found = Some((layout, so));
+                return true;
+            }
+        }
+        false
+    })
+    .await;
+    found
 }
 
 /// Scans the tables that own `key` and returns the first one `accept` keeps.

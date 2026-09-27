@@ -123,6 +123,7 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::the-same-game-when-looking-again` | a game, looked for twice, the heap unchanged | the same game is found |
 | `reader.find::the-new-game-not-the-corpse` | a game replaced by another between two looks | the new game is found |
 | `reader.find::a-key-that-is-not-a-string` | a game and its manager, whose tables hold a key that is not a String object in front of the anchor key, as the Linux player writes them | the game is found |
+| `reader.find::the-first-ranges-first` | a game and its manager in the first ranges, then 256 MiB more, and no vtable known | the game is found, and the 256 MiB are not read |
 
 ### Reading the state
 
