@@ -1,0 +1,32 @@
+fixtures/replay/macos-pepper-flash/index.txt
+  s_b6ee5c5e1e68f7::t_b4421ba6972ba7 1
+  s_b6ee5c5e1e68f7::t_a0c1f3312c62c9 3-2774
+  s_b6ee5c5e1e68f7::t_6531d8e6b37d58 2
+src/reader/tests/reader/replay.rs
+  s_b6ee5c5e1e68f7::t_d9a0e2f4b0336a 187-188,373-405
+  s_b6ee5c5e1e68f7::t_3d693d3d67b478 406
+docs/how-to/capture-a-fixture.md
+  s_b6ee5c5e1e68f7::t_07f7b9f1afd6c4 22,27-28,35
+docs/specs/memory-reader.md
+  s_b6ee5c5e1e68f7::t_07f7b9f1afd6c4 137-138
+src/plugin.rs
+  s_b6ee5c5e1e68f7::t_07f7b9f1afd6c4 12-13,25-26,31
+src/reader/pepper_flash.rs
+  s_b6ee5c5e1e68f7::t_07f7b9f1afd6c4 180-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "57a99a641ddd97340f07ad4f5e9781b136880b83",
+  "prompts": {},
+  "sessions": {
+    "s_b6ee5c5e1e68f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f2fabfe-b127-4363-bb12-f757abb6502a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Charles-Meldhine Madi Mnemoi <icdk5b4zf@relay.firefox.com>"
+    }
+  }
+}
