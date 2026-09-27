@@ -716,6 +716,20 @@ mod tests {
         assert_eq!(swept, vec![small_block, object_block]);
     }
 
+    /** @spec projector.find::adjacent-ranges-under-rosetta */
+    #[test]
+    fn under_rosetta_the_ranges_that_follow_each_other_are_swept_as_one() {
+        const PAGE: u64 = 4096;
+        let base = 0x3c77_5958_f000;
+        let first_page = (base, base + PAGE);
+        let second_page = (base + PAGE, base + 3 * PAGE);
+        let apart = (base + 8 * PAGE, base + 9 * PAGE);
+
+        let swept = under_rosetta(vec![second_page, apart, first_page]);
+
+        assert_eq!(swept, vec![apart, (base, base + 3 * PAGE)]);
+    }
+
     /** @spec projector.find::no-seed */
     #[test]
     fn a_projector_never_tries_the_seed_of_the_plugin() {

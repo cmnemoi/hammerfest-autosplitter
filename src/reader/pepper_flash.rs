@@ -572,13 +572,29 @@ impl PepperFlash {
 const LARGEST_HEAP_RANGE_UNDER_ROSETTA: u64 = 64 << 20;
 
 /// The ranges of a player that Rosetta 2 translates, in the order to sweep
-/// them: the smallest first, and none larger than the AVM1 heap uses. Every
-/// scan stops at its first answer, and one that finds nothing reads all it is
-/// given: 2.4 s over the whole map, while the SWF loads.
+/// them: none larger than the AVM1 heap uses, those that follow each other as
+/// one, and the smallest first.
+///
+/// Every scan stops at its first answer, and one that finds nothing reads all
+/// it is given: 2.4 s over the whole map, while the SWF loads. And the map
+/// holds thousands of ranges of a few KiB: a read costs about 60 µs whatever
+/// its size, so reading them one by one cost 1 s for 325 MiB. Measured on
+/// 2026-09-27, 2760 ranges followed each other in 166 runs.
+///
+/// The large ranges are dropped before the others are joined: a run of small
+/// ones may be large, and still hold the game.
 pub fn under_rosetta(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
     ranges.retain(|&(start, end)| end - start <= LARGEST_HEAP_RANGE_UNDER_ROSETTA);
-    ranges.sort_unstable_by_key(|&(start, end)| end - start);
-    ranges
+    ranges.sort_unstable();
+    let mut runs: Vec<(u64, u64)> = Vec::with_capacity(ranges.len());
+    for (start, end) in ranges {
+        match runs.last_mut() {
+            Some(run) if run.1 == start => run.1 = end,
+            _ => runs.push((start, end)),
+        }
+    }
+    runs.sort_unstable_by_key(|&(start, end)| end - start);
+    runs
 }
 
 /// How much of the heap the first look at a key reads. The objects of the

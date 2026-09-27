@@ -184,8 +184,8 @@ mod tests {
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::linear_memory::LinearMemory;
     use hammerfest_reader::pepper_flash::{
-        Binary, KnownBuild, PepperFlash, LINUX_PLUGIN, LINUX_PROJECTOR, MACOS_PLUGIN,
-        MACOS_PROJECTOR, WINDOWS_PROJECTOR,
+        under_rosetta, Binary, KnownBuild, PepperFlash, LINUX_PLUGIN, LINUX_PROJECTOR,
+        MACOS_PLUGIN, MACOS_PROJECTOR, WINDOWS_PROJECTOR,
     };
     use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
@@ -395,6 +395,37 @@ mod tests {
         assert_eq!(game.set, capture.says.set, "world");
         assert_eq!(state.level.id, capture.says.level, "level");
         assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /// The same capture, swept as the module sweeps it under Rosetta 2.
+    ///
+    /// @spec projector.find::adjacent-ranges-under-rosetta
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn reads_a_real_game_under_rosetta_through_its_merged_ranges() {
+        let capture = Capture::load("macos-pepper-flash")
+            .expect("the capture fixtures/replay/macos-pepper-flash is missing");
+        let ranges = under_rosetta(capture.ranges());
+        let mut player = PepperFlash::new(Word::Eight, Binary::of_build(MACOS_PLUGIN));
+        player.attach(capture.module);
+
+        let found = block_on(resolve(
+            &capture,
+            &mut player,
+            &mut Anchor::default(),
+            &ranges,
+            &mut Silent,
+        ));
+
+        assert!(
+            ranges.len() * 10 < capture.ranges().len(),
+            "{} ranges were merged into {}",
+            capture.ranges().len(),
+            ranges.len()
+        );
+        let mut game = found.expect("the reader found no game through the merged ranges");
+        let state = game.read(&capture).expect("the reader read no state");
+        assert_eq!(state.level.id, capture.says.level, "level");
     }
 
     /** @spec reader.seed::macos-plugin */
