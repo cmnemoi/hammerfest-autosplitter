@@ -35,6 +35,12 @@ game allocates is then attributed to `/usr/libexec/rosetta/runtime`, and the
 memory to search is spread over 1119 MiB where Windows holds it in 84 MiB.
 Finding the game there takes about 2.5 s.
 
+The Flash projector of Eternalfest Desktop is an x86-64 binary too. It maps
+2 to 2.5 GB. Measured on 2026-09-27 with `mise run e2e`, a start was dated
+6 s after level 0 at first, then 1.4 s once the projector build was
+recognised. The ranges larger than 64 MiB are not swept any more: see
+[Flash projector support](../specs/flash-projector-support.md#decisions).
+
 See [About finding the game](../internals/finding-the-game.md) for what the
 search does, and `heap_ranges` in `src/plugin.rs` for the order it reads
 the ranges in.

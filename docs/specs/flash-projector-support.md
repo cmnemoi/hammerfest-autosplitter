@@ -95,6 +95,9 @@ each width. What `PepperFlash` keeps about its binary is about
   seed is proven before the first search. A search while the SWF loads then
   costs one pass, and not four: measured on 2026-09-27 on macOS, a failed
   search took 9.3 s, and blinded the loop while the game started.
+- **No large range under Rosetta 2.** The one pass left read 2 GB in 2.4 s,
+  and 85 % of it sat in twelve ranges of 127 to 512 MiB. The game sits in
+  ranges of 652 KiB at most, so ranges larger than 64 MiB are not swept.
 
 ### Order
 
@@ -165,6 +168,7 @@ level, the world and the dimension the game showed.
 | `projector.find::not-an-executable` | bytes at the base that are not an ELF header | no module |
 | `projector.find::a-position-independent-executable` | an ELF header of a position independent executable | no module |
 | `projector.find::a-pe-image` | a PE header at `0x400000` whose `SizeOfImage` is `0x1034000` | the module runs from `0x400000` to `0x1434000` |
+| `projector.find::no-large-range-under-rosetta` | under Rosetta 2, a range of 512 MiB, one of 0.5 MiB and one of 4 KiB | the two small ones are swept, the smallest first |
 | `projector.find::no-seed` | a 64-bit build about which nothing is known yet | its first search never tries the seed of the plugin |
 | `projector.seed::linux` | the capture of `linux-projector`, and `LINUX_PROJECTOR` | the String of `world` is found by its header, with no search by content |
 | `projector.seed::macos` | the capture of `macos-projector`, and `MACOS_PROJECTOR` | the same |

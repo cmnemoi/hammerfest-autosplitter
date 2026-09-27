@@ -530,6 +530,23 @@ impl PepperFlash {
     }
 }
 
+/// The largest range under Rosetta 2 that can hold the AVM1 heap. Measured
+/// on 2026-09-27 on the macOS projector: the objects of the game sat in
+/// ranges of 652 KiB at most, and twelve ranges of 127 to 512 MiB held 85 %
+/// of the 2257 MiB it maps. Measured before on the plugin of EternalTwin: its
+/// objects sat in ranges of 0.12 to 0.75 MiB.
+const LARGEST_HEAP_RANGE_UNDER_ROSETTA: u64 = 64 << 20;
+
+/// The ranges of a player that Rosetta 2 translates, in the order to sweep
+/// them: the smallest first, and none larger than the AVM1 heap uses. Every
+/// scan stops at its first answer, and one that finds nothing reads all it is
+/// given: 2.4 s over the whole map, while the SWF loads.
+pub fn under_rosetta(mut ranges: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
+    ranges.retain(|&(start, end)| end - start <= LARGEST_HEAP_RANGE_UNDER_ROSETTA);
+    ranges.sort_unstable_by_key(|&(start, end)| end - start);
+    ranges
+}
+
 /// How much of the heap the first look at a key reads. The objects of the
 /// game sat in the first 64 MiB of the 2257 MiB the macOS projector maps,
 /// smallest ranges first. A look at all of it costs 282 ticks there.

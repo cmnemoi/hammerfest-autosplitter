@@ -8,7 +8,9 @@ use asr::{Process, ProcessId};
 use hammerfest_process::ProcessMemory;
 use hammerfest_reader::avm1::Word;
 use hammerfest_reader::linear_memory::LinearMemory;
-use hammerfest_reader::pepper_flash::{KnownBuild, LINUX_PROJECTOR, MACOS_PROJECTOR};
+use hammerfest_reader::pepper_flash::{
+    under_rosetta, KnownBuild, LINUX_PROJECTOR, MACOS_PROJECTOR,
+};
 use hammerfest_reader::ruffle::RuffleBuild;
 use hammerfest_reader::{elf, pe};
 
@@ -55,20 +57,15 @@ fn heap_iter(process: &Process) -> impl Iterator<Item = (u64, u64)> + '_ {
 }
 
 pub fn heap_ranges(process: &Process) -> Vec<(u64, u64)> {
-    let mut ranges: Vec<(u64, u64)> = heap_iter(process).collect();
+    let ranges: Vec<(u64, u64)> = heap_iter(process).collect();
     if on_macos() {
-        // The smallest ranges first. Every scan stops at its first answer, so
-        // the order decides how much is read before it stops.
+        // The smallest ranges first, and none of the large ones: see
+        // `under_rosetta`.
         //
-        // Measured on a running game: the game objects sat in ranges of
-        // 0.12 to 0.75 MiB, and the ranges of 4 MiB or less hold 115 MiB of
-        // the 1119 MiB the plugin maps. Reading them first is the difference
-        // between 3.4 s and a fraction of a second.
-        //
-        // ponytail: an order, not a filter. A game object born in a large
-        // range makes a scan slow again, never wrong. If that ever shows up,
-        // remember the ranges that held the answer last time instead.
-        ranges.sort_unstable_by_key(|&(a, b)| b - a);
+        // ponytail: a filter on size. A game object born in a range larger
+        // than 64 MiB would never be found. If that ever shows up, remember
+        // the ranges that held the answer last time instead.
+        return under_rosetta(ranges);
     }
     ranges
 }

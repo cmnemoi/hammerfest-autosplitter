@@ -516,7 +516,7 @@ mod tests {
     use crate::read_cost::{measure, Metered};
     use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
-    use hammerfest_reader::pepper_flash::KnownBuild;
+    use hammerfest_reader::pepper_flash::{under_rosetta, KnownBuild};
     use hammerfest_reader::search_log::{SearchLog, Silent};
 
     /// The stages a search went through, in order.
@@ -658,6 +658,19 @@ mod tests {
             "the world was searched: {:?}",
             stages.0
         );
+    }
+
+    /** @spec projector.find::no-large-range-under-rosetta */
+    #[test]
+    fn under_rosetta_the_large_ranges_are_not_swept() {
+        const MIB: u64 = 1 << 20;
+        let malloc_zone = (0x6000_0000_0000, 0x6000_0000_0000 + 512 * MIB);
+        let object_block = (0x3c77_5958_f000, 0x3c77_5958_f000 + MIB / 2);
+        let small_block = (0x1340_328f_8000, 0x1340_328f_8000 + 4096);
+
+        let swept = under_rosetta(vec![malloc_zone, object_block, small_block]);
+
+        assert_eq!(swept, vec![small_block, object_block]);
     }
 
     /** @spec projector.find::no-seed */
