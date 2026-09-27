@@ -548,8 +548,11 @@ mod tests {
     /// which ones they are: the search reads the whole heap, so "the regions
     /// it read" is every region.
     ///
-    /// So we ask instead. Empty the biggest region, look again, and keep it
-    /// emptied while the game is still found. What is left is needed.
+    /// So we ask instead. Empty a group of regions, the biggest first, look
+    /// again, and keep them emptied while the game is still found. When the
+    /// game is lost, the group is cut in two and each half is asked again.
+    /// What is left is needed. A capture under Rosetta holds three thousand
+    /// regions: one question per region would take two hours.
     ///
     /// It is not a test. Run it when a new capture has to be trimmed:
     ///
@@ -581,13 +584,9 @@ mod tests {
         order.sort_unstable();
         order.reverse();
 
+        let bases: Vec<u64> = order.into_iter().map(|(_, base)| base).collect();
         let mut masked: Vec<u64> = Vec::new();
-        for (_, base) in order {
-            masked.push(base);
-            if !still_finds_the_game(&capture, word, &masked) {
-                masked.pop();
-            }
-        }
+        mask_what_is_not_needed(&capture, word, &bases, &mut masked);
 
         let kept: Vec<&Region> = capture
             .regions
@@ -606,5 +605,25 @@ mod tests {
             line.push_str(&std::format!(" {:#x}", region.base));
         }
         println!("{line}");
+    }
+
+    /// Empty `group` when the game is still found without it, or else each
+    /// of its halves, down to a single region.
+    fn mask_what_is_not_needed(
+        capture: &Capture,
+        word: Word,
+        group: &[u64],
+        masked: &mut Vec<u64>,
+    ) {
+        masked.extend_from_slice(group);
+        if still_finds_the_game(capture, word, masked) {
+            return;
+        }
+        masked.truncate(masked.len() - group.len());
+        if let [_, _, ..] = group {
+            let (first, second) = group.split_at(group.len() / 2);
+            mask_what_is_not_needed(capture, word, first, masked);
+            mask_what_is_not_needed(capture, word, second, masked);
+        }
     }
 }
