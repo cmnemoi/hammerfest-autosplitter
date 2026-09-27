@@ -160,4 +160,10 @@ pub trait FlashPlayer {
 
     /// A game was read with this heap: the next search may start from it.
     fn learn(&mut self, heap: &Self::Heap);
+
+    /// Did the last search of the key of the `GameManager` prove that key
+    /// absent? Then the SWF has not created its `GameManager` yet, and no
+    /// `GameMode` either: only a manager starts a mode, and its constructor
+    /// sets that key first.
+    fn manager_is_not_born(&self) -> bool;
 }

@@ -376,6 +376,8 @@ pub struct Ruffle {
     /// build is known. It moves with the module, so it lives as long as the
     /// process.
     object_vtable: Option<u64>,
+    /// The last search of the key of the `GameManager` found no entry of it.
+    manager_is_not_born: bool,
 }
 
 impl Default for Ruffle {
@@ -384,6 +386,7 @@ impl Default for Ruffle {
             layout: DESKTOP,
             statics: (0, 0),
             object_vtable: None,
+            manager_is_not_born: false,
         }
     }
 }
@@ -401,6 +404,7 @@ impl Ruffle {
         self.layout = DESKTOP;
         self.statics = module;
         self.object_vtable = None;
+        self.manager_is_not_born = false;
     }
 
     /// Ruffle in a browser, whose linear memory holds this build.
@@ -412,6 +416,7 @@ impl Ruffle {
             layout: WEB,
             statics: (0, 0),
             object_vtable: Some(build.object_vtable()),
+            manager_is_not_born: false,
         }
     }
 
@@ -494,6 +499,9 @@ impl FlashPlayer for Ruffle {
             },
         )
         .await;
+        if key == crate::keys::F_VERSION {
+            self.manager_is_not_born = entries.is_empty();
+        }
         let (Some(&lowest), Some(&highest)) = (entries.iter().min(), entries.iter().max()) else {
             return None;
         };
@@ -557,5 +565,11 @@ impl FlashPlayer for Ruffle {
 
     fn learn(&mut self, heap: &RuffleHeap) {
         self.object_vtable = Some(heap.object_vtable);
+    }
+
+    /// The layout of Ruffle is fixed: a key whose entries are not there is
+    /// not there.
+    fn manager_is_not_born(&self) -> bool {
+        self.manager_is_not_born
     }
 }

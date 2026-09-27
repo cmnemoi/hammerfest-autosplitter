@@ -252,6 +252,7 @@ the key of `world`, against about ten under Linux.
 | --- | --- | --- |
 | `ruffle.read::an-entry-whose-hash-lies` | a game whose `currentId` entry holds the hash of another key | nothing is read |
 | `ruffle.find::a-map-that-is-not-an-object` | a game whose object carries the vtable of another type | nothing is found |
+| `ruffle.find::no-manager-no-game` | the menus: no entry of the key of the `GameManager` | `world` is not looked for, since only a manager starts a game |
 | `ruffle.read::entries-that-moved` | a game whose entries were moved elsewhere, and reordered, after the first read | the level is still read |
 | `ruffle.replay::the-windows-main-world` | the capture of a game at level 25 of `xml_adventure`, in Ruffle for Windows under Wine | the game is found, at level 25, in `xml_adventure`, dimension 0 |
 | `ruffle.replay::the-main-world` | the capture of a game at level 2 of `xml_adventure` | the game is found, at level 2, in `xml_adventure`, dimension 0 |

@@ -367,8 +367,7 @@ struct KeyStrings {
     world: Option<u64>,
     version: Option<u64>,
     /// The key of the `GameManager` is not there, and the layout that looked
-    /// for it is proven. The SWF has not created its `GameManager` yet, so no
-    /// `GameMode` either: it is the manager that starts a game.
+    /// for it is proven.
     manager_is_not_born: bool,
 }
 
@@ -430,6 +429,12 @@ impl FlashPlayer for PepperFlash {
         self.binary.learn(&heap.layout());
     }
 
+    /// Only a proven layout tells a key that is absent from a key it cannot
+    /// see.
+    fn manager_is_not_born(&self) -> bool {
+        self.key_strings.manager_is_not_born
+    }
+
     /// The string of the key is looked for in `fresh`, the memory that
     /// changed: that is where the SWF has just created it. The tables that
     /// cite it are looked for in `all`, starting with the region of the
@@ -472,8 +477,6 @@ impl PepperFlash {
         let is_the_manager_key = key == crate::keys::F_VERSION;
         if is_the_manager_key {
             self.key_strings.manager_is_not_born = false;
-        } else if self.key_strings.manager_is_not_born {
-            return None;
         }
         if !self.binary.proven() {
             self.binary.recognise_the_build(mem, self.module, self.word);

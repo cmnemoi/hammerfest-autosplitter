@@ -276,6 +276,9 @@ pub async fn resolve<P: FlashPlayer>(
             });
             return game;
         }
+        if player.manager_is_not_born() {
+            return None;
+        }
     }
 
     // The anchor is set but `current` points at no game: there simply is

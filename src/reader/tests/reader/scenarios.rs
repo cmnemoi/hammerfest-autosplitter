@@ -20,7 +20,7 @@ use core::marker::PhantomData;
 
 use hammerfest_reader::hammerfest::{resolve, Anchor, Game, State};
 use hammerfest_reader::heap::FlashPlayer;
-use hammerfest_reader::search_log::Silent;
+use hammerfest_reader::search_log::{SearchLog, Silent};
 
 use crate::memory_contract::Heap;
 use crate::pepper_flash_heap::{PepperFlashHeapWriter, ThirtyTwoBitHeapWriter};
@@ -320,6 +320,38 @@ pub fn when_we_look_for_the_game<W: WrittenHeap>(f: &mut Fixture<W>) -> Option<G
         &ranges,
         &mut Silent,
     ))
+}
+
+/// The stages a search went through, in order.
+#[derive(Default)]
+pub struct Stages(pub Vec<&'static str>);
+
+impl SearchLog for Stages {
+    fn stage(&mut self, next: &'static str, _requested: u64, _calls: u64) {
+        self.0.push(next);
+    }
+}
+
+/// Looks for the game, and says which stages the search went through.
+pub fn when_we_follow_the_search<W: WrittenHeap>(f: &mut Fixture<W>) -> Stages {
+    let (memory, ranges) = (f.written.memory(), f.written.ranges());
+    let mut stages = Stages::default();
+    block_on(resolve(
+        &memory,
+        &mut f.player,
+        &mut f.anchor,
+        &ranges,
+        &mut stages,
+    ));
+    stages
+}
+
+pub fn then_the_world_is_not_looked_for(stages: &Stages) {
+    assert!(
+        !stages.0.contains(&"world"),
+        "the search looked for the world: {:?}",
+        stages.0
+    );
 }
 
 /// Reads the state of a game already found.
@@ -798,5 +830,18 @@ ruffle_scenario! {
         let found = when_we_look_for_the_game(&mut heap);
 
         then_nothing_is_found(found);
+    }
+}
+
+ruffle_scenario! {
+    /// Ruffle only: its layout is fixed, so a key it does not find is not
+    /// there. Pepper Flash can say so once its layout is proven.
+    /** @spec ruffle.find::no-manager-no-game */
+    fn does_not_look_for_the_world_without_the_key_of_the_manager() {
+        let mut heap = given_a_ruffle_heap().with_nothing_in_it().build();
+
+        let stages = when_we_follow_the_search(&mut heap);
+
+        then_the_world_is_not_looked_for(&stages);
     }
 }
