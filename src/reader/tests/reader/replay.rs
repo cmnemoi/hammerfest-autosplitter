@@ -183,7 +183,9 @@ mod tests {
     use hammerfest_reader::avm1::Word;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
     use hammerfest_reader::linear_memory::LinearMemory;
-    use hammerfest_reader::pepper_flash::PepperFlash;
+    use hammerfest_reader::pepper_flash::{
+        Binary, KnownBuild, PepperFlash, LINUX_PROJECTOR, MACOS_PROJECTOR, WINDOWS_PROJECTOR,
+    };
     use hammerfest_reader::ruffle::{Ruffle, RuffleBuild};
     use hammerfest_reader::search_log::Silent;
 
@@ -325,6 +327,67 @@ mod tests {
         assert_eq!(game.set, capture.says.set, "world");
         assert_eq!(state.level.id, capture.says.level, "level");
         assert_eq!(state.dim, capture.says.dim, "dimension");
+    }
+
+    /// The stages a search went through, in order.
+    #[derive(Default)]
+    struct Stages(Vec<&'static str>);
+
+    impl hammerfest_reader::search_log::SearchLog for Stages {
+        fn stage(&mut self, next: &'static str, _requested: u64, _calls: u64) {
+            self.0.push(next);
+        }
+    }
+
+    /// The seed of a projector finds the game of its capture in one pass over
+    /// the String headers, with no search by content.
+    ///
+    /// Only the search of `world` is judged: a trimmed capture keeps what
+    /// finds the game, and its `GameManager` was emptied with the rest.
+    fn the_seed_holds(capture: &str, word: Word, build: KnownBuild) {
+        let capture =
+            Capture::load(capture).unwrap_or_else(|| panic!("the capture {capture} is missing"));
+        let mut player = PepperFlash::new(word, Binary::of_build(build));
+        player.attach(capture.module);
+        let mut stages = Stages::default();
+
+        let found = block_on(resolve(
+            &capture,
+            &mut player,
+            &mut Anchor::default(),
+            &capture.ranges(),
+            &mut stages,
+        ));
+
+        assert!(found.is_some(), "the seed found no game");
+        let world = stages.0.iter().rposition(|&stage| stage == "world");
+        let search_of_world = &stages.0[world.expect("no search of world")..];
+        assert!(
+            search_of_world.contains(&"string_seed") && !search_of_world.contains(&"string_bytes"),
+            "the seed did not hold: {:?}",
+            stages.0
+        );
+    }
+
+    /** @spec projector.seed::linux */
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn the_seed_of_the_linux_projector_holds() {
+        the_seed_holds("linux-projector", Word::Eight, LINUX_PROJECTOR);
+    }
+
+    /** @spec projector.seed::macos */
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn the_seed_of_the_macos_projector_holds() {
+        the_seed_holds("macos-projector", Word::Eight, MACOS_PROJECTOR);
+    }
+
+    /** @spec projector.seed::windows */
+    #[test]
+    #[ignore = "slow: replays a real capture, run by `mise run test`"]
+    fn the_seed_of_the_windows_projector_holds() {
+        the_seed_holds("windows-projector-wine", Word::Four, WINDOWS_PROJECTOR);
     }
 
     /// The same, on the bytes the Windows build of Ruffle 0.6.0 wrote under

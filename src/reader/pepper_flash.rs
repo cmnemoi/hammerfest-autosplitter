@@ -7,7 +7,7 @@ use alloc::{vec, vec::Vec};
 
 use hammerfest_core::atom;
 
-use crate::avm1::{read_u64, Layout, Memory, Word, PROFILES};
+use crate::avm1::{read_u64, Layout, Memory, Word, PROFILES, PROFILES_32_BITS};
 use crate::heap::{Avm1Heap, FlashPlayer, Object, ObjectReference, Slot, StringReference, Value};
 use crate::scan::{
     give_the_tick_back, move_region_first, scan_bytes, scan_bytes_until, scan_words_any,
@@ -109,17 +109,30 @@ impl Avm1Heap for PepperFlashHeap {
 #[derive(Copy, Clone)]
 pub struct Binary {
     layout: Option<Layout>,
-    /// The layout to try before this binary has read anything.
-    seed: Option<Layout>,
+    /// The build this binary may be, and the layout to try before it has
+    /// read anything.
+    seed: Option<KnownBuild>,
 }
 
-/// The plugin: its first search starts from [`MEASURED`].
+/// A build of the player whose layout was measured: its seed, and the first
+/// method of its String vtable and of its table vtable, as offsets in its
+/// module. Those two methods tell it from any other build.
+#[derive(Copy, Clone)]
+pub struct KnownBuild {
+    pub seed: Layout,
+    pub string_method: u64,
+    pub table_method: u64,
+}
+
+/// The plugin: its first search starts from [`MEASURED`]. Its methods are the
+/// ones `Binary::recognize` checks.
 impl Default for Binary {
     fn default() -> Self {
-        Self {
-            layout: None,
-            seed: Some(MEASURED),
-        }
+        Self::of_build(KnownBuild {
+            seed: MEASURED,
+            string_method: 0x43_91d0,
+            table_method: 0x39_ec60,
+        })
     }
 }
 
@@ -147,7 +160,83 @@ const MEASURED: Layout = Layout {
     word: Word::Eight,
 };
 
+// The projectors 32.0.0.465, as Eternalfest Desktop pins them. Each seed was
+// measured on the capture of its game, in `fixtures/replay/`, and each method
+// was read in the binary Adobe ships, at the sha256 of
+// `eternalfest-desktop/eng/flash-player.json`.
+
+/// Adobe's Flash projector under Linux, `flash_player_sa_linux.x86_64`.
+pub const LINUX_PROJECTOR: KnownBuild = KnownBuild {
+    seed: Layout {
+        module: (0, 0),
+        str_vt: 0x100_7490,
+        str_buf: 0x08,
+        str_len: 0x30,
+        tbl_vt: 0x100_eb30,
+        profile: PROFILES[1],
+        so_tbl: 0x30,
+        word: Word::Eight,
+    },
+    string_method: 0x21_d9d0,
+    table_method: 0x3a_ed80,
+};
+
+/// The projector under macOS, `flashplayer_32_sa.dmg`. The executable is
+/// position independent: the offsets count from the base of its `__TEXT`
+/// segment.
+pub const MACOS_PROJECTOR: KnownBuild = KnownBuild {
+    seed: Layout {
+        str_vt: 0x140_c1b8,
+        tbl_vt: 0x14f_c5c0,
+        ..LINUX_PROJECTOR.seed
+    },
+    string_method: 0xe_e530,
+    table_method: 0x3c_4a70,
+};
+
+/// The 32-bit projector under Windows, `flashplayer_32_sa.exe`, read under
+/// Wine.
+pub const WINDOWS_PROJECTOR: KnownBuild = KnownBuild {
+    seed: Layout {
+        module: (0, 0),
+        str_vt: 0xa1_a128,
+        str_buf: 0x04,
+        str_len: 0x18,
+        tbl_vt: 0xa1_a50c,
+        profile: PROFILES_32_BITS[0],
+        so_tbl: 0x18,
+        word: Word::Four,
+    },
+    string_method: 0xd_8f20,
+    table_method: 0xd_c3d0,
+};
+
 impl Binary {
+    /// A binary that may be `build`: its first search starts from the seed
+    /// of that build.
+    pub fn of_build(build: KnownBuild) -> Self {
+        Self {
+            layout: None,
+            seed: Some(build),
+        }
+    }
+
+    /// When the two vtables of the seed start with the methods of the build,
+    /// this binary is that build: its seed is proven before it reads
+    /// anything.
+    pub(crate) fn recognise_the_build(&mut self, mem: &dyn Memory, module: (u64, u64), word: Word) {
+        let Some(build) = self.seed.filter(|build| build.seed.word == word) else {
+            return;
+        };
+        let starts_with =
+            |vtable: u64, method: u64| word.read(mem, module.0 + vtable) == Some(module.0 + method);
+        if starts_with(build.seed.str_vt, build.string_method)
+            && starts_with(build.seed.tbl_vt, build.table_method)
+        {
+            self.layout = Some(build.seed);
+        }
+    }
+
     /// A binary whose layout is already proven, as it is after one successful
     /// reading. The search then trusts that layout and never questions it.
     ///
@@ -211,7 +300,10 @@ impl Binary {
     /// The layout, rebased on the module of this process. A seed of another
     /// width than the build does not hold.
     pub(crate) fn layout(&self, module: (u64, u64), word: Word) -> Option<Layout> {
-        let seed = self.seed.filter(|seed| seed.word == word);
+        let seed = self
+            .seed
+            .map(|build| build.seed)
+            .filter(|seed| seed.word == word);
         let mut l = self.layout.or(seed)?;
         l.str_vt += module.0;
         l.tbl_vt += module.0;
@@ -257,6 +349,10 @@ pub struct PepperFlash {
 struct KeyStrings {
     world: Option<u64>,
     version: Option<u64>,
+    /// The key of the `GameManager` is not there, and the layout that looked
+    /// for it is proven. The SWF has not created its `GameManager` yet, so no
+    /// `GameMode` either: it is the manager that starts a game.
+    manager_is_not_born: bool,
 }
 
 impl KeyStrings {
@@ -356,6 +452,15 @@ impl PepperFlash {
         key: &str,
         cost: &mut Scan<'_>,
     ) -> Option<(Layout, u64)> {
+        let is_the_manager_key = key == crate::keys::F_VERSION;
+        if is_the_manager_key {
+            self.key_strings.manager_is_not_born = false;
+        } else if self.key_strings.manager_is_not_born {
+            return None;
+        }
+        if !self.binary.proven() {
+            self.binary.recognise_the_build(mem, self.module, self.word);
+        }
         let (module, word, binary) = (self.module, self.word, self.binary);
         let cache = self.key_strings.of(key);
         let units = key.encode_utf16().count() as u64;
@@ -402,6 +507,7 @@ impl PepperFlash {
                 // The vtable is the right one and the string is not there: it
                 // does not exist yet. The SWF has not created it, and no other
                 // search will make it appear.
+                self.key_strings.manager_is_not_born = is_the_manager_key;
                 return None;
             }
         }

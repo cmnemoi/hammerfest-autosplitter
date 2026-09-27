@@ -516,6 +516,7 @@ mod tests {
     use crate::read_cost::{measure, Metered};
     use crate::scenarios::block_on;
     use hammerfest_reader::hammerfest::{resolve, Anchor};
+    use hammerfest_reader::pepper_flash::KnownBuild;
     use hammerfest_reader::search_log::{SearchLog, Silent};
 
     /// The stages a search went through, in order.
@@ -561,6 +562,101 @@ mod tests {
         assert!(
             cost.bytes < THE_REST,
             "the search read the rest of the heap: {cost}"
+        );
+    }
+
+    /// The first methods of the driver's vtables, as offsets in the module.
+    const STRING_METHOD: u64 = 0x1_2340;
+    const TABLE_METHOD: u64 = 0x5_6780;
+
+    /// The build this driver writes, known with its seed and its methods.
+    fn the_driver_build() -> KnownBuild {
+        let layout = DriverLayout::of(8);
+        KnownBuild {
+            seed: Layout {
+                module: (0, 0),
+                str_vt: layout.str_vt - MODULE.0,
+                str_buf: layout.str_buf,
+                str_len: layout.str_len,
+                tbl_vt: layout.tbl_vt - MODULE.0,
+                profile: PROFILES[0],
+                so_tbl: layout.so_tbl,
+                word: layout.word,
+            },
+            string_method: STRING_METHOD,
+            table_method: TABLE_METHOD,
+        }
+    }
+
+    /// The menus of a player whose vtables start with these methods: the SWF
+    /// has created nothing the reader looks for yet.
+    fn the_menus_of_a_build(string_method: u64, table_method: u64) -> Stages {
+        let layout = DriverLayout::of(8);
+        let fixture = World::<PepperFlashHeapWriter>::default()
+            .with_nothing_in_it()
+            .build();
+        let memory = fixture
+            .written
+            .memory()
+            .with_range(
+                layout.str_vt,
+                (MODULE.0 + string_method).to_le_bytes().to_vec(),
+            )
+            .with_range(
+                layout.tbl_vt,
+                (MODULE.0 + table_method).to_le_bytes().to_vec(),
+            );
+        let mut player = PepperFlash::new(Word::Eight, Binary::of_build(the_driver_build()));
+        player.attach(MODULE);
+        let mut stages = Stages::default();
+
+        let found = block_on(resolve(
+            &memory,
+            &mut player,
+            &mut Anchor::default(),
+            &fixture.written.ranges(),
+            &mut stages,
+        ));
+
+        assert!(found.is_none(), "a game was found in the menus");
+        stages
+    }
+
+    /** @spec reader.find::a-known-build-is-trusted */
+    #[test]
+    fn a_known_build_does_not_search_by_content() {
+        let stages = the_menus_of_a_build(STRING_METHOD, TABLE_METHOD);
+
+        assert!(
+            !stages.0.contains(&"string_bytes"),
+            "a known build searched by content: {:?}",
+            stages.0
+        );
+    }
+
+    /** @spec reader.find::another-build-is-not-trusted */
+    #[test]
+    fn another_build_still_searches_by_content() {
+        let stages = the_menus_of_a_build(STRING_METHOD + 0x10, TABLE_METHOD);
+
+        assert!(
+            stages.0.contains(&"string_bytes"),
+            "another build was trusted: {:?}",
+            stages.0
+        );
+    }
+
+    /** @spec reader.find::no-manager-no-game */
+    #[test]
+    fn without_the_key_of_the_manager_the_world_is_not_searched() {
+        let stages = the_menus_of_a_build(STRING_METHOD, TABLE_METHOD);
+
+        let world = stages.0.iter().position(|&stage| stage == "world");
+        let search_of_world = world.map_or(&[][..], |world| &stages.0[world..]);
+        assert!(
+            !search_of_world.contains(&"string_seed"),
+            "the world was searched: {:?}",
+            stages.0
         );
     }
 

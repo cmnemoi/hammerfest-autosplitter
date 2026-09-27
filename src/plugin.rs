@@ -8,6 +8,7 @@ use asr::{Process, ProcessId};
 use hammerfest_process::ProcessMemory;
 use hammerfest_reader::avm1::Word;
 use hammerfest_reader::linear_memory::LinearMemory;
+use hammerfest_reader::pepper_flash::{KnownBuild, LINUX_PROJECTOR, MACOS_PROJECTOR};
 use hammerfest_reader::ruffle::RuffleBuild;
 use hammerfest_reader::{elf, pe};
 
@@ -159,6 +160,16 @@ pub type Attached = (Process, (u64, u64), ProcessId);
 /// Adobe's Flash projector under Linux and under macOS, a 64-bit program. Its
 /// executable is its module. On an ARM Mac, Rosetta 2 translates it.
 const FLASH_PROJECTOR: &[&str] = &["flashplayer", "Flash Player"];
+
+/// The build of the 64-bit projector on this system.
+pub fn flash_projector_build() -> KnownBuild {
+    if on_macos() {
+        MACOS_PROJECTOR
+    } else {
+        LINUX_PROJECTOR
+    }
+}
+
 /// Adobe's Flash projector under Windows, a 32-bit program: as Eternalfest
 /// Desktop names it, and as Adobe ships it.
 const FLASH_PROJECTOR_32_BITS: &[&str] = &["flashplayer.exe", "flashplayer_32_sa.exe"];

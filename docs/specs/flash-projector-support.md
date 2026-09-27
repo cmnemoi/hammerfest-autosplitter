@@ -84,8 +84,17 @@ each width. What `PepperFlash` keeps about its binary is about
   `GameMode` of the live game sat in such a range, on both systems. The ranges
   of Pepper Flash are swept, and for a 32-bit build only below 4 GiB, since it
   can point nowhere else.
-- **No seed.** `MEASURED` holds for the 64-bit plugin. A 32-bit build starts
-  with no seed, and learns its layout from its first search.
+- **A seed of its own.** `MEASURED` holds for the Windows plugin only: on a
+  projector, it cost one pass over the whole heap for nothing, 2.35 s on
+  macOS. Each projector binary starts from its own seed instead, measured on
+  its capture: `LINUX_PROJECTOR`, `MACOS_PROJECTOR` and `WINDOWS_PROJECTOR`.
+  The host picks the one of its system. A seed is checked like the plugin's,
+  and the search by content takes over when it does not hold.
+- **A known build is trusted.** Each seed comes with the first method of its
+  two vtables, read in the binary Adobe ships. When the module holds them, the
+  seed is proven before the first search. A search while the SWF loads then
+  costs one pass, and not four: measured on 2026-09-27 on macOS, a failed
+  search took 9.3 s, and blinded the loop while the game started.
 
 ### Order
 
@@ -157,6 +166,9 @@ level, the world and the dimension the game showed.
 | `projector.find::a-position-independent-executable` | an ELF header of a position independent executable | no module |
 | `projector.find::a-pe-image` | a PE header at `0x400000` whose `SizeOfImage` is `0x1034000` | the module runs from `0x400000` to `0x1434000` |
 | `projector.find::no-seed` | a 64-bit build about which nothing is known yet | its first search never tries the seed of the plugin |
+| `projector.seed::linux` | the capture of `linux-projector`, and `LINUX_PROJECTOR` | the String of `world` is found by its header, with no search by content |
+| `projector.seed::macos` | the capture of `macos-projector`, and `MACOS_PROJECTOR` | the same |
+| `projector.seed::windows` | the capture of `windows-projector-wine`, and `WINDOWS_PROJECTOR` | the same |
 | `projector.find::not-a-pe-image` | bytes at the base that are not a PE header | no module |
 | `projector.replay::the-windows-main-world` | the capture of a game at level 34 of `xml_adventure`, in the Windows projector under Wine | the game is found, at level 34, in `xml_adventure`, dimension 0 |
 | `projector.replay::the-macos-main-world` | the capture of a game in the projector under macOS | the game is found, at the level, in the world and the dimension the game showed |

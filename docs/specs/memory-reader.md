@@ -124,6 +124,9 @@ the timer would be short by the whole delay of the search, silently.
 | `reader.find::the-new-game-not-the-corpse` | a game replaced by another between two looks | the new game is found |
 | `reader.find::a-key-that-is-not-a-string` | a game and its manager, whose tables hold a key that is not a String object in front of the anchor key, as the Linux player writes them | the game is found |
 | `reader.find::the-first-ranges-first` | a game and its manager in the first ranges, then 256 MiB more, and no vtable known | the game is found, and the 256 MiB are not read |
+| `reader.find::a-known-build-is-trusted` | the menus of a player whose two vtables start with the methods of a known build | the key is looked for by its seed alone, never by content |
+| `reader.find::another-build-is-not-trusted` | the same, with another first method | the search by content still runs |
+| `reader.find::no-manager-no-game` | the menus of a known build: no key of the `GameManager` | `world` is not looked for |
 
 ### Reading the state
 

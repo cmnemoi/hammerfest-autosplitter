@@ -52,7 +52,8 @@ successful scan faster.
 | no fallback once the layout is proven | reading for nothing: if the vtable is right and the string is absent, it does not exist yet |
 | scanning only new or grown regions | re-reading a hundred MiB to find what is in the last four |
 | a first look at the first 128 MiB, in the order of the sweep, before the search by content reads the rest | two passes over 2257 MiB on macOS, 4.7 s, when the key lives in the small ranges |
-| no seed for a projector: `MEASURED` is the Windows plugin's | one pass over the whole heap, lost on every first search |
+| a known build is trusted: two reads of its vtables prove its seed, and a missing `GameManager` key ends the search | the search by content, and the search of `world`, while the SWF loads: 9.3 s per failed search on macOS |
+| a seed per projector binary, and not `MEASURED`, which is the Windows plugin's | the search by content on every first search, and one more pass lost on the wrong seed |
 | a budget of 8 MiB or 128 reads before yielding | one pause per region when the map holds many small ones |
 
 ---

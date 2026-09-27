@@ -40,7 +40,7 @@ use hammerfest_reader::avm1::{Memory, Word};
 use hammerfest_reader::hammerfest::{self, Game};
 use hammerfest_reader::heap::FlashPlayer;
 use hammerfest_reader::linear_memory::LinearMemory;
-use hammerfest_reader::pepper_flash::PepperFlash;
+use hammerfest_reader::pepper_flash::{Binary, PepperFlash, WINDOWS_PROJECTOR};
 use hammerfest_reader::ruffle::Ruffle;
 
 use runtime::Runtime;
@@ -80,8 +80,12 @@ async fn main() {
     let mut rejected = alloc::vec::Vec::new();
     // What each player keeps about its binary outlives its process.
     let mut pepper_flash = PepperFlash::default();
-    let mut flash_projector = PepperFlash::with_words(Word::Eight);
-    let mut flash_projector_32_bits = PepperFlash::with_words(Word::Four);
+    let mut flash_projector = PepperFlash::new(
+        Word::Eight,
+        Binary::of_build(plugin::flash_projector_build()),
+    );
+    let mut flash_projector_32_bits =
+        PepperFlash::new(Word::Four, Binary::of_build(WINDOWS_PROJECTOR));
     let mut ruffle = Ruffle::default();
     // Ticks left before the Firefox tabs are looked at again.
     let mut ticks_before_the_tabs = 0;
