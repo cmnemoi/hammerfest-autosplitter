@@ -80,7 +80,7 @@ async fn main() {
     let mut rejected = alloc::vec::Vec::new();
     // What each player keeps about its binary outlives its process.
     let mut pepper_flash = PepperFlash::default();
-    let mut flash_projector = PepperFlash::default();
+    let mut flash_projector = PepperFlash::with_words(Word::Eight);
     let mut flash_projector_32_bits = PepperFlash::with_words(Word::Four);
     let mut ruffle = Ruffle::default();
     // Ticks left before the Firefox tabs are looked at again.

@@ -156,6 +156,7 @@ level, the world and the dimension the game showed.
 | `projector.find::not-an-executable` | bytes at the base that are not an ELF header | no module |
 | `projector.find::a-position-independent-executable` | an ELF header of a position independent executable | no module |
 | `projector.find::a-pe-image` | a PE header at `0x400000` whose `SizeOfImage` is `0x1034000` | the module runs from `0x400000` to `0x1434000` |
+| `projector.find::no-seed` | a 64-bit build about which nothing is known yet | its first search never tries the seed of the plugin |
 | `projector.find::not-a-pe-image` | bytes at the base that are not a PE header | no module |
 | `projector.replay::the-windows-main-world` | the capture of a game at level 34 of `xml_adventure`, in the Windows projector under Wine | the game is found, at level 34, in `xml_adventure`, dimension 0 |
 | `projector.replay::the-macos-main-world` | the capture of a game in the projector under macOS | the game is found, at the level, in the world and the dimension the game showed |

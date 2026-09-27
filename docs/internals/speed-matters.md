@@ -51,6 +51,7 @@ successful scan faster.
 | one pass for all candidates | eight re-reads of the heap when a string appears several times |
 | no fallback once the layout is proven | reading for nothing: if the vtable is right and the string is absent, it does not exist yet |
 | scanning only new or grown regions | re-reading a hundred MiB to find what is in the last four |
+| no seed for a projector: `MEASURED` is the Windows plugin's | one pass over the whole heap, lost on every first search |
 | a budget of 8 MiB or 128 reads before yielding | one pause per region when the map holds many small ones |
 
 ---

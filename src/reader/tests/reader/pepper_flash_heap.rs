@@ -509,3 +509,47 @@ impl<const WORD_BYTES: u64> World<PepperFlashHeapWriter<WORD_BYTES>> {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scenarios::block_on;
+    use hammerfest_reader::hammerfest::{resolve, Anchor};
+    use hammerfest_reader::search_log::SearchLog;
+
+    /// The stages a search went through, in order.
+    #[derive(Default)]
+    struct Stages(Vec<&'static str>);
+
+    impl SearchLog for Stages {
+        fn stage(&mut self, next: &'static str, _requested: u64, _calls: u64) {
+            self.0.push(next);
+        }
+    }
+
+    /** @spec projector.find::no-seed */
+    #[test]
+    fn a_projector_never_tries_the_seed_of_the_plugin() {
+        let fixture = World::<PepperFlashHeapWriter>::default()
+            .with_a_game()
+            .build();
+        let mut projector = PepperFlash::with_words(Word::Eight);
+        projector.attach(MODULE);
+        let mut stages = Stages::default();
+
+        let found = block_on(resolve(
+            &fixture.written.memory(),
+            &mut projector,
+            &mut Anchor::default(),
+            &fixture.written.ranges(),
+            &mut stages,
+        ));
+
+        assert!(found.is_some(), "the projector found no game");
+        assert!(
+            !stages.0.contains(&"string_seed"),
+            "the projector tried the seed of the plugin: {:?}",
+            stages.0
+        );
+    }
+}

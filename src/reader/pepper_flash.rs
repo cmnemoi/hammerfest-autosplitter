@@ -106,9 +106,21 @@ impl Avm1Heap for PepperFlashHeap {
 ///
 /// This is about the binary, not about the game. Nothing here can go stale
 /// between two games, and everything is checked again at use.
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 pub struct Binary {
     layout: Option<Layout>,
+    /// The layout to try before this binary has read anything.
+    seed: Option<Layout>,
+}
+
+/// The plugin: its first search starts from [`MEASURED`].
+impl Default for Binary {
+    fn default() -> Self {
+        Self {
+            layout: None,
+            seed: Some(MEASURED),
+        }
+    }
 }
 
 /// Layout measured on `pepflashplayer.dll` win32-x64 32.0.0.465, as offsets
@@ -144,6 +156,16 @@ impl Binary {
     pub fn proven_with(layout: Layout) -> Self {
         Self {
             layout: Some(layout),
+            seed: None,
+        }
+    }
+
+    /// A binary about which nothing is known, not even a seed. The seed of
+    /// another build would cost one full pass over the heap, for nothing.
+    pub fn unknown() -> Self {
+        Self {
+            layout: None,
+            seed: None,
         }
     }
 
@@ -186,11 +208,10 @@ impl Binary {
         true
     }
 
-    /// The layout, rebased on the module of this process. The seed was
-    /// measured on a 64-bit build, so a build of another width has none
-    /// until it has read something.
+    /// The layout, rebased on the module of this process. A seed of another
+    /// width than the build does not hold.
     pub(crate) fn layout(&self, module: (u64, u64), word: Word) -> Option<Layout> {
-        let seed = (word == MEASURED.word).then_some(MEASURED);
+        let seed = self.seed.filter(|seed| seed.word == word);
         let mut l = self.layout.or(seed)?;
         l.str_vt += module.0;
         l.tbl_vt += module.0;
@@ -260,7 +281,7 @@ impl PepperFlash {
     /// A build whose pointers and atoms are words of that width, and about
     /// which nothing is known yet.
     pub fn with_words(word: Word) -> Self {
-        Self::new(word, Binary::default())
+        Self::new(word, Binary::unknown())
     }
 
     /// A plugin process whose module sits at `module`, and a binary about
