@@ -1,0 +1,27 @@
+src/reader/tests/reader/replay.rs
+  s_b6ee5c5e1e68f7::t_25bb7ad85a83a3 187-188,400-408,411-413,415-428
+  s_b6ee5c5e1e68f7::t_659bb0f8883cc0 409-410,414
+  s_b6ee5c5e1e68f7::t_793ce9d65cefa0 429-430
+src/reader/tests/reader/pepper_flash_heap.rs
+  s_b6ee5c5e1e68f7::t_25bb7ad85a83a3 719-732
+src/reader/pepper_flash.rs
+  s_b6ee5c5e1e68f7::t_d45a3667c43657 575-585,588-597
+docs/specs/flash-projector-support.md
+  s_b6ee5c5e1e68f7::t_e9fa81bc866e0a 101-105,177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9efceaa23080ec84f70bee3db6a6078edbe30ad8",
+  "prompts": {},
+  "sessions": {
+    "s_b6ee5c5e1e68f7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f2fabfe-b127-4363-bb12-f757abb6502a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Charles-Meldhine Madi Mnemoi <icdk5b4zf@relay.firefox.com>"
+    }
+  }
+}
