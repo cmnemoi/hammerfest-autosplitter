@@ -112,7 +112,7 @@ are written once, in `build.rs`, and they come out of the table too.
 ## If two versions must ever live in one build
 
 The game already carries the discriminator. `fVersion` is a property the
-`GameMode` constructor sets, and no other object holds it.
+`GameManager` constructor sets, and in EternalTwin no other object holds it.
 
 Today the code uses only the *name* of that property, as a search anchor. See
 `src/reader/hammerfest.rs:746`. It never reads the value.

@@ -360,6 +360,15 @@ impl<const WORD_BYTES: u64> WrittenHeap for PepperFlashHeapWriter<WORD_BYTES> {
         let mut second = world.second_game.then(|| b.object(12));
         let mut mechanics = b.object(4);
         let mut chrono = b.object(4);
+        // Every game runs under a `GameManager` whose constructor set
+        // `fVersion` before it started any mode: `hf/GameManager.hx` in
+        // `eternalfest/hammerfest-haxe`. When the world holds no manager the
+        // search can prove, the key still lives on an object it cannot prove.
+        if !world.manager {
+            let mut unproven = b.object(1);
+            let version = b.string("1.0");
+            b.set(&mut unproven, keys::F_VERSION, version);
+        }
 
         if world.foreign_keys {
             let foreign = b.object(1).so | atom::TAG_STRING;
@@ -591,28 +600,15 @@ mod tests {
     /// The menus of a player whose vtables start with these methods: the SWF
     /// has created nothing the reader looks for yet.
     fn the_menus_of_a_build(string_method: u64, table_method: u64) -> Stages {
-        let layout = DriverLayout::of(8);
         let fixture = World::<PepperFlashHeapWriter>::default()
             .with_nothing_in_it()
             .build();
-        let memory = fixture
-            .written
-            .memory()
-            .with_range(
-                layout.str_vt,
-                (MODULE.0 + string_method).to_le_bytes().to_vec(),
-            )
-            .with_range(
-                layout.tbl_vt,
-                (MODULE.0 + table_method).to_le_bytes().to_vec(),
-            );
-        let mut player = PepperFlash::new(Word::Eight, Binary::of_build(the_driver_build()));
-        player.attach(MODULE);
+        let memory = with_the_methods(fixture.written.memory(), string_method, table_method);
         let mut stages = Stages::default();
 
         let found = block_on(resolve(
             &memory,
-            &mut player,
+            &mut the_driver_build_attached(),
             &mut Anchor::default(),
             &fixture.written.ranges(),
             &mut stages,
@@ -620,6 +616,53 @@ mod tests {
 
         assert!(found.is_none(), "a game was found in the menus");
         stages
+    }
+
+    /// The module, as far as the recognition of a build reads it: the first
+    /// method of each vtable of the driver.
+    fn with_the_methods(memory: Heap, string_method: u64, table_method: u64) -> Heap {
+        let layout = DriverLayout::of(8);
+        memory
+            .with_range(
+                layout.str_vt,
+                (MODULE.0 + string_method).to_le_bytes().to_vec(),
+            )
+            .with_range(
+                layout.tbl_vt,
+                (MODULE.0 + table_method).to_le_bytes().to_vec(),
+            )
+    }
+
+    fn the_driver_build_attached() -> PepperFlash {
+        let mut player = PepperFlash::new(Word::Eight, Binary::of_build(the_driver_build()));
+        player.attach(MODULE);
+        player
+    }
+
+    /// A proven layout does not make the manager mandatory: the key of the
+    /// manager is there, and the game is found without it.
+    ///
+    /** @spec reader.find::an-orphan-game */
+    #[test]
+    fn a_known_build_still_finds_a_game_whose_manager_it_cannot_prove() {
+        let fixture = World::<PepperFlashHeapWriter>::default()
+            .with_a_game()
+            .build();
+        let memory = with_the_methods(fixture.written.memory(), STRING_METHOD, TABLE_METHOD);
+
+        let found = block_on(resolve(
+            &memory,
+            &mut the_driver_build_attached(),
+            &mut Anchor::default(),
+            &fixture.written.ranges(),
+            &mut Silent,
+        ));
+
+        assert_eq!(
+            found.map(|game| game.game_mode),
+            Some(fixture.written.game_mode()),
+            "the orphan game was not found"
+        );
     }
 
     /** @spec reader.find::a-known-build-is-trusted */

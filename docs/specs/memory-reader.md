@@ -65,6 +65,12 @@ A mode that names no manager at all is kept, on weaker evidence: it owns a
 `gameChrono`, and a `View` does not. That is what keeps an orphan game
 readable.
 
+An orphan game still runs under a `GameManager`: only a manager starts a mode,
+and its constructor sets `fVersion` first (`hf/GameManager.hx` in
+[`eternalfest/hammerfest-haxe`](https://gitlab.com/eternalfest/hammerfest-haxe)).
+The key of the manager is in the heap; it is its table that the search cannot
+prove.
+
 ### Its world is a known world
 
 `{#reader::a-known-world}`
@@ -113,7 +119,7 @@ the timer would be short by the whole delay of the search, silently.
 | --- | --- | --- |
 | `reader.find::nothing-in-the-menus` | a heap with no `GameMode` | nothing is found |
 | `reader.find::a-game-and-its-manager` | a game and its `GameManager` | the game is found |
-| `reader.find::an-orphan-game` | a game and no `GameManager` | the game is found |
+| `reader.find::an-orphan-game` | a game, and the key of a `GameManager` on an object the search cannot prove | the game is found |
 | `reader.find::rejects-a-game-already-over` | a game whose `fl_gameOver` is true | nothing is found |
 | `reader.find::the-game-not-one-of-its-views` | a game and three `View` objects of it | the game is found, not a view |
 | `reader.find::the-mode-the-manager-owns` | two modes, and a manager that owns the second, which the search cannot find by itself | the second is found |

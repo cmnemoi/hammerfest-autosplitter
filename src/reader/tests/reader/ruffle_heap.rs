@@ -389,6 +389,16 @@ impl<T: Target> WrittenHeap for RuffleHeapWriter<T> {
         let mut second = world.second_game.then(|| b.object());
         let mut mechanics = b.object();
         let mut chrono = b.object();
+        // Every game runs under a `GameManager` whose constructor set
+        // `fVersion` before it started any mode: `hf/GameManager.hx` in
+        // `eternalfest/hammerfest-haxe`. When the world holds no manager the
+        // search can prove, the key still lives on an object it cannot prove.
+        let unproven = (!world.manager).then(|| {
+            let mut unproven = b.object();
+            let version = b.string("1.0");
+            set(&mut unproven, keys::F_VERSION, Value::String(version));
+            unproven
+        });
 
         let obfuscated = keys::WORLDS
             .iter()
@@ -466,7 +476,8 @@ impl<T: Target> WrittenHeap for RuffleHeapWriter<T> {
             .into_iter()
             .chain(&views)
             .chain(corpse.as_ref())
-            .chain(second.as_ref());
+            .chain(second.as_ref())
+            .chain(unproven.as_ref());
         for object in every_object {
             b.write_entries(object);
         }
